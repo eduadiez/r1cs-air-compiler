@@ -23,12 +23,12 @@ stage-two columns, 483 fixed columns and 960 constraints.
 | Output | Size |
 | --- | --- |
 | `kernel.pilout` | 1.8 MB |
-| `certificate.json` | 23 MB |
+| `certificate.json` | 6.9 MB |
 | `map.bin` | 256 KiB |
 | `trace.bin` | 512 KiB |
 
 Most of the certificate is the converted constraints and the cell of each
-wire, written as indented JSON.
+wire.
 
 ## Run times
 

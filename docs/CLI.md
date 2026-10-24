@@ -34,7 +34,7 @@ values (0 for an unused cell). `trace.bin` and `public.bin` hold field elements
 as little-endian `u64` values: the stage-one trace row by row, and the public
 values in order. Certificates are the JSON form of the certificate types
 described in [the specification](../SPEC.md); `certificate.json` and
-`plan.json` are written indented.
+`plan.json` are written as compact JSON followed by a newline.
 
 ## Layout configuration
 

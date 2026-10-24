@@ -127,8 +127,10 @@ fn write(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> CommandResult<()> {
     fs::write(path, bytes).map_err(|e| format!("write '{}': {e}", path.display()))
 }
 
+/// Write `value` as compact JSON followed by a newline.
 fn write_json(path: impl AsRef<Path>, value: &impl Serialize) -> CommandResult<()> {
-    let bytes = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
+    let mut bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
+    bytes.push(b'\n');
     write(path, bytes)
 }
 
