@@ -9,7 +9,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-const FIXTURES: &[&str] = &["xor", "range", "mux", "adder"];
+const FIXTURES: &[&str] = &["xor", "range", "mux", "adder", "sha256"];
 
 fn repository() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -82,7 +82,9 @@ impl Drop for Cli {
 }
 
 /// Compile, check, plan and project one fixture, and compare every output
-/// with the hashes in its `expected.json`.
+/// with the hashes in its `expected.json`. A fixture without a `reference`
+/// hash is too large for the reference layout: both reference modes must then
+/// fail with a size limit, and only the packed mode is compared.
 fn check_fixture(name: &str) {
     let cli = Cli::new();
     let source = fixture(name, "kernel.r1cs");
@@ -96,12 +98,23 @@ fn check_fixture(name: &str) {
             "{name}: {key} changed"
         );
     };
+    let packed_only = expected.get("reference").is_none();
     for mode in ["reference", "optimized", "packed"] {
         let mut args = vec!["compile", source.as_str(), mode];
         match mode {
             "reference" => args.extend(["--rows", "64"]),
             "optimized" => args.extend(["--rows", "64", "--optimize"]),
             _ => args.extend(["--layout", layout.as_str()]),
+        }
+        if packed_only && mode != "packed" {
+            let limit = if mode == "reference" {
+                "too many expressions"
+            } else {
+                "evaluated expressions exceed the term limit"
+            };
+            cli.fails(&args, limit);
+            assert!(!cli.path(mode).exists());
+            continue;
         }
         cli.ok(&args);
         assert_hash(&format!("{mode}/kernel.pilout"), mode);
@@ -165,6 +178,13 @@ macro_rules! fixture_tests {
 }
 fixture_tests!(xor, range, mux, adder);
 
+/// Slow in a debug build; CI runs it with `--release --ignored`.
+#[test]
+#[ignore = "large fixture; run with --release --ignored"]
+fn sha256_fixture() {
+    check_fixture("sha256");
+}
+
 #[test]
 fn every_fixture_directory_is_tested() {
     let mut directories: Vec<_> = fs::read_dir(repository().join("fixtures"))
@@ -179,6 +199,22 @@ fn every_fixture_directory_is_tested() {
     assert_eq!(directories, tested);
 }
 
+/// Paths of the files in `directory` and its subdirectories, each written as
+/// `prefix/relative path`.
+fn files_under(directory: &Path, prefix: &str) -> Vec<String> {
+    let mut files = vec![];
+    for entry in fs::read_dir(directory).unwrap() {
+        let entry = entry.unwrap();
+        let path = format!("{prefix}/{}", entry.file_name().to_str().unwrap());
+        if entry.file_type().unwrap().is_dir() {
+            files.extend(files_under(&entry.path(), &path));
+        } else {
+            files.push(path);
+        }
+    }
+    files
+}
+
 /// Every fixture and vendored file is recorded in `docs/provenance.json`.
 #[test]
 fn provenance_records_every_file_hash() {
@@ -186,10 +222,7 @@ fn provenance_records_every_file_hash() {
     let provenance: Value =
         serde_json::from_slice(&fs::read(root.join("docs/provenance.json")).unwrap()).unwrap();
     let list = |directory: &Path, prefix: &str| -> Vec<String> {
-        let mut files: Vec<_> = fs::read_dir(directory)
-            .unwrap()
-            .map(|e| format!("{prefix}/{}", e.unwrap().file_name().to_str().unwrap()))
-            .collect();
+        let mut files = files_under(directory, prefix);
         files.sort();
         files
     };

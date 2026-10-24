@@ -7,7 +7,8 @@ depend on it.
 `run.sh WORK_DIR` fetches [pil2-proofman](https://github.com/0xPolygonHermez/pil2-proofman)
 at a fixed commit into `WORK_DIR`, builds its setup tool, its CLI and the
 witness library in `witness/`, and then, for the reference and packed artifact
-of every fixture:
+of every fixture (only the packed one for a fixture without reference outputs,
+such as `sha256`):
 
 1. runs the prover's setup on the PILout, which also reads the fixed columns from it;
 2. verifies every constraint, including stage two, on the witness;

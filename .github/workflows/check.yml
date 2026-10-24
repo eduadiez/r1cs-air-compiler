@@ -26,6 +26,7 @@ jobs:
       - run: cargo fmt --check --manifest-path fuzz/Cargo.toml
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
+      - run: cargo test --locked --release --test cli -- --ignored
       - run: cargo doc --locked --no-deps
         env:
           RUSTDOCFLAGS: -D warnings

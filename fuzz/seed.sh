@@ -1,6 +1,7 @@
 #!/bin/sh
-# Fill the fuzz corpora with valid inputs: the R1CS files of every fixture, and
-# the xor fixture's reference and packed PILout and packed certificate.
+# Fill the fuzz corpora with valid inputs: the R1CS files of every fixture that
+# fits the reference layout, and the xor fixture's reference and packed PILout
+# and packed certificate.
 #
 # Usage: fuzz/seed.sh
 set -eu
@@ -13,8 +14,10 @@ air="$root/target/release/air"
 mkdir -p "$corpus/r1cs" "$corpus/reference_pilout" "$corpus/packed_pilout" \
     "$corpus/packed_certificate"
 for source in "$root"/fixtures/*/kernel.r1cs; do
-    name=$(basename "$(dirname "$source")")
-    cp "$source" "$corpus/r1cs/$name"
+    fixture=$(dirname "$source")
+    if grep -q '"reference"' "$fixture/expected.json"; then
+        cp "$source" "$corpus/r1cs/$(basename "$fixture")"
+    fi
 done
 xor="$root/fixtures/xor"
 "$air" compile "$xor/kernel.r1cs" "$work/reference" --rows 64 >/dev/null

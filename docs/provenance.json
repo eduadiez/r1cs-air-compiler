@@ -45,6 +45,45 @@
       },
       "vendor/circomlib/multiplexer.circom": {
         "sha256": "d955fa5da40c3066442f2a4b5688f3e2985bca4cec0607b20310babc97f97116"
+      },
+      "vendor/circomlib/sha256/ch.circom": {
+        "sha256": "facb33f8ed5dfcd3590eaaf8921c37c27839564d61d565597de1412b78e42cf8"
+      },
+      "vendor/circomlib/sha256/constants.circom": {
+        "sha256": "90f910027d360162896b81a4a1654fae16b74d90d43521d172f72c6deb52104e"
+      },
+      "vendor/circomlib/sha256/maj.circom": {
+        "sha256": "64f2483ac7db29099bc5d241f5870dec0b5172599d40c56084565ebd589247ff"
+      },
+      "vendor/circomlib/sha256/rotate.circom": {
+        "sha256": "a20bc425cd4b516696c374da461b2f1c046b5782c18741ecea4a0a45e29ba7ab"
+      },
+      "vendor/circomlib/sha256/sha256.circom": {
+        "sha256": "6aa5f2907798187ab41d1e5d44439498d27523691b611736b3b68362759d1b1e"
+      },
+      "vendor/circomlib/sha256/sha256compression.circom": {
+        "sha256": "aec6674cee5d0b775d7b27279a98b7fbabf5258885d56e01dec9a4a356dbc69c"
+      },
+      "vendor/circomlib/sha256/sha256compression_function.circom": {
+        "sha256": "1418439e9609ff086f6cce56341eb3add999c875bd48e2dc9f84a252781bc9e5"
+      },
+      "vendor/circomlib/sha256/shift.circom": {
+        "sha256": "874990de968719b50e7f0d6e713926f016c53f3f1ce33ee354b5b1984f2aa4de"
+      },
+      "vendor/circomlib/sha256/sigma.circom": {
+        "sha256": "0af88a750958ecabbb6e4c17b3d5d4f8efdd8841b98a1e5186ba1092a74d2024"
+      },
+      "vendor/circomlib/sha256/sigmaplus.circom": {
+        "sha256": "43d34fce0160ac9fa8d03425f2349bf8a29dd0448226774a8030f853642c9760"
+      },
+      "vendor/circomlib/sha256/t1.circom": {
+        "sha256": "0488b16db02b2dd43429d964096aedf261c31ab6a2484a67b91bf3ccfc6bf38b"
+      },
+      "vendor/circomlib/sha256/t2.circom": {
+        "sha256": "58c7e16ae5144ad72a900e1d470eb7d9d317f2a033f1ea85090e56548fa5d431"
+      },
+      "vendor/circomlib/sha256/xor3.circom": {
+        "sha256": "d2d65d9ef40a37c1b46e4fae0dd1e7f9084ab917c870153dbb6303c6e4e378f1"
       }
     }
   },
@@ -107,6 +146,24 @@
     },
     "fixtures/range/layout.json": {
       "sha256": "432bc40030a7049e34ea510ed253bafadf9da092fe48c3565f980c7cfe825666"
+    },
+    "fixtures/sha256/expected.json": {
+      "sha256": "53a1a76da443ff459865b6d42ae8b40d0b721bf7aca15a5809713fb858cddb6b"
+    },
+    "fixtures/sha256/input.json": {
+      "sha256": "07b31128c4ad004eb3552c19c7273dfd8f5f3935c8aaeab39768b5e12f1f770c"
+    },
+    "fixtures/sha256/input.wtns": {
+      "sha256": "9719af5c80dff22fadaaf9a22cc71f0c94e9e8e8c22a2673ba1d737da9f17993"
+    },
+    "fixtures/sha256/kernel.circom": {
+      "sha256": "96b7130a614ba48f00abd1ec549719c42f1cdf6eae64ea182e46e2d91b0dd62d"
+    },
+    "fixtures/sha256/kernel.r1cs": {
+      "sha256": "b60c6d15a150a5eb62e06a3351fe22812223a1606f61b81460338be25e585d71"
+    },
+    "fixtures/sha256/layout.json": {
+      "sha256": "9316cf17ffda6271d227aec221ba2fd43e1d6754085819db9f34fdba5d143c6e"
     },
     "fixtures/xor/expected.json": {
       "sha256": "963143be51c49dba75b24d0ebb97b80ee2110f3303adb734e3ceed1616ec70c7"

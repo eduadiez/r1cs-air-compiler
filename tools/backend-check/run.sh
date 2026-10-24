@@ -1,7 +1,9 @@
 #!/bin/sh
 # Optional end-to-end check against the pil2-proofman prover: for every
 # fixture, run the prover's setup on the reference and packed PILout, verify
-# all constraints on the witness, and generate and verify a STARK proof.
+# all constraints on the witness, and generate and verify a STARK proof. A
+# fixture whose expected.json has no reference hash is checked in packed mode
+# only.
 # Not part of the build or CI. Linux only. Needs network access, git, a C++
 # toolchain with libgmp, libsodium, libomp, nlohmann-json and nasm, and python3.
 #
@@ -66,7 +68,11 @@ lib="$proofman/target/release/libr1cs_air_witness.so"
 for source in "$root"/fixtures/*/kernel.r1cs; do
     fixture=$(dirname "$source")
     name=$(basename "$fixture")
-    for mode in reference packed; do
+    modes="reference packed"
+    if ! grep -q '"reference"' "$fixture/expected.json"; then
+        modes=packed
+    fi
+    for mode in $modes; do
         out="$work/$name-$mode"
         step="$name $mode (logs in $out)"
         if [ -e "$out" ]; then

@@ -14,7 +14,12 @@
 - CLI tests (`tests/cli.rs`), one per fixture, that run `compile`, `check`,
   `plan` and `witness` from outside the repository and compare every output
   (PILout, certificate, plan, cell map, trace and public values) with the
-  hashes in the fixture's `expected.json`. Other CLI tests cover the reports,
+  hashes in the fixture's `expected.json`. A fixture whose `expected.json` has
+  no `reference` hash, such as `sha256`, is too large for the reference layout:
+  its test requires both reference modes to fail with a size limit error and
+  compares only the packed outputs. The `sha256` test is ignored by default
+  because it is slow in a debug build; CI runs it with
+  `cargo test --locked --release --test cli -- --ignored`. Other CLI tests cover the reports,
   error messages and argument forms, and check the hashes in
   `docs/provenance.json`.
 
@@ -104,7 +109,8 @@ check's own message.
 
 [`tools/backend-check`](../tools/backend-check/README.md) is an optional script,
 run by hand, that tests the artifacts with the pil2-proofman prover at a fixed
-commit. For the reference and packed artifact of every fixture it runs the
+commit. For the reference and packed artifact of every fixture (only the packed
+artifact of a fixture without reference outputs) it runs the
 prover's setup, verifies every constraint on the witness, and generates and
 verifies a STARK proof. It needs network access and a C++ toolchain, so it is
 not part of `cargo test` or CI.

@@ -57,12 +57,17 @@ layout configuration and the expected SHA-256 hashes of the generated artifacts:
 - `range`: checks `lo <= x <= hi` for 32-bit values with public bounds; its
   packed layout needs no copy argument;
 - `mux`: selects a row of a public table;
-- `adder`: adds three 32-bit words and compares the sum with a public value.
+- `adder`: adds three 32-bit words and compares the sum with a public value;
+- `sha256`: circomlib's SHA-256 of a 256-bit message (29 380 constraints), with
+  the hash bits as public outputs. It is too large for the reference layout, so
+  it has only packed outputs.
 
-`range`, `mux` and `adder` use circomlib templates. The CLI test runs the `air`
-executable from outside the repository and compares the reference, optimized
-and packed PILout files, the trace and the public values of every fixture with
-the expected hashes.
+`range`, `mux`, `adder` and `sha256` use circomlib templates. The CLI test runs
+the `air` executable from outside the repository and compares the reference,
+optimized and packed PILout files, the trace and the public values of every
+fixture with the expected hashes. The `sha256` test is slow in a debug build and
+is ignored by default; run it with `cargo test --release --test cli -- --ignored`.
+[Scale](docs/SCALE.md) gives its sizes and run times.
 
 The R1CS and WTNS files are committed, so tests need no Circom.
 `fixtures/generate.sh --check` (circom 2.2.3 and Node.js) regenerates them and
@@ -91,7 +96,10 @@ Each compile function runs the checker before it returns. Try
 - R1CS version 1 and WTNS version 2 files over Goldilocks, with 8-byte field
   elements. Custom gates and other fields are rejected.
 - **Reference layout:** one column per nonconstant wire, the whole circuit
-  constrained on every row, and the public values bound on row 0.
+  constrained on every row, and the public values bound on row 0. Every
+  constraint of the circuit becomes a constraint of the AIR, so large circuits
+  exceed the size limits of the checker and need a packed layout; the `sha256`
+  fixture (29 380 constraints) is one of them.
 - **`--optimize`:** the reference layout with expressions simplified by
   identities that hold for every field value, and repeated subexpressions reused.
 - **`--layout`:** a packed layout. Long linear combinations are split using
@@ -118,6 +126,7 @@ only under external resource limits. See [the specification](SPEC.md).
 - [Architecture](docs/ARCHITECTURE.md): modules and how they depend on each other.
 - [Testing](docs/TESTING.md): the test suite, mutation testing and the optional
   check against a real prover.
+- [Scale](docs/SCALE.md): sizes and run times measured on the `sha256` fixture.
 - [Provenance](docs/provenance.json): hashes of the schema, the vendored
   circomlib files and the fixtures.
 - [Third-party notices](THIRD_PARTY.md): origin and licenses of the schema and

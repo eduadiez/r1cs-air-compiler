@@ -58,6 +58,12 @@ The relation is:
 
 Nothing relates different rows to each other.
 
+Each equation of the circuit is one AIR constraint over its own columns, so the
+PILout grows with the number of constraints and wires. A circuit whose
+expressions exceed the size limits of the checker (`MAX_EXPRESSIONS` and
+`MAX_EVALUATED_TERMS` in `src/contract.rs`) is rejected by the compiler with a
+limit error; such circuits need the packed relation.
+
 The PILout contains exactly these constraints, in this order:
 
 - `stage2_zero = 0`, where `stage2_zero` is stage-two column 0;
