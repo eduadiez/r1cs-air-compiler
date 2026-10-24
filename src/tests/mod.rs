@@ -1,6 +1,7 @@
 //! Internal tests. Most build an artifact, change one part of the source, the
 //! PILout or the certificate, and require a check to reject the change for the
 //! expected reason.
+mod air;
 mod packed;
 mod parser;
 mod placement;

@@ -241,6 +241,16 @@ deriving challenges by Fiat–Shamir have not been analyzed in full.
 The polynomial comparison is an ordinary Rust implementation of polynomial
 equality over the field. Rejection tests exercise it; they do not prove it correct.
 
+Soundness and completeness are tested, not proved, by property tests over
+random satisfiable circuits and random layouts. A test-only evaluator, which
+reads only the PILout, fills stage two from the hints and evaluates every
+constraint on every row for random challenges. The tests require that the
+honest trace of every reference and packed artifact satisfies its AIR, and
+that whenever a changed trace (one cell, every cell of one wire, or one public
+value) still satisfies it, the assignment read back through the certificate
+satisfies the circuit with the same public values. [Testing](docs/TESTING.md)
+describes them.
+
 ## Out of scope
 
 Preserving an R1CS relation says nothing about what the R1CS computes. Machine

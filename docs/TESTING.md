@@ -43,6 +43,25 @@ layout settings, and checks that:
 - arbitrary bytes, and single changed bytes in valid sources, PILout files and
   certificates, never make the parsers or checkers panic.
 
+The completeness and soundness properties of the specification are tested with
+`src/tests/air.rs`, an evaluator that reads only the PILout: it fills the
+stage-two columns from the hints, as a prover does, and evaluates every
+constraint on every row for random challenges. For random satisfiable circuits
+(up to 6 inputs and 10 equations, some with public inputs), the tests require
+that:
+
+- the honest trace of every reference and packed artifact satisfies the AIR
+  (completeness);
+- after changing one cell, every cell of one wire or one public value, a trace
+  that still satisfies the AIR encodes a satisfying assignment: every cell of a
+  wire holds the same value, the values read back through the certificate
+  satisfy the circuit, and the public values match (soundness).
+
+A case where a copy denominator is zero for the drawn challenges is skipped, as
+the specification allows. A unit test checks that the evaluator rejects each
+kind of change on the xor fixture, so these properties cannot pass by accepting
+every trace.
+
 `cargo test` runs 64 cases per property (256 for the panic properties). Set
 `PROPTEST_CASES` to run more, for example
 `PROPTEST_CASES=100000 cargo test --release --lib properties`. A failing case is

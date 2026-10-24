@@ -1,9 +1,13 @@
 //! Property tests over random circuits: every compiled artifact passes its
-//! checker, every witness of a satisfiable circuit projects, a changed artifact
-//! is accepted only if its constraint polynomials did not change, and malformed
-//! input never panics. Set
-//! `PROPTEST_CASES` to run more cases than the defaults below.
-use super::{changed_pilout, r1cs_with_terms};
+//! checker, every witness of a satisfiable circuit projects, an honest trace
+//! satisfies the AIR (completeness), every trace that satisfies the AIR encodes
+//! a satisfying assignment (soundness), a changed artifact is accepted only if
+//! its constraint polynomials did not change, and malformed input never
+//! panics. Set `PROPTEST_CASES` to run more cases than the defaults below.
+use super::{
+    air::{self, Failure, Trace},
+    changed_pilout, r1cs_with_terms,
+};
 use crate::{
     api, checker, compiler,
     field::{inverse, mul},
@@ -88,21 +92,32 @@ fn satisfiable_circuit() -> impl Strategy<Value = (Circuit, Vec<u64>)> {
             let wires = 1 + inputs + results;
             let mut values = vec![1];
             values.extend(inputs_values);
-            let evaluate = |lc: &[(u32, u64)], values: &[u64]| {
-                lc.iter().fold(0, |sum, (w, k)| {
-                    crate::field::add(sum, mul(values[*w as usize], *k))
-                })
-            };
             let mut equations = vec![];
             for (i, (a, b, c)) in factors.into_iter().enumerate() {
                 let result = 1 + inputs + i as u32;
-                let product = mul(evaluate(&a, &values), evaluate(&b, &values));
+                let product = mul(linear(&a, &values), linear(&b, &values));
                 values.push(mul(product, inverse(c)));
                 equations.push([a, b, vec![(result, c)]]);
             }
             let header = [wires, 0, publics, wires - 1 - publics];
             (Circuit { header, equations }, values)
         })
+}
+
+/// Value of a linear combination for an assignment with `values[0] = 1`.
+fn linear(lc: &[(u32, u64)], values: &[u64]) -> u64 {
+    lc.iter().fold(0, |sum, (w, k)| {
+        crate::field::add(sum, mul(values[*w as usize], *k))
+    })
+}
+
+/// Whether every equation `A · B = C` of `circuit` holds for `values`.
+fn satisfies(circuit: &Circuit, values: &[u64]) -> bool {
+    values[0] == 1
+        && circuit
+            .equations
+            .iter()
+            .all(|[a, b, c]| mul(linear(a, values), linear(b, values)) == linear(c, values))
 }
 
 fn layout_config() -> impl Strategy<Value = LayoutConfig> {
@@ -120,6 +135,99 @@ fn layout_config() -> impl Strategy<Value = LayoutConfig> {
             strategy: [Placement::Mixed, Placement::Local, Placement::Components][strategy],
             min_rows: 64,
         })
+}
+
+/// A change that a dishonest prover might make to an honest stage-one trace.
+#[derive(Clone, Debug)]
+enum Tamper {
+    /// Set the `n`-th cell to a value.
+    Cell(usize, u64),
+    /// Set every cell of the `n`-th placed wire (helpers included) to a value,
+    /// which leaves the copy argument satisfied.
+    Wire(usize, u64),
+    /// Set the `n`-th public value.
+    Public(usize, u64),
+}
+
+fn tamper() -> impl Strategy<Value = Tamper> {
+    prop_oneof![
+        (any::<usize>(), 0..P).prop_map(|(n, v)| Tamper::Cell(n, v)),
+        (any::<usize>(), 0..P).prop_map(|(n, v)| Tamper::Wire(n, v)),
+        (any::<usize>(), 0..P).prop_map(|(n, v)| Tamper::Public(n, v)),
+    ]
+}
+
+/// Apply `tamper` to a trace whose cell `i` holds wire `wires[i]` (0 for an
+/// unused cell).
+fn apply_tamper(tamper: &Tamper, trace: &mut [u64], publics: &mut [u64], wires: &[u32]) {
+    match *tamper {
+        Tamper::Cell(n, value) => trace[n % trace.len()] = value,
+        Tamper::Wire(n, value) => {
+            let mut placed: Vec<u32> = wires.iter().copied().filter(|w| *w != 0).collect();
+            placed.sort_unstable();
+            placed.dedup();
+            if let Some(wire) = placed.get(n % placed.len().max(1)) {
+                for (cell, w) in trace.iter_mut().zip(wires) {
+                    if w == wire {
+                        *cell = value;
+                    }
+                }
+            }
+        }
+        Tamper::Public(n, value) => {
+            if !publics.is_empty() {
+                let count = publics.len();
+                publics[n % count] = value;
+            }
+        }
+    }
+}
+
+/// Two random stage-two challenges.
+fn challenges() -> impl Strategy<Value = [u64; 2]> {
+    (0..P, 0..P).prop_map(|(alpha, gamma)| [alpha, gamma])
+}
+
+/// The honest reference trace: every row holds the whole assignment.
+fn reference_trace(columns: &[Option<u32>], width: usize, rows: usize, values: &[u64]) -> Vec<u64> {
+    let mut row = vec![0; width];
+    for (wire, column) in columns.iter().enumerate() {
+        if let Some(column) = column {
+            row[*column as usize] = values[wire];
+        }
+    }
+    row.repeat(rows)
+}
+
+/// For a stage-one trace that satisfies a packed AIR: read every source wire
+/// from its cells, which must agree, and require the assignment to satisfy
+/// the circuit with the trace's public values.
+fn check_packed_read_back(circuit: &Circuit, map: &[u32], trace: &[u64], publics: &[u64]) {
+    let wires = circuit.header[0] as usize;
+    let mut values: Vec<Option<u64>> = vec![None; wires];
+    values[0] = Some(1);
+    for (wire, value) in map.iter().zip(trace) {
+        let wire = *wire as usize;
+        if wire == 0 || wire >= wires {
+            continue;
+        }
+        let previous = values[wire].replace(*value);
+        assert!(
+            previous.is_none_or(|p| p == *value),
+            "cells of wire {wire} disagree in a trace that satisfies the AIR"
+        );
+    }
+    // A wire without a cell appears in no equation, so any value will do;
+    // a public one takes its public value.
+    for (index, public) in publics.iter().enumerate() {
+        values[1 + index].get_or_insert(*public);
+    }
+    let values: Vec<u64> = values.into_iter().map(|v| v.unwrap_or(0)).collect();
+    assert!(
+        satisfies(circuit, &values),
+        "the read-back assignment fails the circuit"
+    );
+    assert_eq!(&values[1..=publics.len()], publics, "public values differ");
 }
 
 /// One change to a PILout that must change what it encodes.
@@ -356,6 +464,106 @@ proptest! {
                 constraint_polynomials(&artifact.pilout, width, publics, main),
                 constraint_polynomials(&changed, width, publics, main)
             );
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(cases(64))]
+
+    #[test]
+    fn honest_reference_traces_satisfy_the_air(
+        (circuit, values) in satisfiable_circuit(),
+        optimize: bool,
+        challenges in challenges(),
+    ) {
+        let source = circuit.bytes();
+        let (pilout, certificate) =
+            compiler::compile(&source, &r1cs::read(&source).unwrap(), 64, optimize).unwrap();
+        let (rows, width) = (certificate.rows(), certificate.width());
+        let stage_one = reference_trace(certificate.wire_columns(), width, rows, &values);
+        let publics = &values[1..=circuit.header[2] as usize];
+        let trace = Trace { stage_one: &stage_one, publics, challenges };
+        prop_assert_eq!(air::evaluate(&decode(&pilout), &trace), Ok(()));
+    }
+
+    #[test]
+    fn honest_packed_traces_satisfy_the_air(
+        (circuit, values) in satisfiable_circuit(),
+        settings in layout_config(),
+        challenges in challenges(),
+    ) {
+        let source = circuit.bytes();
+        let artifact = api::compile_packed(&source, &settings).unwrap();
+        let wtns = super::wtns_bytes(&values);
+        let witness =
+            api::project_witness(&source, &artifact.pilout, &artifact.certificate, &wtns).unwrap();
+        let trace = Trace { stage_one: &witness.trace, publics: &witness.publics, challenges };
+        let result = air::evaluate(&decode(&artifact.pilout), &trace);
+        prop_assume!(result != Err(Failure::ZeroDenominator));
+        prop_assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn reference_traces_that_satisfy_the_air_encode_satisfying_assignments(
+        (circuit, values) in satisfiable_circuit(),
+        optimize: bool,
+        tamper in tamper(),
+        challenges in challenges(),
+    ) {
+        let source = circuit.bytes();
+        let (pilout, certificate) =
+            compiler::compile(&source, &r1cs::read(&source).unwrap(), 64, optimize).unwrap();
+        let (rows, width) = (certificate.rows(), certificate.width());
+        let columns = certificate.wire_columns();
+        let mut stage_one = reference_trace(columns, width, rows, &values);
+        let mut publics = values[1..=circuit.header[2] as usize].to_vec();
+        // The wire in each cell, row by row.
+        let mut wire_of_column = vec![0; width];
+        for (wire, column) in columns.iter().enumerate() {
+            if let Some(column) = column {
+                wire_of_column[*column as usize] = wire as u32;
+            }
+        }
+        let wires = wire_of_column.repeat(rows);
+        apply_tamper(&tamper, &mut stage_one, &mut publics, &wires);
+        let trace = Trace { stage_one: &stage_one, publics: &publics, challenges };
+        if air::evaluate(&decode(&pilout), &trace).is_ok() {
+            // Every row's assignment satisfies the circuit; row 0 carries the
+            // public values.
+            for row in stage_one.chunks(width) {
+                let mut assignment = vec![1; columns.len()];
+                for (wire, column) in columns.iter().enumerate().skip(1) {
+                    assignment[wire] = column.map_or(0, |c| row[c as usize]);
+                }
+                prop_assert!(satisfies(&circuit, &assignment));
+            }
+            let first: Vec<u64> = (1..=publics.len())
+                .map(|wire| columns[wire].map_or(0, |c| stage_one[c as usize]))
+                .collect();
+            prop_assert_eq!(first, publics);
+        }
+    }
+
+    #[test]
+    fn packed_traces_that_satisfy_the_air_encode_satisfying_assignments(
+        (circuit, values) in satisfiable_circuit(),
+        settings in layout_config(),
+        tamper in tamper(),
+        challenges in challenges(),
+    ) {
+        let source = circuit.bytes();
+        let artifact = api::compile_packed(&source, &settings).unwrap();
+        let wtns = super::wtns_bytes(&values);
+        let witness =
+            api::project_witness(&source, &artifact.pilout, &artifact.certificate, &wtns).unwrap();
+        let (mut stage_one, mut publics) = (witness.trace, witness.publics);
+        apply_tamper(&tamper, &mut stage_one, &mut publics, &artifact.map);
+        let trace = Trace { stage_one: &stage_one, publics: &publics, challenges };
+        let result = air::evaluate(&decode(&artifact.pilout), &trace);
+        prop_assume!(result != Err(Failure::ZeroDenominator));
+        if result.is_ok() {
+            check_packed_read_back(&circuit, &artifact.map, &stage_one, &publics);
         }
     }
 }
