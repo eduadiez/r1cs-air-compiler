@@ -12,6 +12,7 @@ use crate::{
 
 /// Values to load into a packed artifact's trace.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Witness {
     /// Stage-one trace, row by row; unused cells are 0.
     pub trace: Vec<u64>,

@@ -20,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Result of a successful reference check.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ReferenceCheckReport {
     /// Always true: a failed check returns an error instead.
     pub accepted: bool,

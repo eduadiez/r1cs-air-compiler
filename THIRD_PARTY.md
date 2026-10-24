@@ -21,7 +21,8 @@ package manifest says `GPL-3.0`, and covers `sha256/sha256.circom` and
 v2.2.3. The fixtures in `fixtures/range`, `fixtures/mux`, `fixtures/adder` and
 `fixtures/sha256` include these templates; their R1CS and WTNS files are generated from them.
 Distributing those files is subject to the GPL. The templates are used only by
-fixtures, never by the compiler itself. The fixtures' own files
+fixtures, never by the compiler itself, and the crate package leaves them and
+the fixtures out (see `include` in `Cargo.toml`). The fixtures' own files
 (`kernel.circom`, inputs, layouts and expected hashes) are part of this project
 and licensed like the compiler.
 

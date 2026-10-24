@@ -15,6 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// When an existing helper may stand in for terms of a later equation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum Reuse {
     /// Every rewrite creates a new helper.
     None,

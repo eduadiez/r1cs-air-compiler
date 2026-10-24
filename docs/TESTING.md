@@ -17,9 +17,9 @@
   hashes in the fixture's `expected.json`. A fixture whose `expected.json` has
   no `reference` hash, such as `sha256`, is too large for the reference layout:
   its test requires both reference modes to fail with a size limit error and
-  compares only the packed outputs. The `sha256` test is ignored by default
-  because it is slow in a debug build; CI runs it with
-  `cargo test --locked --release --test cli -- --ignored`. Other CLI tests cover the reports,
+  compares only the packed outputs. The tests that use `sha256` are ignored
+  by default because they are slow in a debug build; CI runs them with
+  `cargo test --locked --release -- --ignored`. Other CLI tests cover the reports,
   error messages and argument forms, and check the hashes in
   `docs/provenance.json`.
 

@@ -7,7 +7,7 @@ mod placement;
 mod properties;
 mod reference;
 
-use crate::{contract::AIR_NAME, proto as pb, Result, P};
+use crate::{contract::AIR_NAME, proto as pb, ErrorKind, Result, P};
 use prost::Message;
 
 /// Byte offsets of the R1CS header counts in files built by [`r1cs_bytes`].
@@ -86,9 +86,19 @@ pub fn set_u64(bytes: &mut [u8], offset: usize, value: u64) {
     bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
 }
 
-/// Require `result` to be an error whose message chain contains `expected`.
+/// Require `result` to be an invalid-input error whose message chain contains
+/// `expected`.
 #[track_caller]
 pub fn assert_rejected<T>(result: Result<T>, expected: &str) {
+    assert_error(result, ErrorKind::Invalid, expected);
+}
+
+/// Require a size limit error whose message chain contains `expected`.
+pub fn assert_limit<T>(result: Result<T>, expected: &str) {
+    assert_error(result, ErrorKind::Limit, expected);
+}
+
+fn assert_error<T>(result: Result<T>, kind: ErrorKind, expected: &str) {
     match result {
         Ok(_) => panic!("accepted; expected an error containing {expected:?}"),
         Err(error) => {
@@ -97,6 +107,7 @@ pub fn assert_rejected<T>(result: Result<T>, expected: &str) {
                 message.contains(expected),
                 "error {message:?} does not contain {expected:?}"
             );
+            assert_eq!(error.kind(), kind, "{message}");
         }
     }
 }

@@ -1,5 +1,5 @@
 //! Placement check: helper networks and layouts against their source.
-use super::{assert_rejected, packed::config, r1cs_bytes};
+use super::{assert_limit, assert_rejected, packed::config, r1cs_bytes};
 use crate::{
     certificate::{Group, Helper, Layout, Network, Placement, Selector, Slot},
     field::{add, FieldElement},
@@ -28,6 +28,13 @@ fn rejects(expected: &str, change: impl Fn(&mut Network, &mut Layout)) {
     assert_rejected(placement_check::check(&circuit, &net, &plan), expected);
 }
 
+/// Like `rejects`, but require a size limit error.
+fn exceeds(expected: &str, change: impl Fn(&mut Network, &mut Layout)) {
+    let (circuit, mut net, mut plan) = xor_plan();
+    change(&mut net, &mut plan);
+    assert_limit(placement_check::check(&circuit, &net, &plan), expected);
+}
+
 #[test]
 fn network_and_layout_dimensions_are_checked() {
     let counts = "network wire or public counts differ from the source";
@@ -45,7 +52,7 @@ fn network_and_layout_dimensions_are_checked() {
         l.min_rows = 131_072;
     });
     rejects(rows, |_, l| l.min_rows = 128);
-    rejects("layout exceeds 4000000 cells", |_, l| {
+    exceeds("layout exceeds 4000000 cells", |_, l| {
         l.width = 128;
         l.rows = 65_536;
         l.min_rows = 65_536;

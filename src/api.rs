@@ -9,6 +9,7 @@ use serde::Serialize;
 
 /// A reference PILout file and its certificate, both already checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ReferenceArtifact {
     /// Encoded PILout.
     pub pilout: Vec<u8>,
@@ -19,6 +20,7 @@ pub struct ReferenceArtifact {
 /// A packed PILout file, its certificate, and the wire held by each cell (row
 /// by row, 0 for an unused cell), all already checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PackedArtifact {
     /// Encoded PILout.
     pub pilout: Vec<u8>,

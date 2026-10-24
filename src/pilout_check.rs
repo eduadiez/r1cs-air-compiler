@@ -5,7 +5,7 @@ use crate::{
     contract::{
         AIR_NAME, CERTIFICATE_VERSION, MAX_EXPRESSIONS, MAX_PILOUT_BYTES, PILOUT_NAME, STAGE_TWO,
     },
-    ensure, proto as pb, sha256_hex, Result, P,
+    ensure, ensure_within_limit, proto as pb, sha256_hex, Result, P,
 };
 use pb::SymbolType;
 use prost::Message;
@@ -50,7 +50,7 @@ pub fn check_binding(
 
 /// Decode PILout bytes, which must be the canonical encoding of the message.
 pub fn decode(bytes: &[u8]) -> Result<pb::PilOut> {
-    ensure(
+    ensure_within_limit(
         bytes.len() <= MAX_PILOUT_BYTES,
         "PILout exceeds the size limit",
     )?;
@@ -144,7 +144,7 @@ pub fn check_envelope<'a>(pilout: &'a pb::PilOut, expected: &Geometry) -> Result
         air.periodic_cols.is_empty() && air.air_values.is_empty() && air.custom_commits.is_empty(),
         "unsupported periodic columns, AIR values or custom commits",
     )?;
-    ensure(
+    ensure_within_limit(
         air.expressions.len() <= MAX_EXPRESSIONS,
         "too many expressions",
     )?;

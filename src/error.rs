@@ -1,15 +1,33 @@
-//! The crate's error type: a message and, optionally, the error that caused it.
+//! The crate's error type: a message, its kind and, optionally, the error that
+//! caused it.
 use std::{error::Error as StdError, fmt};
 
 /// Error returned by every fallible operation.
 ///
 /// `{}` prints the outermost message, such as the stage that failed; `{:#}`
 /// prints the whole chain of causes separated by `": "`. The causes are also
-/// available through [`std::error::Error::source`].
+/// available through [`std::error::Error::source`], and [`Error::kind`] tells
+/// why the operation failed.
 #[derive(Debug)]
 pub struct Error {
     message: String,
+    kind: ErrorKind,
     source: Option<Box<Error>>,
+}
+
+/// Why an operation failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ErrorKind {
+    /// An input is malformed, unsupported or inconsistent: a source, PILout,
+    /// certificate, witness or setting that does not meet the specification,
+    /// or an artifact that does not encode the source's relation.
+    Invalid,
+    /// An input exceeds a size limit of this implementation, such as the
+    /// largest file, trace or number of expressions. The limits bound the
+    /// memory a check can use; a circuit too large for the reference layout
+    /// may still fit a packed layout.
+    Limit,
 }
 
 /// A fallible compiler, checker or witness operation.
@@ -19,8 +37,18 @@ impl Error {
     fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            kind: ErrorKind::Invalid,
             source: None,
         }
+    }
+
+    /// Why the operation failed: the kind of the innermost cause.
+    pub fn kind(&self) -> ErrorKind {
+        let mut error = self;
+        while let Some(cause) = error.source.as_deref() {
+            error = cause;
+        }
+        error.kind
     }
 }
 
@@ -83,6 +111,18 @@ pub(crate) fn ensure(ok: bool, why: impl Into<String>) -> Result<()> {
     }
 }
 
+/// Return a [`ErrorKind::Limit`] error with message `why` unless `ok` holds.
+pub(crate) fn ensure_within_limit(ok: bool, why: impl Into<String>) -> Result<()> {
+    if ok {
+        Ok(())
+    } else {
+        Err(Error {
+            kind: ErrorKind::Limit,
+            ..Error::new(why)
+        })
+    }
+}
+
 /// Adds a context message to the error of a `Result`.
 pub(crate) trait Context<T> {
     fn context(self, message: impl Into<String>) -> Result<T>;
@@ -90,8 +130,8 @@ pub(crate) trait Context<T> {
 impl<T, E: Into<Error>> Context<T> for std::result::Result<T, E> {
     fn context(self, message: impl Into<String>) -> Result<T> {
         self.map_err(|source| Error {
-            message: message.into(),
             source: Some(Box::new(source.into())),
+            ..Error::new(message)
         })
     }
 }

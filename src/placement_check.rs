@@ -6,7 +6,7 @@ use crate::{
         MAX_CELLS, MAX_HELPER_EXPANSION, MAX_PRODUCT_TERMS, MAX_ROWS, MAX_WIDTH, MIN_ROWS,
         MIN_WIDTH,
     },
-    ensure,
+    ensure, ensure_within_limit,
     field::{mul, neg, FieldElement},
     polynomial::accumulate,
     r1cs::{Circuit, Equation},
@@ -124,7 +124,7 @@ fn check_dimensions(source: &Circuit, network: &Network, layout: &Layout) -> Res
         layout.rows.is_power_of_two() && layout.rows <= MAX_ROWS && layout.rows >= layout.min_rows,
         format!("rows must be a power of two in minRows..={MAX_ROWS}"),
     )?;
-    ensure(
+    ensure_within_limit(
         layout.rows.saturating_mul(layout.width) <= MAX_CELLS,
         format!("layout exceeds {MAX_CELLS} cells"),
     )?;
@@ -194,7 +194,7 @@ fn expand_helpers(
                 accumulate(&mut values, *source_wire, mul(k.0, *c));
             }
         }
-        ensure(
+        ensure_within_limit(
             values.len() <= MAX_HELPER_EXPANSION,
             format!("helper {index}: expansion exceeds the size limit"),
         )?;
@@ -220,7 +220,7 @@ fn residual(equation: &Equation, expanded: &[Linear]) -> Result<Quadratic> {
         }
     }
     let [a, b, c] = &sides;
-    ensure(
+    ensure_within_limit(
         a.len().saturating_mul(b.len()) <= MAX_PRODUCT_TERMS,
         "placement check polynomial size limit",
     )?;

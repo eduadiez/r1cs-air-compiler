@@ -3,7 +3,7 @@
 //! compiler and the checkers both use this parser, so both rely on it being correct.
 use crate::{
     contract::{MAX_CIRCUIT_SIZE, MAX_R1CS_BYTES},
-    ensure,
+    ensure, ensure_within_limit,
     field::FieldElement,
     Context, Result, P,
 };
@@ -85,7 +85,7 @@ impl<'a> Reader<'a> {
 
 /// Parse an R1CS file.
 pub fn read(data: &[u8]) -> Result<Circuit> {
-    ensure(
+    ensure_within_limit(
         data.len() <= MAX_R1CS_BYTES,
         "R1CS file exceeds the size limit",
     )?;
@@ -134,7 +134,7 @@ pub fn read(data: &[u8]) -> Result<Circuit> {
         u64::from(private) + u64::from(publics) < labels,
         "input counts must be below the label count",
     )?;
-    ensure(
+    ensure_within_limit(
         wires <= MAX_CIRCUIT_SIZE && equation_count <= MAX_CIRCUIT_SIZE,
         format!("circuit exceeds {MAX_CIRCUIT_SIZE} wires or equations"),
     )?;

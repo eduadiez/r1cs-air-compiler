@@ -82,3 +82,36 @@ fn invalid_witnesses_are_rejected() -> air::Result<()> {
     assert!(format!("{error:#}").starts_with("witness projection: "));
     Ok(())
 }
+
+#[test]
+fn errors_tell_whether_a_size_limit_was_exceeded() -> air::Result<()> {
+    let kind = |error: air::Error| error.kind();
+    let error = air::compile_reference(b"bad", 64).unwrap_err();
+    assert_eq!(kind(error), air::ErrorKind::Invalid);
+    let error = air::compile_reference(SOURCE, 3).unwrap_err();
+    assert_eq!(kind(error), air::ErrorKind::Invalid);
+    let packed = air::compile_packed(SOURCE, &config())?;
+    let error =
+        air::project_witness(SOURCE, &packed.pilout, &packed.certificate, b"x").unwrap_err();
+    assert_eq!(kind(error), air::ErrorKind::Invalid);
+    // 1024 columns and 65536 rows exceed the largest trace.
+    let mut large = config();
+    large.options.width = 1024;
+    large.options.chunk = 512;
+    large.min_rows = 1 << 16;
+    let error = air::compile_packed(SOURCE, &large).unwrap_err();
+    assert_eq!(kind(error), air::ErrorKind::Limit);
+    Ok(())
+}
+
+/// Slow in a debug build; CI runs it with `--release --ignored`.
+#[test]
+#[ignore = "large fixture; run with --release --ignored"]
+fn circuits_too_large_for_the_reference_layout_exceed_a_limit() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/sha256/kernel.r1cs");
+    let source = std::fs::read(path).unwrap();
+    let error = air::compile_reference(&source, 64).unwrap_err();
+    assert_eq!(error.kind(), air::ErrorKind::Limit, "{error:#}");
+    let error = air::compile_optimized_reference(&source, 64).unwrap_err();
+    assert_eq!(error.kind(), air::ErrorKind::Limit, "{error:#}");
+}

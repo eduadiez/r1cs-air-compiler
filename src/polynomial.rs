@@ -4,7 +4,7 @@ use crate::{
     contract::{
         ALPHA, GAMMA, MAX_EVALUATED_TERMS, MAX_PRODUCT_TERMS, PRODUCT_COLUMN, STAGE_ONE, STAGE_TWO,
     },
-    ensure,
+    ensure, ensure_within_limit,
     field::{add, mul, neg},
     pilout_check::{binary_operation, scalar, BinaryOp},
     proto as pb, Context, Result,
@@ -79,7 +79,7 @@ pub fn difference(a: &Polynomial, b: &Polynomial) -> Polynomial {
 }
 /// `a · b`. Fails above degree 3 or `MAX_PRODUCT_TERMS` term products.
 pub fn product(a: &Polynomial, b: &Polynomial) -> Result<Polynomial> {
-    ensure(
+    ensure_within_limit(
         a.len().saturating_mul(b.len()) <= MAX_PRODUCT_TERMS,
         "polynomial product size limit",
     )?;
@@ -187,7 +187,7 @@ impl<'a> Interpreter<'a> {
                 }
             };
             terms = terms.saturating_add(value.len());
-            ensure(
+            ensure_within_limit(
                 terms <= MAX_EVALUATED_TERMS,
                 "evaluated expressions exceed the term limit",
             )?;

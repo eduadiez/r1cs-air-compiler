@@ -3,7 +3,7 @@
 use crate::{
     certificate::{Binding, Group, Layout, Network, Placement, Selector, Slot},
     contract::{MAX_CELLS, MAX_ROWS, MIN_ROWS},
-    ensure, network, Result,
+    ensure, ensure_within_limit, network, Result,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// How equations are assigned to rows. Only the circuit's structure is used.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum Strategy {
     /// Put each equation in the fullest row that still has room for it.
     Mixed,
@@ -167,7 +168,7 @@ pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
     let public_bindings = bind_publics(&mut placer, network.publics);
     let used_rows = placer.rows.len().max(1);
     let rows = used_rows.next_power_of_two().max(min_rows);
-    ensure(
+    ensure_within_limit(
         rows <= MAX_ROWS && rows.saturating_mul(width) <= MAX_CELLS,
         format!("layout exceeds {MAX_ROWS} rows or {MAX_CELLS} cells"),
     )?;

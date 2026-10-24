@@ -48,7 +48,7 @@ pub use api::{
 pub use certificate::{PackedCertificate, ReferenceCertificate};
 pub use checker::ReferenceCheckReport;
 pub use contract::{PACKED_RELATION, REFERENCE_RELATION};
-pub use error::{Error, Result};
+pub use error::{Error, ErrorKind, Result};
 pub use field::GOLDILOCKS_PRIME;
 pub use layout::{LayoutConfig, Strategy};
 pub use network::{ConversionOptions, Reuse};
@@ -56,7 +56,7 @@ pub use packed_check::PackedCheckReport;
 pub use witness::Witness;
 
 pub(crate) use certificate::sha256_hex;
-pub(crate) use error::{ensure, Context};
+pub(crate) use error::{ensure, ensure_within_limit, Context};
 pub(crate) use field::P;
 
 #[cfg(test)]

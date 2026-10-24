@@ -7,7 +7,7 @@ step that runs on an artifact the packed checker has accepted.
 | Module | Responsibility |
 | --- | --- |
 | `api` | Public functions: each compile function builds an artifact, then runs the checker on it |
-| `error` | The `Error` type: a message plus the error that caused it |
+| `error` | The `Error` type: a message, its kind (invalid input or size limit) and the error that caused it |
 | `certificate` | Data carried by certificates (helper network, layout, both certificate types) and their accessors; no building or checking |
 | `contract` | Constants shared by the compiler and the checkers: relation, symbol, hint and constraint names, stages and size limits |
 | `field` | Goldilocks arithmetic, the field element type and the two constants that define copy labels |

@@ -9,6 +9,22 @@ keywords = ["r1cs", "air", "stark", "circom", "compiler"]
 categories = ["cryptography", "compilers", "command-line-utilities"]
 license = "MIT OR Apache-2.0"
 publish = false
+# Only the compiler, its schema and its documentation. The circomlib templates
+# (GPL), the fixtures built from them, the tests and the tools stay in the
+# repository.
+include = [
+    "/build.rs",
+    "/src/*.rs",
+    "/src/bin/**/*.rs",
+    "/vendor/pilout/",
+    "/docs/*.md",
+    "/CHANGELOG.md",
+    "/README.md",
+    "/SPEC.md",
+    "/THIRD_PARTY.md",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+]
 
 [dependencies]
 prost = "=0.13.5"

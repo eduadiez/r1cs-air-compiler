@@ -31,6 +31,10 @@ Types:
   certificate's `relation` field; `GOLDILOCKS_PRIME` is the field modulus.
 
 All public types except `Error` implement `Debug`, `Clone` and `PartialEq`.
+`Strategy`, `Reuse`, `ErrorKind`, the artifacts, the check reports and `Witness`
+are `#[non_exhaustive]`: later versions may add variants and fields, so a
+`match` on these enums needs a wildcard arm. `LayoutConfig` and
+`ConversionOptions` are built by the caller and have no such attribute.
 
 ## Example
 
@@ -59,8 +63,17 @@ where one applies, and the condition that failed. For example, a wire number
 out of range in a four-wire R1CS file gives, with `{:#}`,
 `reference source: equation 0, factor A: wire 999 outside declared range 0..4`.
 
+`Error::kind()` tells why the call failed:
+
+- `ErrorKind::Invalid`: an input is malformed, unsupported or inconsistent, or
+  an artifact does not encode its source's relation;
+- `ErrorKind::Limit`: an input exceeds a size limit, for example a circuit too
+  large for the reference layout (see [Scale](SCALE.md)), which may still fit a
+  packed layout.
+
 Message text is for people and may change; programs should rely on the success
-of the call (or the CLI's `ok` field and exit status) rather than on the text.
+of the call and on `Error::kind()` (or the CLI's `ok` field and exit status)
+rather than on the text.
 
 Reference row counts must be a power of two in `64..=65536`. Packed widths,
 helper chunk sizes and minimum row counts are validated, and the checkers have

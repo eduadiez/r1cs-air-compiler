@@ -30,6 +30,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Successful independent validation of a packed artifact.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct PackedCheckReport {
     /// Always true: a failed check returns an error instead.
     pub accepted: bool,

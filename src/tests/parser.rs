@@ -1,5 +1,8 @@
 //! R1CS and WTNS parsing, and the decimal form of certificate coefficients.
-use super::{assert_rejected, header, r1cs_bytes, r1cs_with_terms, set_u32, set_u64, wtns_bytes};
+use super::{
+    assert_limit, assert_rejected, header, r1cs_bytes, r1cs_with_terms, set_u32, set_u64,
+    wtns_bytes,
+};
 use crate::{field::FieldElement, r1cs, P};
 
 /// Wires 0..4: wire 1 is a public output, wires 2 and 3 public inputs. One
@@ -126,7 +129,7 @@ fn header_counts_are_checked() {
         set_u32(s, header::WIRES, 1_000_001);
         set_u64(s, header::LABELS, 2_000_000);
     });
-    assert_rejected(r1cs::read(&large), "circuit exceeds 1000000 wires");
+    assert_limit(r1cs::read(&large), "circuit exceeds 1000000 wires");
 }
 
 #[test]

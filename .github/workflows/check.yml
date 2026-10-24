@@ -26,7 +26,7 @@ jobs:
       - run: cargo fmt --check --manifest-path fuzz/Cargo.toml
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
-      - run: cargo test --locked --release --test cli -- --ignored
+      - run: cargo test --locked --release -- --ignored
       - run: cargo doc --locked --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
@@ -34,6 +34,9 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
       - run: cargo run --locked --example compile
+      # The package must build and must not contain the GPL templates or fixtures.
+      - run: cargo package --locked
+      - run: "! cargo package --locked --list | grep -E '^(fixtures|vendor/circomlib|src/tests)/'"
   minimum-rust:
     runs-on: ubuntu-latest
     timeout-minutes: 30

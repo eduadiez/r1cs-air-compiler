@@ -66,7 +66,7 @@ layout configuration and the expected SHA-256 hashes of the generated artifacts:
 the `air` executable from outside the repository and compares the reference,
 optimized and packed PILout files, the trace and the public values of every
 fixture with the expected hashes. The `sha256` test is slow in a debug build and
-is ignored by default; run it with `cargo test --release --test cli -- --ignored`.
+is ignored by default; run it with `cargo test --release -- --ignored`.
 [Scale](docs/SCALE.md) gives its sizes and run times.
 
 The R1CS and WTNS files are committed, so tests need no Circom.
@@ -127,6 +127,7 @@ only under external resource limits. See [the specification](SPEC.md).
 - [Testing](docs/TESTING.md): the test suite, mutation testing and the optional
   check against a real prover.
 - [Scale](docs/SCALE.md): sizes and run times measured on the `sha256` fixture.
+- [Changelog](CHANGELOG.md): changes and the versioning policy.
 - [Provenance](docs/provenance.json): hashes of the schema, the vendored
   circomlib files and the fixtures.
 - [Third-party notices](THIRD_PARTY.md): origin and licenses of the schema and
