@@ -1,0 +1,33 @@
+[package]
+name = "r1cs-air-compiler"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Compiler from Goldilocks R1CS circuits to PILout, with independent checkers"
+readme = "README.md"
+keywords = ["r1cs", "air", "stark", "circom", "compiler"]
+categories = ["cryptography", "compilers", "command-line-utilities"]
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+prost = "=0.13.5"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+sha2 = "=0.10.9"
+
+[build-dependencies]
+prost-build = "=0.13.5"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+cast_lossless = "warn"
+enum_glob_use = "warn"
+map_unwrap_or = "warn"
+match_wildcard_for_single_variants = "warn"
+needless_pass_by_value = "warn"
+range_plus_one = "warn"
+unreadable_literal = "warn"

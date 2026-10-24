@@ -1,0 +1,130 @@
+{
+  "schema": {
+    "path": "vendor/pilout/pilout.proto",
+    "sha256": "eebb7cd000152faf32ac2040aeac286a3b4f7e719eb220c637c3a59444466ec7",
+    "sourcePackage": "pil2-compiler 0.14.0",
+    "sourceRepository": "https://github.com/0xPolygonHermez/pil2-compiler",
+    "license": "MIT OR Apache-2.0",
+    "packageCommit": "503862ca92a7493623bca1bc331cdbfb9398e435",
+    "licenses": {
+      "vendor/pilout/LICENSE-APACHE": {
+        "sha256": "533270146c72c7ccb90a97c2b3857d6d80436e57061bf7e056281b3510af7209"
+      },
+      "vendor/pilout/LICENSE-MIT": {
+        "sha256": "87d53e577e4e31e5fbe5bb89ca4fbb0a68410e7512f407d3ee56317af237461e"
+      }
+    }
+  },
+  "circomlib": {
+    "sourceRepository": "https://github.com/iden3/circomlib",
+    "tag": "v2.0.5",
+    "commit": "cff5ab6288b55ef23602221694a6a38a0239dcc0",
+    "license": "GPL-3.0-or-later",
+    "licenseText": "COPYING is the GPL-3.0 text distributed with circom v2.2.3; circomlib declares GPL-3.0 in package.json and file headers but ships no license file.",
+    "files": {
+      "vendor/circomlib/COPYING": {
+        "sha256": "0fc5a3443bee9d6062c38372c5cd07c35fb58e536940057835107fbe9354e48b"
+      },
+      "vendor/circomlib/aliascheck.circom": {
+        "sha256": "7df7542461a68c1564a55be8f01d75571c0e2555a08a078abeba43e1ea032eb4"
+      },
+      "vendor/circomlib/binsum.circom": {
+        "sha256": "8aa153baf5791d96d06dce837c1e19b9ecc3a7dc65054132d5dd189b60bfcfc2"
+      },
+      "vendor/circomlib/bitify.circom": {
+        "sha256": "688f121303a2dd0154ceeda8d2f53a9d2d26789d10a69a46acd534642725683e"
+      },
+      "vendor/circomlib/comparators.circom": {
+        "sha256": "fd0c7723ee56e1467df1861131157cbb108e156fe2d9ec64895c8e68de14db20"
+      },
+      "vendor/circomlib/compconstant.circom": {
+        "sha256": "94c5cc93b589a940acbfecdb98babc2efc253ad4298814399fb41109faa3b50d"
+      },
+      "vendor/circomlib/gates.circom": {
+        "sha256": "890e2514ddcbce77e0a5f6867749401fc182664a4b901d6d7bf6856197e0d87c"
+      },
+      "vendor/circomlib/multiplexer.circom": {
+        "sha256": "d955fa5da40c3066442f2a4b5688f3e2985bca4cec0607b20310babc97f97116"
+      }
+    }
+  },
+  "fixtureToolchain": {
+    "circom": "2.2.3",
+    "flags": "--r1cs --wasm --prime goldilocks --O2",
+    "node": "v26.7.0"
+  },
+  "fixtures": {
+    "fixtures/adder/expected.json": {
+      "sha256": "981234fff3461e077a47cf817912170a2ad2bba62573e635903d2945b498e2c9"
+    },
+    "fixtures/adder/input.json": {
+      "sha256": "5e5c507dcf80530e860babbc56fad73fbdabb074d0c057b5886e55389ad5127f"
+    },
+    "fixtures/adder/input.wtns": {
+      "sha256": "641059bce5cdb98b770034e46eef453dc8fdaca0060e5a8ed533335564d24f9c"
+    },
+    "fixtures/adder/kernel.circom": {
+      "sha256": "5446a9dbd165bce1f6982d1bdd7ef297cfb0b832e7bbc91db783b854f27f5796"
+    },
+    "fixtures/adder/kernel.r1cs": {
+      "sha256": "bfce3239a8033edffd2d2f8932f4fc6f3e3649e6bb1cea274a476077d2c70bbc"
+    },
+    "fixtures/adder/layout.json": {
+      "sha256": "206333175b61929e14ce031803046f427cb9510b0d39c26b27001aa7a7d512d9"
+    },
+    "fixtures/mux/expected.json": {
+      "sha256": "144744996b930261c273fbc9c7ec1433583a9cb8cd4022d985ed90e8400a45e5"
+    },
+    "fixtures/mux/input.json": {
+      "sha256": "fa851d090163a212842b128901fa32d274f6eff34f2a7ce4d6ae063104a177a4"
+    },
+    "fixtures/mux/input.wtns": {
+      "sha256": "89db88806d9f97f6923738951a89b3c53fec085d33aa173fe4d730eabf925250"
+    },
+    "fixtures/mux/kernel.circom": {
+      "sha256": "c097e77da1d609c242b36d36241501678ce1837e2ba8867047df81ca817e97a3"
+    },
+    "fixtures/mux/kernel.r1cs": {
+      "sha256": "5927d8a8f48cd30f360e62a99668157a5a1d586fad6efb3456d4f6c8f74ed587"
+    },
+    "fixtures/mux/layout.json": {
+      "sha256": "25714d9272feb169ce269ef564d33279a1900c2e07246d3700e2219f9be80712"
+    },
+    "fixtures/range/expected.json": {
+      "sha256": "8e0dde6ec2f4afefd70eb306941be6c07e5f809ab209301ca1cde44e29570659"
+    },
+    "fixtures/range/input.json": {
+      "sha256": "9f65a19a644115e197a3838c034c4f42a84ed1d1dd017b59dbde72fa43fd48d2"
+    },
+    "fixtures/range/input.wtns": {
+      "sha256": "e1288d843be6dcab455547704bf94ac718f90c2b8da97cf442a81672e43c24cd"
+    },
+    "fixtures/range/kernel.circom": {
+      "sha256": "f5fc527ce97d65e2d0b54de8e17b8a47f2595d1efacac6941bd53539b07eb7b4"
+    },
+    "fixtures/range/kernel.r1cs": {
+      "sha256": "28653662bd09601a2ba99fbb014322dcfba56d2c3fd6b694a5960fbec8cf4029"
+    },
+    "fixtures/range/layout.json": {
+      "sha256": "432bc40030a7049e34ea510ed253bafadf9da092fe48c3565f980c7cfe825666"
+    },
+    "fixtures/xor/expected.json": {
+      "sha256": "963143be51c49dba75b24d0ebb97b80ee2110f3303adb734e3ceed1616ec70c7"
+    },
+    "fixtures/xor/input.json": {
+      "sha256": "613f4cb430084bc42313be0e834a97c04bccf50793a00c809e9391535128f399"
+    },
+    "fixtures/xor/input.wtns": {
+      "sha256": "51c12e7037c5eebb6df7ac176fc45cf1137a9a7375bde78f4468c3c72aecbad3"
+    },
+    "fixtures/xor/kernel.circom": {
+      "sha256": "fd2dfa876331e0afbe893fc0bbc2678a4e90a7cacbb727e61209fd93caf26578"
+    },
+    "fixtures/xor/kernel.r1cs": {
+      "sha256": "d12202beab690023130a4f38ac053b7ea08af578f8c62a12be444d1cfc2d7826"
+    },
+    "fixtures/xor/layout.json": {
+      "sha256": "80db2af08ed5613d1171144589c7a69de7047dc99fcf3eaacbc97449474b9a01"
+    }
+  }
+}
