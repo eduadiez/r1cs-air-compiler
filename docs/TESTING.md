@@ -4,6 +4,7 @@
 
 - unit tests of the field arithmetic and expression simplification, inside
   `src/field.rs` and `src/dag.rs`;
+- property tests in `src/tests/properties.rs` (see below);
 - internal tests in `src/tests/`, one file per component (`parser.rs`,
   `reference.rs`, `placement.rs`, `packed.rs`). Most change one field of a
   source, PILout or certificate and require the check to fail with a specific
@@ -20,6 +21,48 @@
 The fixture R1CS and WTNS files are committed, so tests need no Circom.
 `fixtures/generate.sh --check` regenerates them and checks that they are
 identical byte for byte (requires circom 2.2.3 and Node.js).
+
+## Property tests
+
+`src/tests/properties.rs` generates random circuits (up to 24 wires, 12
+equations and 3 public values, with nonzero coefficients) and random packed
+layout settings, and checks that:
+
+- every reference and packed artifact compiled from them passes its checker;
+- every witness of a satisfiable circuit projects, with each source wire's
+  value in its cells;
+- after changing one constant, one stage-one column reference or one
+  fixed-column value in a compiled PILout, the checker rejects it, unless the
+  change left every constraint polynomial as it was (for example a column whose
+  terms cancel in `A · B - C`);
+- arbitrary bytes, and single changed bytes in valid sources, PILout files and
+  certificates, never make the parsers or checkers panic.
+
+`cargo test` runs 64 cases per property (256 for the panic properties). Set
+`PROPTEST_CASES` to run more, for example
+`PROPTEST_CASES=100000 cargo test --release --lib properties`. A failing case is
+shrunk to a minimal one and saved in `proptest-regressions/tests/properties.txt`;
+commit that file so the case is run first from then on.
+
+## Fuzzing
+
+`fuzz/` holds coverage-guided fuzz targets for [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz),
+which needs a nightly toolchain:
+
+| Target | Input | Must never panic |
+| --- | --- | --- |
+| `r1cs` | any bytes as an R1CS file | parsing, compiling and checking |
+| `reference_pilout` | any bytes as the xor fixture's reference PILout, with the certificate rebound to them | the reference checker |
+| `packed_pilout` | the same for the packed PILout | the packed checker |
+| `packed_certificate` | any bytes as the packed certificate JSON | the packed checker and witness projection |
+
+```sh
+fuzz/seed.sh                                   # valid starting inputs
+cargo +nightly fuzz run packed_pilout -- -max_total_time=600
+```
+
+A crash is saved under `fuzz/artifacts/`; add it as a test before fixing it. The
+`Fuzz` workflow runs every target for five minutes each week and on demand.
 
 ## Changing expected hashes
 

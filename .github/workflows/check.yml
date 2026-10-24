@@ -23,6 +23,7 @@ jobs:
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
       - run: cargo fmt --check
       - run: rustfmt --check --edition 2021 tools/backend-check/witness/src/lib.rs
+      - run: cargo fmt --check --manifest-path fuzz/Cargo.toml
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
       - run: cargo doc --locked --no-deps
@@ -54,4 +55,4 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - run: shellcheck fixtures/generate.sh tools/backend-check/run.sh
+      - run: shellcheck fixtures/generate.sh tools/backend-check/run.sh fuzz/seed.sh

@@ -51,7 +51,8 @@ committed in `vendor/pilout`. A build needs only Rust, the locked crates and `pr
 
 The public API exports the artifact, certificate, report and error types and
 the layout settings; everything else is private. Tests that need private access
-(corrupted artifacts and certificates) are internal test modules in
-`src/tests/`. Separate integration tests cover the public API (`tests/api.rs`)
-and the `air` executable (`tests/cli.rs`). See [API](API.md), [CLI](CLI.md),
+(corrupted artifacts and certificates, and property tests over random circuits)
+are internal test modules in `src/tests/`. Separate integration tests cover the
+public API (`tests/api.rs`) and the `air` executable (`tests/cli.rs`). Fuzz
+targets live in their own package in `fuzz/`. See [API](API.md), [CLI](CLI.md),
 [testing](TESTING.md) and [the specification](../SPEC.md).

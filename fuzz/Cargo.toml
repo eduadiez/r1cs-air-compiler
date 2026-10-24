@@ -1,0 +1,48 @@
+[package]
+name = "r1cs-air-compiler-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+r1cs-air-compiler = { path = ".." }
+serde = "=1.0.228"
+serde_json = "=1.0.150"
+sha2 = "=0.10.9"
+
+# Kept out of the parent package; build with `cargo +nightly fuzz build`.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "r1cs"
+path = "fuzz_targets/r1cs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "reference_pilout"
+path = "fuzz_targets/reference_pilout.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "packed_pilout"
+path = "fuzz_targets/packed_pilout.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "packed_certificate"
+path = "fuzz_targets/packed_certificate.rs"
+test = false
+doc = false
+bench = false

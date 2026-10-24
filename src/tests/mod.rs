@@ -4,6 +4,7 @@
 mod packed;
 mod parser;
 mod placement;
+mod properties;
 mod reference;
 
 use crate::{contract::AIR_NAME, proto as pb, Result, P};

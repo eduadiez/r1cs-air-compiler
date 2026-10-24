@@ -31,3 +31,6 @@ match_wildcard_for_single_variants = "warn"
 needless_pass_by_value = "warn"
 range_plus_one = "warn"
 unreadable_literal = "warn"
+
+[dev-dependencies]
+proptest = { version = "=1.6.0", default-features = false, features = ["std"] }
