@@ -91,9 +91,18 @@ On failure, a command prints one JSON object on stderr, nothing on stdout, and
 exits with status 1:
 
 ```json
-{"command":"compile","error":"read 'missing.r1cs': ...","ok":false}
+{"command":"compile","error":"read 'missing.r1cs': ...","kind":"io","ok":false}
 ```
 
+`kind` tells why the command failed:
+
+| `kind` | Meaning |
+| --- | --- |
+| `usage` | The arguments match no form of the command |
+| `io` | A file could not be read or written, or an output directory could not be created (for example because it exists) |
+| `invalid` | An input is malformed, unsupported or inconsistent, or an artifact does not encode its source's relation |
+| `limit` | An input exceeds a size limit; a circuit too large for the reference layout may still fit a packed layout |
+
 Help and version text go to stdout with status 0. Programs should rely on `ok`,
-`command` and the exit status. The error text names the file and the failed
-check, and its wording may change.
+`command`, `kind` and the exit status. The error text names the file and the
+failed check, and its wording may change.

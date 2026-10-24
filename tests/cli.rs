@@ -67,10 +67,12 @@ impl Cli {
         assert!(success, "{args:?} failed: {report}");
         report["result"].clone()
     }
-    /// Run `air` and require a failure whose message contains `expected`.
-    fn fails(&self, args: &[&str], expected: &str) {
+    /// Run `air` and require a failure of `kind` whose message contains
+    /// `expected`.
+    fn fails(&self, kind: &str, args: &[&str], expected: &str) {
         let (success, report) = self.run(args);
         assert!(!success, "{args:?} succeeded");
+        assert_eq!(report["kind"], kind, "{report}");
         let message = report["error"].as_str().unwrap();
         assert!(message.contains(expected), "{message:?} lacks {expected:?}");
     }
@@ -112,7 +114,7 @@ fn check_fixture(name: &str) {
             } else {
                 "evaluated expressions exceed the term limit"
             };
-            cli.fails(&args, limit);
+            cli.fails("limit", &args, limit);
             assert!(!cli.path(mode).exists());
             continue;
         }
@@ -129,7 +131,7 @@ fn check_fixture(name: &str) {
             true
         );
         // An existing output directory is never overwritten.
-        cli.fails(&args, &format!("output '{mode}'"));
+        cli.fails("io", &args, &format!("output '{mode}'"));
         assert_hash(&pilout, mode);
     }
     assert_hash("packed/map.bin", "map");
@@ -150,6 +152,7 @@ fn check_fixture(name: &str) {
     changed.push(0);
     fs::write(cli.path("changed.pilout"), changed).unwrap();
     cli.fails(
+        "invalid",
         &[
             "check",
             &source,
@@ -160,6 +163,7 @@ fn check_fixture(name: &str) {
     );
     fs::write(cli.path("invalid.wtns"), b"invalid").unwrap();
     cli.fails(
+        "invalid",
         &["witness", &source, "packed", "invalid.wtns", "rejected"],
         "not a WTNS file",
     );
@@ -350,6 +354,7 @@ fn errors_name_the_failing_input() {
     let source = fixture("xor", "kernel.r1cs");
     let layout = fixture("xor", "layout.json");
     cli.fails(
+        "io",
         &["compile", "missing.r1cs", "out", "--rows", "64"],
         "read 'missing.r1cs'",
     );
@@ -360,11 +365,13 @@ fn errors_name_the_failing_input() {
     )
     .unwrap();
     cli.fails(
+        "invalid",
         &["plan", &source, "out", "--layout", "bad-layout.json"],
         "layout configuration 'bad-layout.json': layout options: options.width must be 3..=1024",
     );
     fs::write(cli.path("malformed.json"), "{\n").unwrap();
     cli.fails(
+        "invalid",
         &["plan", &source, "out", "--layout", "malformed.json"],
         "JSON 'malformed.json': EOF while parsing an object at line 2 column 0",
     );
@@ -376,11 +383,13 @@ fn errors_name_the_failing_input() {
     )
     .unwrap();
     cli.fails(
+        "invalid",
         &["check", &source, "packed/kernel.pilout", "unknown.json"],
         "certificate 'unknown.json': unknown relation",
     );
     cli.ok(&["compile", &source, "reference", "--rows", "64"]);
     cli.fails(
+        "invalid",
         &[
             "witness",
             &source,
@@ -404,11 +413,11 @@ fn only_documented_argument_forms_are_accepted() {
         &["check", source.as_str()][..],
         &["witness", source.as_str(), "packed"][..],
     ] {
-        cli.fails(args, "invalid arguments");
+        cli.fails("usage", args, "invalid arguments");
     }
     assert!(!cli.path("out").exists());
-    cli.fails(&[], "expected a command");
-    cli.fails(&["frobnicate"], "expected a command");
+    cli.fails("usage", &[], "expected a command");
+    cli.fails("usage", &["frobnicate"], "expected a command");
 }
 
 #[cfg(unix)]
@@ -424,6 +433,7 @@ fn arguments_that_are_not_utf8_get_a_json_error() {
     assert!(output.stdout.is_empty());
     let report: Value = serde_json::from_slice(&output.stderr).unwrap();
     assert_eq!(report["ok"], false);
+    assert_eq!(report["kind"], "usage");
     assert!(report["error"]
         .as_str()
         .unwrap()

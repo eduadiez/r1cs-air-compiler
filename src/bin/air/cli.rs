@@ -9,8 +9,51 @@ use std::{
     path::Path,
 };
 
-/// A failed command; the message becomes the report's `error` field.
-type CommandResult<T> = Result<T, String>;
+/// A failed command: the report's `kind` and `error` fields.
+struct Failure {
+    kind: Kind,
+    message: String,
+}
+
+/// Why a command failed; the report's `kind` field.
+#[derive(Clone, Copy)]
+enum Kind {
+    /// The arguments do not match any form of the command.
+    Usage,
+    /// A file or directory could not be read, written or created.
+    Io,
+    /// An input is malformed, unsupported or inconsistent, or an artifact
+    /// does not encode its source's relation.
+    Invalid,
+    /// An input exceeds a size limit of the library.
+    Limit,
+}
+
+impl Kind {
+    fn name(self) -> &'static str {
+        match self {
+            Kind::Usage => "usage",
+            Kind::Io => "io",
+            Kind::Invalid => "invalid",
+            Kind::Limit => "limit",
+        }
+    }
+}
+
+impl Failure {
+    fn new(kind: Kind, message: String) -> Self {
+        Self { kind, message }
+    }
+}
+
+/// Messages built by the command itself describe invalid input.
+impl From<String> for Failure {
+    fn from(message: String) -> Self {
+        Self::new(Kind::Invalid, message)
+    }
+}
+
+type CommandResult<T> = Result<T, Failure>;
 
 /// Each command and its accepted argument forms.
 const COMMANDS: &[(&str, &[&str])] = &[
@@ -32,7 +75,10 @@ pub fn run() {
     for arg in env::args_os().skip(1) {
         match arg.into_string() {
             Ok(arg) => args.push(arg),
-            Err(arg) => fail("", &format!("argument {arg:?} is not valid UTF-8")),
+            Err(arg) => fail(
+                "",
+                &Failure::new(Kind::Usage, format!("argument {arg:?} is not valid UTF-8")),
+            ),
         }
     }
     if args.as_slice() == ["--version"] {
@@ -55,11 +101,14 @@ pub fn run() {
         "check" => check(&args),
         "plan" => plan(&args),
         "witness" => witness(&args),
-        _ => Err("expected a command: compile, check, plan, witness; use --help".into()),
+        _ => Err(Failure::new(
+            Kind::Usage,
+            "expected a command: compile, check, plan, witness; use --help".into(),
+        )),
     };
     match result {
         Ok(result) => print(&json!({"ok": true, "command": command, "result": result}).to_string()),
-        Err(error) => fail(&command, &error),
+        Err(failure) => fail(&command, &failure),
     }
 }
 
@@ -76,8 +125,13 @@ fn print(text: &str) {
 }
 
 /// Print the failure report on stderr and exit with status 1.
-fn fail(command: &str, error: &str) -> ! {
-    let report = json!({"ok": false, "command": command, "error": error});
+fn fail(command: &str, failure: &Failure) -> ! {
+    let report = json!({
+        "ok": false,
+        "command": command,
+        "kind": failure.kind.name(),
+        "error": failure.message,
+    });
     let _ = writeln!(io::stderr(), "{report}");
     std::process::exit(1);
 }
@@ -100,21 +154,37 @@ fn help(command: &str) -> String {
 }
 
 fn usage<T>(command: &str) -> CommandResult<T> {
-    Err(format!("invalid arguments for {command}; use --help"))
+    Err(Failure::new(
+        Kind::Usage,
+        format!("invalid arguments for {command}; use --help"),
+    ))
 }
 
-/// The full message chain of a library error, prefixed with `context`.
-fn library_error(context: String) -> impl FnOnce(air::Error) -> String {
-    move |error| format!("{context}: {error:#}")
+/// The full message chain of a library error, prefixed with `context`, and
+/// its kind.
+fn library_error(context: String) -> impl FnOnce(air::Error) -> Failure {
+    move |error| {
+        let kind = match error.kind() {
+            air::ErrorKind::Limit => Kind::Limit,
+            _ => Kind::Invalid,
+        };
+        Failure::new(kind, format!("{context}: {error:#}"))
+    }
+}
+
+/// An I/O failure on `path`, after `action`.
+fn io_error<'a>(action: &'static str, path: &'a Path) -> impl FnOnce(io::Error) -> Failure + 'a {
+    move |e| Failure::new(Kind::Io, format!("{action} '{}': {e}", path.display()))
 }
 
 fn read(path: impl AsRef<Path>) -> CommandResult<Vec<u8>> {
     let path = path.as_ref();
-    fs::read(path).map_err(|e| format!("read '{}': {e}", path.display()))
+    fs::read(path).map_err(io_error("read", path))
 }
 
 fn parse_json<T: DeserializeOwned>(path: impl AsRef<Path>, bytes: &[u8]) -> CommandResult<T> {
-    serde_json::from_slice(bytes).map_err(|e| format!("JSON '{}': {e}", path.as_ref().display()))
+    let path = path.as_ref();
+    serde_json::from_slice(bytes).map_err(|e| format!("JSON '{}': {e}", path.display()).into())
 }
 
 fn read_json<T: DeserializeOwned>(path: impl AsRef<Path>) -> CommandResult<T> {
@@ -124,7 +194,7 @@ fn read_json<T: DeserializeOwned>(path: impl AsRef<Path>) -> CommandResult<T> {
 
 fn write(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> CommandResult<()> {
     let path = path.as_ref();
-    fs::write(path, bytes).map_err(|e| format!("write '{}': {e}", path.display()))
+    fs::write(path, bytes).map_err(io_error("write", path))
 }
 
 /// Write `value` as compact JSON followed by a newline.
@@ -142,8 +212,9 @@ fn relation(path: impl AsRef<Path>, bytes: &[u8]) -> CommandResult<String> {
 
 /// Create the output directory; fails if it already exists.
 fn fresh(path: &str) -> CommandResult<&Path> {
-    fs::create_dir(path).map_err(|e| format!("create output '{path}': {e}"))?;
-    Ok(Path::new(path))
+    let path = Path::new(path);
+    fs::create_dir(path).map_err(io_error("create output", path))?;
+    Ok(path)
 }
 
 fn u32_bytes(words: &[u32]) -> Vec<u8> {
@@ -230,9 +301,9 @@ fn check(args: &[String]) -> CommandResult<Value> {
             let report = air::check_packed(&source_bytes, &pilout_bytes, &parsed);
             serde_json::to_value(report.map_err(library_error(context))?)
         }
-        _ => return Err(format!("certificate '{certificate}': unknown relation")),
+        _ => return Err(format!("certificate '{certificate}': unknown relation").into()),
     };
-    report.map_err(|e| e.to_string())
+    Ok(report.map_err(|e| e.to_string())?)
 }
 
 fn plan(args: &[String]) -> CommandResult<Value> {
@@ -269,7 +340,8 @@ fn witness(args: &[String]) -> CommandResult<Value> {
         return Err(format!(
             "witness requires a packed artifact; '{}' is not one",
             artifact.display()
-        ));
+        )
+        .into());
     }
     let certificate: PackedCertificate = parse_json(&certificate_path, &certificate_bytes)?;
     let pilout = read(artifact.join("kernel.pilout"))?;

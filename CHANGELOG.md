@@ -20,8 +20,9 @@ First version.
 - Independent checkers for both relations, run on every compiled artifact.
 - Witness projection into a packed trace.
 - `air` executable with `compile`, `check`, `plan` and `witness` commands and
-  JSON reports. `certificate.json` and `plan.json` are compact JSON followed
-  by a newline.
+  JSON reports. A failure report's `kind` is `usage`, `io`, `invalid` or
+  `limit`. `certificate.json` and `plan.json` are compact JSON followed by a
+  newline.
 - `Error::kind` tells an invalid input (`ErrorKind::Invalid`) from one that
   exceeds a size limit (`ErrorKind::Limit`).
 - Types that only the library builds (artifacts, reports, `Witness`) and the
