@@ -48,6 +48,39 @@ With pil2-proofman at commit `eda04742b64abe0e5322a8231f0155438ffb62fe`
 setup took 0.8 s, verifying every constraint on the witness 0.9 s, and
 generating and verifying a STARK proof 0.9 s.
 
+## Larger circuits
+
+`Sha256(n)` hashes `n` bits in `⌊(n + 64) / 512⌋ + 1` blocks. With the same
+settings except for the width (chunks of half the width), each of these
+compiled and passed the packed checker except where noted; times and peak
+memory are for `air compile` (one run each, same machine):
+
+| Message bits | Constraints | Width | Rows | PILout | Time | Peak memory |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1024 | 89 609 | 64 | 4096 | 11 MB | 3.6 s | 0.4 GB |
+| 1024 | 89 609 | 256 | 1024 | 8.0 MB | 5.3 s | 0.5 GB |
+| 2048 | 150 265 | 64 | 8192 | 25 MB | 6.4 s | 0.7 GB |
+| 2048 | 150 265 | 256 | 2048 | 17 MB | 8.6 s | 0.8 GB |
+| 4096 | 271 577 | 64 | 16384 | 60 MB | 12.6 s | 1.3 GB |
+| 4096 | 271 577 | 256 | 4096 | 37 MB | 15.6 s | 1.3 GB |
+| 8192 | 514 201 | 64 | 32768 | 127 MB | 24.8 s | 2.4 GB |
+| 8192 | 514 201 | 128 | — | rejected: `PILout exceeds the size limit` | 25.4 s | 2.3 GB |
+| 8192 | 514 201 | 256 | 8192 | 84 MB | 29.9 s | 2.5 GB |
+| 8192 | 514 201 | 512 | — | rejected: `evaluated expressions exceed the term limit` | 29.2 s | 1.6 GB |
+
+Around half a million constraints, the first limit reached is
+`MAX_PILOUT_BYTES` (128 MB): most of the PILout is fixed columns, whose size
+grows with the number of rows times the number of fixed columns. The limit is
+checked on the finished PILout, so a rejected compilation takes as long as a
+successful one. To reproduce a row, compile
+`component main = Sha256(n);`, including `vendor/circomlib/sha256/sha256.circom`,
+with the flags in `docs/provenance.json` (`fixtureToolchain`), and run
+`air compile` with the layout below, changing `width` and `chunk`:
+
+```json
+{"options":{"width":64,"chunk":32,"reuse":"available","fold":true},"strategy":"local","minRows":64}
+```
+
 ## Reproducing
 
 ```sh
