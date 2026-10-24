@@ -143,7 +143,7 @@ fn check_fixture(name: &str) {
             "changed.pilout",
             "packed/certificate.json",
         ],
-        "certificate version, relation or hashes",
+        "certificate piloutSha256 does not match the PILout",
     );
     fs::write(cli.path("invalid.wtns"), b"invalid").unwrap();
     cli.fails(

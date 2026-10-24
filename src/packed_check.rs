@@ -12,16 +12,16 @@
 use crate::{
     certificate::{Layout, PackedCertificate},
     contract::{
-        label, AIR_NAME, ALPHA, CERTIFICATE_VERSION, CHALLENGE_NAMES, FIRST_COLUMN, GAMMA,
-        PACKED_RELATION, PRODUCT_COLUMN, PRODUCT_COLUMN_NAME, PRODUCT_HINT, PUBLICS_SYMBOL,
-        RATIOS_SYMBOL, RATIO_HINT, STAGE_ONE, STAGE_TWO, SUM_HINT, TRACE_SYMBOL, ZERO_COLUMN_NAME,
+        label, AIR_NAME, ALPHA, CHALLENGE_NAMES, FIRST_COLUMN, GAMMA, PACKED_RELATION,
+        PRODUCT_COLUMN, PRODUCT_COLUMN_NAME, PRODUCT_HINT, PUBLICS_SYMBOL, RATIOS_SYMBOL,
+        RATIO_HINT, STAGE_ONE, STAGE_TWO, SUM_HINT, TRACE_SYMBOL, ZERO_COLUMN_NAME,
     },
     ensure,
     field::{mul, pow, FieldElement, COSET, GENERATOR},
-    pilout_check::{self, binary_operation, scalar, BinaryOp, ExpectedSymbol, Geometry},
+    pilout_check::{self, binary_operation, scalar, BinaryOp, Binding, ExpectedSymbol, Geometry},
     placement_check,
     polynomial::{constant, difference, product, sum, variable, Interpreter, Polynomial, Var},
-    proto as pb, r1cs, sha256_hex, Context, Result, P,
+    proto as pb, r1cs, Context, Result, P,
 };
 use pb::{operand::Operand, SymbolType};
 use serde::Serialize;
@@ -55,13 +55,13 @@ pub fn check(
     pilout_bytes: &[u8],
     certificate: &PackedCertificate,
 ) -> Result<PackedCheckReport> {
-    ensure(
-        certificate.version == CERTIFICATE_VERSION
-            && certificate.relation == PACKED_RELATION
-            && certificate.source_sha256 == sha256_hex(source)
-            && certificate.pilout_sha256 == sha256_hex(pilout_bytes),
-        "certificate version, relation or hashes",
-    )?;
+    let binding = Binding {
+        version: certificate.version,
+        relation: &certificate.relation,
+        source_sha256: &certificate.source_sha256,
+        pilout_sha256: &certificate.pilout_sha256,
+    };
+    pilout_check::check_binding(&binding, PACKED_RELATION, source, pilout_bytes)?;
     let circuit = r1cs::read(source)?;
     let checked = placement_check::check(&circuit, &certificate.network, &certificate.layout)?;
     let layout = &certificate.layout;
@@ -693,15 +693,47 @@ fn check_copy_constraints(
     layout: &Layout,
     roots: &[usize],
 ) -> Result<Vec<ExpectedHint>> {
-    let width = layout.width;
     let ratios = copy_ratios(layout) as usize;
+    let (numerators, denominators) = copy_factors(graph, layout.width);
+    let mut hints = vec![];
+    let (numerator, denominator) = check_ratios(
+        graph,
+        expression_ids,
+        &roots[..ratios],
+        &numerators,
+        &denominators,
+        &mut hints,
+    )?;
+    check_running_product(
+        graph,
+        expression_ids,
+        layout,
+        &roots[ratios..],
+        numerator,
+        denominator,
+    )?;
+    let reference = reference_field(graph);
     let one = graph.constant(1);
+    hints.push((
+        PRODUCT_HINT,
+        BTreeMap::from([
+            ("reference", reference),
+            ("numerator_air", numerator),
+            ("denominator_air", denominator),
+            ("numerator_direct", one),
+            ("denominator_direct", one),
+            ("result", one),
+        ]),
+    ));
+    Ok(hints)
+}
+
+/// For each column, the numerator factor with the permuted label column and
+/// the denominator factor with the cell's own label.
+fn copy_factors(graph: &mut ExpressionGraph, width: usize) -> (Vec<usize>, Vec<usize>) {
     let alpha = graph.leaf(Leaf::Challenge(ALPHA));
     let gamma = graph.leaf(Leaf::Challenge(GAMMA));
     let id = graph.leaf(Leaf::fixed(0));
-
-    // Factors with each cell's own label are denominators; factors with the
-    // permuted labels are numerators.
     let (mut numerators, mut denominators, mut shift) = (vec![], vec![], 1);
     for col in 0..width {
         let value = graph.leaf(Leaf::trace(col as u32));
@@ -716,13 +748,25 @@ fn check_copy_constraints(
         numerators.push(graph.add(permuted, gamma));
         shift = mul(shift, COSET);
     }
+    (numerators, denominators)
+}
 
-    // The first ratio takes up to five numerator and four denominator factors;
-    // each later one takes the previous ratio and up to four of each.
-    let mut hints = vec![];
+/// Compare each ratio constraint with its rebuilt form and add its hint. The
+/// first ratio takes up to five numerator and four denominator factors; each
+/// later one takes the previous ratio and up to four of each. Returns the
+/// numerator and denominator left for the running product.
+fn check_ratios(
+    graph: &mut ExpressionGraph,
+    expression_ids: &[usize],
+    roots: &[usize],
+    numerators: &[usize],
+    denominators: &[usize],
+    hints: &mut Vec<ExpectedHint>,
+) -> Result<(usize, usize)> {
+    let width = numerators.len();
     // The running numerator and the next unused numerator and denominator factor.
-    let (mut numerator, mut next_num, mut next_den) = (one, 0, 0);
-    for (i, root) in roots.iter().take(ratios).enumerate() {
+    let (mut numerator, mut next_num, mut next_den) = (graph.constant(1), 0, 0);
+    for (i, root) in roots.iter().enumerate() {
         let num_end = width.min(5 + 4 * i);
         let den_end = width.min(4 + 4 * i);
         for factor in &numerators[next_num..num_end] {
@@ -752,7 +796,19 @@ fn check_copy_constraints(
         numerator = graph.mul(numerator, *factor);
     }
     let denominator = graph.product(&denominators[next_den..]);
+    Ok((numerator, denominator))
+}
 
+/// Compare the recurrence `z · den = z[-1] · num` and the closure
+/// `LAST · (z - 1)` with the two constraints in `roots`.
+fn check_running_product(
+    graph: &mut ExpressionGraph,
+    expression_ids: &[usize],
+    layout: &Layout,
+    roots: &[usize],
+    numerator: usize,
+    denominator: usize,
+) -> Result<()> {
     let z = graph.leaf(Leaf::stage_two(PRODUCT_COLUMN, 0));
     let previous = graph.leaf(Leaf::stage_two(PRODUCT_COLUMN, -1));
     let lhs = graph.mul(z, denominator);
@@ -762,27 +818,17 @@ fn check_copy_constraints(
         column: first_column(layout),
         offset: 1,
     });
+    let one = graph.constant(1);
     let z_minus_one = graph.sub(z, one);
     let closure = graph.mul(last, z_minus_one);
     ensure(
-        expression_ids.get(roots[ratios]) == Some(&recurrence)
-            && expression_ids.get(roots[ratios + 1]) == Some(&closure),
-        "copy recurrence or closure differs from the expected one",
+        expression_ids.get(roots[0]) == Some(&recurrence),
+        "copy recurrence differs from the expected one",
     )?;
-
-    let reference = reference_field(graph);
-    hints.push((
-        PRODUCT_HINT,
-        BTreeMap::from([
-            ("reference", reference),
-            ("numerator_air", numerator),
-            ("denominator_air", denominator),
-            ("numerator_direct", one),
-            ("denominator_direct", one),
-            ("result", one),
-        ]),
-    ));
-    Ok(hints)
+    ensure(
+        expression_ids.get(roots[1]) == Some(&closure),
+        "copy closure differs from the expected one",
+    )
 }
 
 /// Compare every hint, in order, with the expected hints.

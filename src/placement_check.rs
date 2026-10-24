@@ -70,7 +70,7 @@ pub fn check(source: &Circuit, network: &Network, layout: &Layout) -> Result<Che
     )?;
     for (index, binding) in layout.public_bindings.iter().enumerate() {
         ensure(
-            binding.public == index as u32 && binding.wire == index as u32 + 1,
+            binding.public as usize == index && binding.wire as usize == index + 1,
             "public binding i must bind public value i to wire i + 1",
         )?;
         cells.set(binding.row, binding.col, binding.wire)?;
@@ -165,9 +165,12 @@ fn expand_helpers(
     let mut expanded = identity[..source.wires as usize].to_vec();
     let mut equations = vec![];
     for (index, helper) in network.helpers.iter().enumerate() {
-        // `index` is below `network.helpers.len()`, which check_dimensions bounded.
         ensure(
-            helper.id == source.wires + index as u32,
+            helper
+                .id
+                .checked_sub(source.wires)
+                .map(|offset| offset as usize)
+                == Some(index),
             format!("helper {index}: ids must follow the source wires in order"),
         )?;
         ensure(
@@ -178,8 +181,12 @@ fn expand_helpers(
         check_canonical(&[helper.terms.clone(), vec![], vec![]], helper.id)
             .map_err(|e| format!("helper {index}: {e}"))?;
         ensure(
-            helper.terms.iter().all(|(wire, _)| *wire > 0) && helper.terms[0].1 .0 == 1,
-            format!("helper {index}: terms must not use wire 0 and must start with coefficient 1"),
+            helper.terms.iter().all(|(wire, _)| *wire > 0),
+            format!("helper {index}: terms must not use wire 0"),
+        )?;
+        ensure(
+            helper.terms[0].1 .0 == 1,
+            format!("helper {index}: first coefficient must be 1"),
         )?;
         let mut values = BTreeMap::new();
         for (wire, k) in &helper.terms {
@@ -308,7 +315,7 @@ fn check_group(id: usize, group: &Group, width: usize) -> Result<()> {
         let mut last = None;
         for (position, k) in lc {
             ensure(
-                *position >= -1 && *position < group.width as i32,
+                *position == -1 || usize::try_from(*position).is_ok_and(|p| p < group.width),
                 format!("shape {id}: position out of range"),
             )?;
             ensure(
@@ -458,11 +465,8 @@ fn check_placement(
     let instantiated = group.terms.clone().map(|lc| {
         lc.into_iter()
             .map(|(position, k)| {
-                let wire = if position < 0 {
-                    0
-                } else {
-                    placement.wires[position as usize]
-                };
+                // Position -1 is the constant wire 0.
+                let wire = usize::try_from(position).map_or(0, |p| placement.wires[p]);
                 (wire, k)
             })
             .collect()

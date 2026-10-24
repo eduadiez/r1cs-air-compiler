@@ -189,14 +189,11 @@ fn changed_constraints_are_rejected() {
         "constraint 0 differs from the expected slot or public constraint",
         |p| reuse_expression(p, 0, 1),
     );
-    rejects_copy(
-        "copy recurrence or closure differs from the expected one",
-        |p| {
-            let closure = constraint_labeled(p, label::COPY_CLOSURE);
-            let recurrence = constraint_labeled(p, label::COPY_RECURRENCE);
-            reuse_expression(p, closure, recurrence);
-        },
-    );
+    rejects_copy("copy closure differs from the expected one", |p| {
+        let closure = constraint_labeled(p, label::COPY_CLOSURE);
+        let recurrence = constraint_labeled(p, label::COPY_RECURRENCE);
+        reuse_expression(p, closure, recurrence);
+    });
     rejects_ratio(
         "copy ratio constraint 0 differs from the expected one",
         |p| {
@@ -220,29 +217,26 @@ fn changed_constraints_are_rejected() {
 fn changed_challenge_in_the_copy_argument_is_rejected() {
     // Swap one challenge leaf, keeping all operands valid.
     for (from, to) in [(0, 1), (1, 0)] {
-        rejects_ratio(
-            "copy recurrence or closure differs from the expected one",
-            |p| {
-                use pb::expression::Operation;
-                for expression in air(p).expressions.iter_mut().rev() {
-                    let (lhs, rhs) = match &mut expression.operation {
-                        Some(Operation::Add(x)) => (&mut x.lhs, &mut x.rhs),
-                        Some(Operation::Sub(x)) => (&mut x.lhs, &mut x.rhs),
-                        Some(Operation::Mul(x)) => (&mut x.lhs, &mut x.rhs),
-                        Some(Operation::Neg(_)) | None => continue,
-                    };
-                    for operand in [lhs, rhs].into_iter().flatten() {
-                        if let Some(pb::operand::Operand::Challenge(c)) = &mut operand.operand {
-                            if c.idx == from {
-                                c.idx = to;
-                                return;
-                            }
+        rejects_ratio("copy recurrence differs from the expected one", |p| {
+            use pb::expression::Operation;
+            for expression in air(p).expressions.iter_mut().rev() {
+                let (lhs, rhs) = match &mut expression.operation {
+                    Some(Operation::Add(x)) => (&mut x.lhs, &mut x.rhs),
+                    Some(Operation::Sub(x)) => (&mut x.lhs, &mut x.rhs),
+                    Some(Operation::Mul(x)) => (&mut x.lhs, &mut x.rhs),
+                    Some(Operation::Neg(_)) | None => continue,
+                };
+                for operand in [lhs, rhs].into_iter().flatten() {
+                    if let Some(pb::operand::Operand::Challenge(c)) = &mut operand.operand {
+                        if c.idx == from {
+                            c.idx = to;
+                            return;
                         }
                     }
                 }
-                panic!("no challenge operand");
-            },
-        );
+            }
+            panic!("no challenge operand");
+        });
     }
 }
 
@@ -509,16 +503,25 @@ fn certificate_fields_are_checked() {
     assert!(check(artifact(3).certificate).is_ok());
     let mut changed = artifact(3).certificate;
     changed.source_sha256 = "00".repeat(32);
-    assert_rejected(check(changed), "certificate version, relation or hashes");
+    assert_rejected(
+        check(changed),
+        "certificate sourceSha256 does not match the source",
+    );
     let mut changed = artifact(3).certificate;
     changed.pilout_sha256 = "00".repeat(32);
-    assert_rejected(check(changed), "certificate version, relation or hashes");
+    assert_rejected(
+        check(changed),
+        "certificate piloutSha256 does not match the PILout",
+    );
     let mut changed = artifact(3).certificate;
     changed.version = 2;
-    assert_rejected(check(changed), "certificate version, relation or hashes");
+    assert_rejected(check(changed), "unsupported certificate version 2");
     let mut changed = artifact(3).certificate;
     changed.relation = REFERENCE_RELATION.into();
-    assert_rejected(check(changed), "certificate version, relation or hashes");
+    assert_rejected(
+        check(changed),
+        "certificate relation is 'r1cs-per-row-publics-at-row-zero', expected 'r1cs-packed-static-copy'",
+    );
     let mut changed = artifact(3).certificate;
     changed.layout.requires_copy = false;
     assert_rejected(check(changed), "requiresCopy must be set exactly when");

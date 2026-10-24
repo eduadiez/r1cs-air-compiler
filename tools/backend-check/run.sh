@@ -63,8 +63,9 @@ setup="$proofman/target/release/proofman-setup"
 cli="$proofman/target/release/proofman-cli"
 lib="$proofman/target/release/libr1cs_air_witness.so"
 
-for name in xor range mux adder; do
-    fixture="$root/fixtures/$name"
+for source in "$root"/fixtures/*/kernel.r1cs; do
+    fixture=$(dirname "$source")
+    name=$(basename "$fixture")
     for mode in reference packed; do
         out="$work/$name-$mode"
         step="$name $mode (logs in $out)"

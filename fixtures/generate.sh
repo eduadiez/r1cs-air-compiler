@@ -24,7 +24,11 @@ for argument in "$@"; do
         ;;
     esac
 done
-names=${names:-"xor range mux adder"}
+if [ -z "$names" ]; then
+    for source in "$root"/fixtures/*/kernel.circom; do
+        names="$names $(basename "$(dirname "$source")")"
+    done
+fi
 for tool in circom node; do
     if ! command -v "$tool" >/dev/null; then
         echo "$tool is required" >&2

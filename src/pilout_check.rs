@@ -2,12 +2,51 @@
 //! the PILout that both artifact kinds have in common, the symbol table and the
 //! layout of hints. Used only by the checkers.
 use crate::{
-    contract::{AIR_NAME, MAX_EXPRESSIONS, MAX_PILOUT_BYTES, PILOUT_NAME, STAGE_TWO},
-    ensure, proto as pb, Result, P,
+    contract::{
+        AIR_NAME, CERTIFICATE_VERSION, MAX_EXPRESSIONS, MAX_PILOUT_BYTES, PILOUT_NAME, STAGE_TWO,
+    },
+    ensure, proto as pb, sha256_hex, Result, P,
 };
 use pb::SymbolType;
 use prost::Message;
 use std::collections::BTreeMap;
+
+/// Fields that bind a certificate to its relation and to the files it certifies.
+pub struct Binding<'a> {
+    pub version: u32,
+    pub relation: &'a str,
+    pub source_sha256: &'a str,
+    pub pilout_sha256: &'a str,
+}
+
+/// Require the certificate format version, the relation `expected_relation`,
+/// and the SHA-256 hashes of `source` and `pilout`.
+pub fn check_binding(
+    binding: &Binding,
+    expected_relation: &str,
+    source: &[u8],
+    pilout: &[u8],
+) -> Result<()> {
+    ensure(
+        binding.version == CERTIFICATE_VERSION,
+        format!("unsupported certificate version {}", binding.version),
+    )?;
+    ensure(
+        binding.relation == expected_relation,
+        format!(
+            "certificate relation is '{}', expected '{expected_relation}'",
+            binding.relation
+        ),
+    )?;
+    ensure(
+        binding.source_sha256 == sha256_hex(source),
+        "certificate sourceSha256 does not match the source",
+    )?;
+    ensure(
+        binding.pilout_sha256 == sha256_hex(pilout),
+        "certificate piloutSha256 does not match the PILout",
+    )
+}
 
 /// Decode PILout bytes, which must be the canonical encoding of the message.
 pub fn decode(bytes: &[u8]) -> Result<pb::PilOut> {

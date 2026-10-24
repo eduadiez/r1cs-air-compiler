@@ -74,10 +74,12 @@ fn helpers_are_checked() {
     rejects("helper 0: needs at least two terms", |n, _| {
         n.helpers[0].terms.truncate(1);
     });
-    rejects("must start with coefficient 1", |n, _| {
+    rejects("helper 0: first coefficient must be 1", |n, _| {
         n.helpers[0].terms[0].1 = FieldElement(2)
     });
-    rejects("must not use wire 0", |n, _| n.helpers[0].terms[0].0 = 0);
+    rejects("helper 0: terms must not use wire 0", |n, _| {
+        n.helpers[0].terms[0].0 = 0
+    });
     let (_, network, _) = xor_plan();
     let first_helper = network.helpers[0].id;
     rejects(
@@ -474,7 +476,7 @@ fn helpers_must_be_normalized_even_when_the_relation_holds() {
             vec![(0, FieldElement(1)), (1, FieldElement(1))],
             vec![(0, FieldElement(P - 1)), (4, FieldElement(1))],
         ),
-        "must not use wire 0",
+        "helper 0: terms must not use wire 0",
     );
     // h = 2·w1 + w2, A = (h - w2) / 2.
     assert_rejected(
@@ -485,6 +487,6 @@ fn helpers_must_be_normalized_even_when_the_relation_holds() {
                 (4, FieldElement(inverse_of_two)),
             ],
         ),
-        "must start with coefficient 1",
+        "helper 0: first coefficient must be 1",
     );
 }

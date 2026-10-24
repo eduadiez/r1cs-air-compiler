@@ -148,19 +148,16 @@ pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
         .iter()
         .filter(|entry| !handled.contains(&entry.index) && entry.wires.len() == 1)
     {
-        let mut entry = entry.clone();
         let row = placer.first[entry.wires[0] as usize]
             .map_or_else(|| placer.best_fit(1), |(row, _)| row);
-        entry.row = row;
-        entry.columns = placer.assign(row, &entry.wires);
-        placements.push(entry);
+        placements.push(entry.place(&mut placer, row));
     }
     // Constant equations occupy no cells; they need only some row to exist.
     for entry in entries.iter().filter(|entry| entry.wires.is_empty()) {
         if placer.rows.is_empty() {
             placer.fresh();
         }
-        placements.push(entry.clone());
+        placements.push(entry.at(0, vec![]));
     }
     let arithmetic_rows = placements
         .iter()
@@ -190,8 +187,32 @@ pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
     })
 }
 
+/// An equation not placed yet: its index, shape group and wires.
+struct Entry {
+    index: usize,
+    shape: usize,
+    wires: Vec<u32>,
+}
+impl Entry {
+    /// Put the entry's wires in `row` and return the placement.
+    fn place(&self, placer: &mut Placer, row: usize) -> Placement {
+        let columns = placer.assign(row, &self.wires);
+        self.at(row, columns)
+    }
+    /// The placement of this entry at `row` and `columns`.
+    fn at(&self, row: usize, columns: Vec<usize>) -> Placement {
+        Placement {
+            index: self.index,
+            shape: self.shape,
+            wires: self.wires.clone(),
+            row,
+            columns,
+        }
+    }
+}
+
 /// Canonical shape groups and one unplaced entry per equation, in equation order.
-fn shape_entries(network: &Network, width: usize) -> Result<(Vec<Group>, Vec<Placement>)> {
+fn shape_entries(network: &Network, width: usize) -> Result<(Vec<Group>, Vec<Entry>)> {
     let mut groups = vec![];
     let mut ids = BTreeMap::new();
     let mut entries = vec![];
@@ -207,12 +228,10 @@ fn shape_entries(network: &Network, width: usize) -> Result<(Vec<Group>, Vec<Pla
             });
             id
         });
-        entries.push(Placement {
+        entries.push(Entry {
             index,
             shape: id,
             wires: shape.wires,
-            row: 0,
-            columns: vec![],
         });
     }
     Ok((groups, entries))
@@ -231,7 +250,7 @@ fn root(parent: &mut [u32], mut w: u32) -> u32 {
 /// largest first, and add those equations to `handled`.
 fn place_components(
     placer: &mut Placer,
-    entries: &[Placement],
+    entries: &[Entry],
     wires: u32,
     placements: &mut Vec<Placement>,
     handled: &mut BTreeSet<usize>,
@@ -272,11 +291,8 @@ fn place_components(
         let row = placer.best_fit(wires.len());
         placer.assign(row, &wires);
         for index in indices {
-            let mut entry = entries[index].clone();
-            entry.row = row;
-            entry.columns = placer.assign(row, &entry.wires);
+            placements.push(entries[index].place(placer, row));
             handled.insert(index);
-            placements.push(entry);
         }
     }
 }
@@ -284,7 +300,7 @@ fn place_components(
 /// Place the remaining multi-wire equations, widest first.
 fn place_multi_wire(
     placer: &mut Placer,
-    entries: &[Placement],
+    entries: &[Entry],
     handled: &BTreeSet<usize>,
     strategy: Strategy,
     placements: &mut Vec<Placement>,
@@ -292,7 +308,6 @@ fn place_multi_wire(
     let mut rest: Vec<_> = entries
         .iter()
         .filter(|entry| !handled.contains(&entry.index) && entry.wires.len() > 1)
-        .cloned()
         .collect();
     rest.sort_by_key(|entry| {
         (
@@ -301,16 +316,14 @@ fn place_multi_wire(
             entry.index,
         )
     });
-    for mut entry in rest {
+    for entry in rest {
         let chosen = if strategy == Strategy::Mixed {
             None
         } else {
             local_row(placer, &entry.wires)
         };
         let row = chosen.unwrap_or_else(|| placer.best_fit(entry.wires.len()));
-        entry.row = row;
-        entry.columns = placer.assign(row, &entry.wires);
-        placements.push(entry);
+        placements.push(entry.place(placer, row));
     }
 }
 

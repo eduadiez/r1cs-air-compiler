@@ -4,14 +4,14 @@
 //! tests run by a program, not a machine-checked proof.
 use crate::{
     contract::{
-        label, AIR_NAME, ALPHA, CERTIFICATE_VERSION, CHALLENGE_NAMES, FIRST_COLUMN, GAMMA,
-        MAX_ROWS, MIN_ROWS, PRODUCT_COLUMN, PUBLICS_SYMBOL, REFERENCE_RELATION, STAGE_ONE,
-        STAGE_TWO, SUM_HINT, TRACE_SYMBOL, ZERO_COLUMN_NAME,
+        label, AIR_NAME, ALPHA, CHALLENGE_NAMES, FIRST_COLUMN, GAMMA, MAX_ROWS, MIN_ROWS,
+        PRODUCT_COLUMN, PUBLICS_SYMBOL, REFERENCE_RELATION, STAGE_ONE, STAGE_TWO, SUM_HINT,
+        TRACE_SYMBOL, ZERO_COLUMN_NAME,
     },
     ensure,
-    pilout_check::{self, scalar, BinaryOp, ExpectedSymbol, Geometry, Pattern},
+    pilout_check::{self, scalar, BinaryOp, Binding, ExpectedSymbol, Geometry, Pattern},
     polynomial::{accumulate, difference, product, variable, Interpreter, Polynomial, Var},
-    proto as pb, r1cs, sha256_hex, ReferenceCertificate, Result,
+    proto as pb, r1cs, ReferenceCertificate, Result,
 };
 use pb::SymbolType;
 use serde::Serialize;
@@ -48,15 +48,13 @@ pub fn check(
     pilout_bytes: &[u8],
     certificate: &ReferenceCertificate,
 ) -> Result<ReferenceCheckReport> {
-    ensure(
-        certificate.version == CERTIFICATE_VERSION && certificate.relation == REFERENCE_RELATION,
-        "certificate version or relation",
-    )?;
-    ensure(
-        sha256_hex(source) == certificate.source_sha256
-            && sha256_hex(pilout_bytes) == certificate.pilout_sha256,
-        "certificate hashes do not match the source and PILout",
-    )?;
+    let binding = Binding {
+        version: certificate.version,
+        relation: &certificate.relation,
+        source_sha256: &certificate.source_sha256,
+        pilout_sha256: &certificate.pilout_sha256,
+    };
+    pilout_check::check_binding(&binding, REFERENCE_RELATION, source, pilout_bytes)?;
     let circuit = r1cs::read(source)?;
     check_mapping(&circuit, certificate)?;
 

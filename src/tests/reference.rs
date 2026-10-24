@@ -474,12 +474,16 @@ fn unknown_protobuf_fields_are_rejected() {
 
 #[test]
 fn every_certificate_field_is_checked() {
-    rejects_certificate("certificate version or relation", |c| c.version = 2);
-    rejects_certificate("certificate version or relation", |c| {
+    rejects_certificate("unsupported certificate version 2", |c| c.version = 2);
+    rejects_certificate("expected 'r1cs-per-row-publics-at-row-zero'", |c| {
         c.relation = PACKED_RELATION.into()
     });
-    rejects_certificate("certificate hashes", |c| c.source_sha256 = "00".repeat(32));
-    rejects_certificate("certificate hashes", |c| c.pilout_sha256 = "00".repeat(32));
+    rejects_certificate("certificate sourceSha256 does not match the source", |c| {
+        c.source_sha256 = "00".repeat(32)
+    });
+    rejects_certificate("certificate piloutSha256 does not match the PILout", |c| {
+        c.pilout_sha256 = "00".repeat(32)
+    });
     rejects_certificate("public wires must be 1..=publics in order", |c| {
         c.public_wires.swap(0, 1)
     });
