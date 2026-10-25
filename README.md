@@ -119,7 +119,8 @@ formally, and some components are trusted rather than checked: the parser, the
 field arithmetic, the protobuf schema and decoder, SHA-256 and the proving
 backend (see the specification). Inputs are assumed not to be adversarial: there
 is no limit on total time or memory, so run the checker on untrusted artifacts
-only under external resource limits. See [the specification](SPEC.md).
+only under external resource limits. [The specification](SPEC.md) argues on
+paper that every accepted artifact is sound and complete.
 
 ## More documentation
 

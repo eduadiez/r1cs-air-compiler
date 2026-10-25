@@ -84,14 +84,19 @@ the certificate format and the checker are the same as without it.
 ## Packed relation (`r1cs-packed-static-copy`)
 
 A single assignment of the circuit is spread over the cells of the trace, so
-that each row holds several small equations instead of the whole circuit.
+that each row holds several small equations instead of the whole circuit. The
+relation is: there is an assignment `w` that satisfies every equation of the
+circuit with `w_{j+1} = public[j]` for every public index `j`, extended to the
+helpers below by their definitions, such that every cell of each wire `u` holds
+`w_u`.
 
 **Helpers.** To limit each equation to at most `width` distinct wires, the
 compiler introduces helper wires. A helper `h` is defined by
 `h = Σ kᵢ · wᵢ`: at least two terms, the first coefficient 1, and every `wᵢ` a
-nonconstant wire earlier than `h`. Each source equation is rewritten into a converted equation that may use
-helpers. The checker replaces every helper by its definition and requires the
-result to be exactly the source equation, as polynomials.
+nonconstant wire earlier than `h`. Each source equation is rewritten into a
+converted equation that may use helpers. The checker replaces every helper by
+its definition and requires `A · B - C` of the result to be the same polynomial
+as `A · B - C` of the source equation.
 
 **Placement.** Every helper definition and every converted equation is placed
 exactly once, on one row, with each of its wires in a cell of that row. Two
@@ -111,7 +116,8 @@ cells.
 **Public values.** Public value `j` is bound to a cell holding wire `j + 1`;
 the checker accepts any such cell, and the compiler uses the first cell it
 assigned to the wire. Let `q` be the number of distinct rows
-that hold public cells. Those rows are numbered `0 … q-1` and split into groups
+that hold public cells. Those rows are numbered `0 … q-1` in increasing row
+order and split into groups
 of `s = ⌈√q⌉`. The fixed column `PH{h}`
 is 1 on the rows of group `h`, and `PL{l}` on the rows with position `l` inside
 their group, so `PH · PL` is 1 on exactly one row. For each column `c` holding
@@ -128,7 +134,8 @@ most one cell, the PILout has no copy argument; stage two then holds only
 
 Every cell has its own label: `ω^r · COSET^c` for row `r` and column `c`, where
 `ω = 7^((P - 1) / n)` generates the row domain and `COSET` is the constant in
-`src/field.rs`. The compiler checks that all labels are distinct. The fixed
+`src/field.rs`. The compiler and the checker both check that all labels are
+distinct. The fixed
 column `ID` holds `ω^r`. For each column `c`, the fixed column `S{c}` holds the
 permuted labels: each cell of a wire holds the label of the previous cell of
 the same wire, in row-major order and cyclically. An unused cell, or the only
@@ -151,8 +158,9 @@ LAST · (z - 1) = 0
 ```
 
 `LAST` is `FIRST` read at the next row, so it is 1 only on the last row. Since
-`z = 1` on the last row, row 0 reads a previous value of 1, and the constraints
-hold exactly when the product of all `num_c` equals the product of all `den_c`.
+`z = 1` on the last row, row 0 reads a previous value of 1, and, when every
+denominator factor is nonzero, the constraints hold exactly when the product of
+all `num_c` equals the product of all `den_c`.
 
 **Degree reduction.** Every factor is linear in the columns, and each constraint
 must have degree at most five. For `width = 3` the products above already fit.
@@ -217,39 +225,134 @@ A packed certificate contains `version`, `relation`, `sourceSha256` and
 do not affect the relation (helper chunk size, reuse policy, folding and
 placement strategy) are not recorded.
 
-## Properties not yet formally proved
+## Correctness argument
 
-- **Checker correctness:** if the checker accepts an R1CS file, a PILout file
-  and a certificate, the soundness and completeness properties below hold for
-  them.
-- **Soundness:** from every trace that satisfies the AIR, a satisfying
-  assignment of the circuit with the same public values can be read back
-  through the certificate's wire map. For packed artifacts this holds except
-  with the failure probability of the copy argument over the choice of
-  challenges.
-- **Completeness:** every satisfying assignment of the circuit extends to a
-  trace that satisfies the AIR, including helpers, unused cells and stage two.
-  For packed artifacts this requires that no copy denominator is zero for the
-  drawn challenges.
+This section argues on paper that the soundness and completeness properties
+hold for every artifact the checker accepts. It assumes that acceptance means
+the certificate passes the checks described above (for packed artifacts: the
+helper and placement identities, one wire per cell, the public bindings, the
+active slot rows, `requiresCopy` and distinct labels) and that the PILout
+contains exactly the constraints, fixed columns and hints described above; whether the checker's code achieves that is a separate question (see
+"Status of the properties"). Constraints are read as a backend reads them: an
+`EveryRow` constraint must vanish on every row, row offsets wrap around, and
+the copy challenges `α` and `γ` are drawn from a field `K` containing the
+Goldilocks field after the stage-one trace is fixed.
+
+### Reference relation
+
+*Soundness.* Let a trace satisfy the AIR. Every equation constraint vanishes on
+every row `r`, so `assignment(r, ·)` satisfies every equation. On row 0,
+`FIRST = 1`, so the public constraints give `assignment(0, j + 1) = public[j]`. No challenge appears in a constraint, so
+this holds with certainty.
+
+*Completeness.* Given an assignment `w` that satisfies the circuit with public
+values `public`, put `w` on every row, which is possible because each wire
+`i ≥ 1` has its own column `m(i)`, and fill `stage2_zero` with 0, which is
+what its `gsum_col` hint computes (a zero numerator over 1). Every equation
+constraint then holds on every row and the public constraints hold on row 0.
+
+### Packed relation
+
+Let `M = n · width` be the number of cells; the checker requires
+`M ≤ MAX_CELLS`. Write `label(x)` for the label of cell `x`, and `prev(x)` for
+the previous cell of the same wire, so that `S` holds `label(prev(x))` at cell
+`x`. The map `prev` is a permutation of the cells whose cycles are exactly the
+sets of cells of each wire; an unused cell, or the only cell of a wire, is its
+own cycle.
+
+**Lemma 1 (copy argument).** Fix the stage-one values `a(x)`, and suppose every
+denominator factor `a(x) + α · label(x) + γ` is nonzero.
+
+1. If stage-two values satisfy the ratio, recurrence and `LAST` constraints,
+   then `∏ num = ∏ den` over all cells.
+2. If `a` is constant on the cells of every wire, the columns computed by the
+   hints satisfy those constraints.
+
+For (1), each ratio constraint has the form `ratio · d = e` with `d` a product
+of denominator factors, so `ratio = e / d`; by induction over the ratios, the
+`z` constraint on row `r` reads `z[r] = z[r - 1] · N[r] / D[r]`, where `N[r]`
+and `D[r]` are the products of the numerator and denominator factors of row
+`r`. Multiplying over all rows, cyclically, gives
+`z[n - 1] = z[n - 1] · ∏ N / ∏ D`, and `LAST` gives `z[n - 1] = 1`. For (2),
+the hints compute the same ratios and the running product from row 0, so
+`z[r] = z[r - 1] · N[r] / D[r]` for `r ≥ 1` and `z[0] = N[0] / D[0]`, and the
+last value is `z[n - 1] = ∏ N / ∏ D`. Since `prev` is a permutation and
+`a(prev(x)) = a(x)`, the numerator factors `a(x) + α · label(prev(x)) + γ` are
+a reordering of the denominator factors, so `z[n - 1] = 1`. Hence `LAST` holds,
+and so does the recurrence on row 0, which reads `z[n - 1] = 1`.
+
+**Lemma 2 (copy failure probability).** Fix `a` before `α` and `γ` are drawn
+uniformly from `K`. Except with probability at most `2M / |K|`, every
+denominator factor is nonzero, and `∏ num = ∏ den` holds only if the cells of
+each wire hold equal values.
+
+As polynomials in `α` and `γ`, each denominator factor has the form `γ + …` and
+is nonzero, so it vanishes with probability at most `1 / |K|`; there are `M` of
+them. Next, `F = ∏ num - ∏ den` has total degree at most `M`. If `F` is the zero
+polynomial, unique factorization in `K[α, γ]` makes the multisets of pairs
+`(a(x), label(prev(x)))` and `(a(x), label(x))` equal. The labels are distinct,
+so the pair `(a(x), label(prev(x)))` can only equal `(a(prev(x)), label(prev(x)))`,
+which gives `a(x) = a(prev(x))` for every cell: values are constant on every
+cycle of `prev`, that is, on the cells of every wire. Otherwise `F` is nonzero
+and, by the Schwartz–Zippel lemma, vanishes with probability at most `M / |K|`.
+
+**Lemma 3 (public constraints).** On every row `r` and column `c`, the sum
+`Σ PH · PL · public[j]` is `public[j]` if `r` holds the public cell of value `j`
+in column `c`, and 0 otherwise. `PH{h} · PL{l}` is 1 only on the public row
+numbered `h · s + l`; two public values bound in the same column are different
+wires, so they are on different rows. Hence the constraint for column `c`
+requires `a[c] = public[j]` on each such cell, and nothing on other rows,
+where `PA{c}` and every product `PH · PL` in the sum vanish.
+
+*Soundness.* Let a trace satisfy the AIR for challenges that avoid the
+exceptions of Lemma 2. By Lemmas 1 and 2 (or trivially if the PILout has no
+copy argument, since each wire then has at most one cell), every wire's cells
+hold one value; let `w` be that value, `w₀ = 1`, and 0 for a wire without
+cells. On every row where a slot is active, its selector is 1, so the
+equation placed there holds for `w`. Every helper definition is placed, so
+each helper equals its linear combination of earlier wires. Every converted
+equation is placed, and the checker requires `A · B - C` of each converted
+equation, with every helper replaced by its definition, to be the same
+polynomial as `Aᵢ · Bᵢ - Cᵢ` of its source equation; so the source equation
+holds for `w`. These are polynomial identities, so they hold whatever value a
+wire without cells takes, in particular 0. By Lemma 3, `w_{j+1} = public[j]`.
+
+*Completeness.* Given an assignment `w` that satisfies the circuit with public
+values `public`, compute each helper from its definition, in order, and put
+each wire's value in all of its cells and 0 in unused cells. Each placed
+equation is a helper definition or a converted equation, and both hold, so
+every slot constraint holds on its active rows and vanishes elsewhere. By
+Lemma 3, the public constraints hold. If every denominator factor is nonzero,
+Lemma 1 (2) gives stage two; this fails with probability at most `M / |K|`.
+Without a copy argument, `stage2_zero` is 0 as in the reference relation.
+
+With `M ≤ MAX_CELLS < 2^22` and `|K| ≥ P > 2^63`, the bound `2M / |K|` is below
+`2^-40` for one draw of the challenges. The bound is for challenges drawn
+after a fixed stage-one trace; under Fiat–Shamir a prover can try many traces,
+and this argument does not cover that.
+
+## Status of the properties
+
+- **Checker correctness:** that the checker accepts only artifacts whose PILout
+  contains exactly the constraints, columns and hints described above. This is
+  not proved; rejection tests and mutation tests exercise it.
+- **Soundness and completeness:** argued on paper above, assuming checker
+  correctness. The argument has not been checked by a proof assistant.
 - **Binding to bytes:** the properties apply to the canonical decoded PILout
   bytes. The parsers, the hash and the serialization must either be covered or
   be listed as trusted.
 
-Bounds on the failure probability, the zero-denominator cases and the effect of
-deriving challenges by Fiat–Shamir have not been analyzed in full.
-
 The polynomial comparison is an ordinary Rust implementation of polynomial
 equality over the field. Rejection tests exercise it; they do not prove it correct.
 
-Soundness and completeness are tested, not proved, by property tests over
-random satisfiable circuits and random layouts. A test-only evaluator, which
-reads only the PILout, fills stage two from the hints and evaluates every
-constraint on every row for random challenges. The tests require that the
-honest trace of every reference and packed artifact satisfies its AIR, and
-that whenever a changed trace (one cell, every cell of one wire, or one public
-value) still satisfies it, the assignment read back through the certificate
-satisfies the circuit with the same public values. [Testing](docs/TESTING.md)
-describes them.
+Soundness and completeness are also tested by property tests over random
+satisfiable circuits and random layouts. A test-only evaluator, which reads
+only the PILout, fills stage two from the hints and evaluates every constraint
+on every row for random challenges. The tests require that the honest trace of
+every reference and packed artifact satisfies its AIR, and that whenever a
+changed trace (one cell, every cell of one wire, or one public value) still
+satisfies it, the assignment read back through the certificate satisfies the
+circuit with the same public values. [Testing](docs/TESTING.md) describes them.
 
 ## Out of scope
 
