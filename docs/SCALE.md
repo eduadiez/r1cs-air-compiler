@@ -38,10 +38,10 @@ show the order of magnitude on one machine, not a guarantee.
 
 | Command | Time | Peak memory |
 | --- | --- | --- |
-| `air compile --layout` (includes the check) | 2.7 s | 140 MB |
-| `air check` | 1.4 s | 120 MB |
-| `air plan` | 1.4 s | 70 MB |
-| `air witness` | 2.5 s | 120 MB |
+| `air compile --layout` (includes the check) | 1.0 s | 140 MB |
+| `air check` | 0.5 s | 110 MB |
+| `air plan` | 0.4 s | 60 MB |
+| `air witness` | 0.8 s | 110 MB |
 
 With pil2-proofman at commit `eda04742b64abe0e5322a8231f0155438ffb62fe`
 (see [the backend check](../tools/backend-check/README.md)), the prover's
@@ -57,22 +57,22 @@ memory are for `air compile` (one run each, same machine):
 
 | Message bits | Constraints | Width | Rows | PILout | Time | Peak memory |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1024 | 89 609 | 64 | 4096 | 11 MB | 3.6 s | 0.4 GB |
-| 1024 | 89 609 | 256 | 1024 | 8.0 MB | 5.3 s | 0.5 GB |
-| 2048 | 150 265 | 64 | 8192 | 25 MB | 6.4 s | 0.7 GB |
-| 2048 | 150 265 | 256 | 2048 | 17 MB | 8.6 s | 0.8 GB |
-| 4096 | 271 577 | 64 | 16384 | 60 MB | 12.6 s | 1.3 GB |
-| 4096 | 271 577 | 256 | 4096 | 37 MB | 15.6 s | 1.3 GB |
-| 8192 | 514 201 | 64 | 32768 | 127 MB | 24.8 s | 2.4 GB |
-| 8192 | 514 201 | 128 | — | rejected: `PILout exceeds the size limit` | 25.4 s | 2.3 GB |
-| 8192 | 514 201 | 256 | 8192 | 84 MB | 29.9 s | 2.5 GB |
-| 8192 | 514 201 | 512 | — | rejected: `evaluated expressions exceed the term limit` | 29.2 s | 1.6 GB |
+| 1024 | 89 609 | 64 | 4096 | 11 MB | 1.9 s | 0.4 GB |
+| 1024 | 89 609 | 256 | 1024 | 8.0 MB | 2.5 s | 0.5 GB |
+| 2048 | 150 265 | 64 | 8192 | 25 MB | 3.4 s | 0.7 GB |
+| 2048 | 150 265 | 256 | 2048 | 17 MB | 4.1 s | 0.8 GB |
+| 4096 | 271 577 | 64 | 16384 | 60 MB | 6.5 s | 1.3 GB |
+| 4096 | 271 577 | 256 | 4096 | 37 MB | 7.3 s | 1.3 GB |
+| 8192 | 514 201 | 64 | 32768 | 127 MB | 13.4 s | 2.4 GB |
+| 8192 | 514 201 | 128 | — | rejected: `PILout exceeds the size limit` | 10.2 s | 2.3 GB |
+| 8192 | 514 201 | 256 | 8192 | 84 MB | 13.8 s | 2.5 GB |
+| 8192 | 514 201 | 512 | — | rejected: `evaluated expressions exceed the term limit` | 11.8 s | 1.6 GB |
 
 Around half a million constraints, the first limit reached is
 `MAX_PILOUT_BYTES` (128 MB): most of the PILout is fixed columns, whose size
 grows with the number of rows times the number of fixed columns. The limit is
-checked on the finished PILout, so a rejected compilation takes as long as a
-successful one. To reproduce a row, compile
+checked on the finished PILout, so a rejected compilation does almost all the
+work of a successful one. To reproduce a row, compile
 `component main = Sha256(n);`, including `vendor/circomlib/sha256/sha256.circom`,
 with the flags in `docs/provenance.json` (`fixtureToolchain`), and run
 `air compile` with the layout below, changing `width` and `chunk`:
