@@ -24,7 +24,7 @@ pub fn compile(
 ) -> Result<(Vec<u8>, ReferenceCertificate)> {
     ensure(
         rows.is_power_of_two() && (MIN_ROWS..=MAX_ROWS).contains(&rows),
-        format!("rows must be a power of two in {MIN_ROWS}..={MAX_ROWS}"),
+        format_args!("rows must be a power of two in {MIN_ROWS}..={MAX_ROWS}"),
     )?;
     // At most MAX_ROWS, so it fits.
     let rows = rows as u32;

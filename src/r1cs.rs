@@ -66,15 +66,15 @@ impl<'a> Reader<'a> {
             let coefficient = self.u64()?;
             ensure(
                 wire < wires,
-                format!("wire {wire} outside declared range 0..{wires}"),
+                format_args!("wire {wire} outside declared range 0..{wires}"),
             )?;
             ensure(
                 coefficient < P,
-                format!("noncanonical coefficient for wire {wire}"),
+                format_args!("noncanonical coefficient for wire {wire}"),
             )?;
             ensure(
                 seen.insert(wire),
-                format!("duplicate linear-combination wire {wire}"),
+                format_args!("duplicate linear-combination wire {wire}"),
             )?;
             terms.push((wire, FieldElement(coefficient)));
         }
@@ -136,7 +136,7 @@ pub fn read(data: &[u8]) -> Result<Circuit> {
     )?;
     ensure_within_limit(
         wires <= MAX_CIRCUIT_SIZE && equation_count <= MAX_CIRCUIT_SIZE,
-        format!("circuit exceeds {MAX_CIRCUIT_SIZE} wires or equations"),
+        format_args!("circuit exceeds {MAX_CIRCUIT_SIZE} wires or equations"),
     )?;
     let mut constraints = Reader::new(sections.get(&2).ok_or("R1CS constraint section missing")?);
     ensure(
@@ -209,7 +209,10 @@ pub fn read_witness(data: &[u8], wires: u32) -> Result<Vec<u64>> {
     let mut result = vec![];
     for wire in 0..wires {
         let value = values.u64()?;
-        ensure(value < P, format!("WTNS value of wire {wire} not below P"))?;
+        ensure(
+            value < P,
+            format_args!("WTNS value of wire {wire} not below P"),
+        )?;
         result.push(value);
     }
     ensure(result.first() == Some(&1), "WTNS wire 0 must be 1")?;

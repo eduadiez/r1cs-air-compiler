@@ -86,7 +86,7 @@ pub fn check(
     for (index, (root, expected)) in roots.iter().zip(&expected).enumerate() {
         ensure(
             interpreter.values.get(*root) == Some(expected),
-            format!("constraint {index} differs from the expected polynomial"),
+            format_args!("constraint {index} differs from the expected polynomial"),
         )?;
     }
     check_zero_hint(&pilout, air)?;
@@ -108,7 +108,7 @@ fn check_mapping(circuit: &r1cs::Circuit, certificate: &ReferenceCertificate) ->
     ensure(
         certificate.rows.is_power_of_two()
             && (MIN_ROWS..=MAX_ROWS).contains(&(certificate.rows as usize)),
-        format!("rows must be a power of two in {MIN_ROWS}..={MAX_ROWS}"),
+        format_args!("rows must be a power of two in {MIN_ROWS}..={MAX_ROWS}"),
     )?;
     ensure(circuit.wires > 1, "circuit has no nonconstant wires")?;
     ensure(
@@ -249,7 +249,7 @@ fn check_zero_hint(pilout: &pb::PilOut, air: &pb::Air) -> Result<()> {
         let pattern = &expected[name];
         ensure(
             pilout_check::matches(air, operand, pattern)?,
-            format!("hint '{SUM_HINT}': field '{name}' differs from the expected expression"),
+            format_args!("hint '{SUM_HINT}': field '{name}' differs from the expected expression"),
         )?;
     }
     Ok(())

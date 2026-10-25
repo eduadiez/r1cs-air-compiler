@@ -129,7 +129,7 @@ pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
     let (width, strategy, min_rows) = (config.options.width, config.strategy, config.min_rows);
     ensure(
         min_rows >= MIN_ROWS && min_rows.is_power_of_two(),
-        format!("minRows must be a power of two, at least {MIN_ROWS}"),
+        format_args!("minRows must be a power of two, at least {MIN_ROWS}"),
     )?;
     let (groups, entries) = shape_entries(network, width)?;
     let mut placer = Placer::new(width, network.wires);
@@ -170,7 +170,7 @@ pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
     let rows = used_rows.next_power_of_two().max(min_rows);
     ensure_within_limit(
         rows <= MAX_ROWS && rows.saturating_mul(width) <= MAX_CELLS,
-        format!("layout exceeds {MAX_ROWS} rows or {MAX_CELLS} cells"),
+        format_args!("layout exceeds {MAX_ROWS} rows or {MAX_CELLS} cells"),
     )?;
     let (slots, selectors) = slots_and_selectors(&placements);
     Ok(Layout {

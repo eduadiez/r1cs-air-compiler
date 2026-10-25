@@ -102,23 +102,25 @@ from_display!(
     std::num::TryFromIntError,
 );
 
-/// Return an error with message `why` unless `ok` holds.
-pub(crate) fn ensure(ok: bool, why: impl Into<String>) -> Result<()> {
+/// Return an error with message `why` unless `ok` holds. `why` is formatted
+/// only on failure, so callers in loops pass `format_args!` rather than an
+/// allocated `String`.
+pub(crate) fn ensure(ok: bool, why: impl fmt::Display) -> Result<()> {
     if ok {
         Ok(())
     } else {
-        Err(Error::new(why))
+        Err(Error::new(why.to_string()))
     }
 }
 
 /// Return a [`ErrorKind::Limit`] error with message `why` unless `ok` holds.
-pub(crate) fn ensure_within_limit(ok: bool, why: impl Into<String>) -> Result<()> {
+pub(crate) fn ensure_within_limit(ok: bool, why: impl fmt::Display) -> Result<()> {
     if ok {
         Ok(())
     } else {
         Err(Error {
             kind: ErrorKind::Limit,
-            ..Error::new(why)
+            ..Error::new(why.to_string())
         })
     }
 }

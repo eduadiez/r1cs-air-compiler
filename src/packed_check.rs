@@ -187,11 +187,11 @@ impl<'a> FixedColumns<'a> {
         let id = self.names.len();
         ensure(
             id < self.air.fixed_cols.len(),
-            format!("fixed column {name} is missing"),
+            format_args!("fixed column {name} is missing"),
         )?;
         ensure(
             self.air.fixed_cols[id].values.len() == self.rows,
-            format!("fixed column {name} must have one value per row"),
+            format_args!("fixed column {name} must have one value per row"),
         )?;
         for (row, (actual, expected)) in self.air.fixed_cols[id]
             .values
@@ -201,7 +201,7 @@ impl<'a> FixedColumns<'a> {
         {
             ensure(
                 scalar(actual)? == *expected,
-                format!("fixed column {name} differs at row {row}"),
+                format_args!("fixed column {name} differs at row {row}"),
             )?;
         }
         self.names.push(name);
@@ -463,7 +463,7 @@ fn check_main_constraints(
     for (index, (root, expected)) in roots.iter().zip(expected).enumerate() {
         ensure(
             interpreter.values.get(*root) == Some(expected),
-            format!("constraint {index} differs from the expected slot or public constraint"),
+            format_args!("constraint {index} differs from the expected slot or public constraint"),
         )?;
     }
     Ok(())
@@ -779,7 +779,7 @@ fn check_ratios(
         let residual = graph.sub(lhs, numerator);
         ensure(
             expression_ids.get(*root) == Some(&residual),
-            format!("copy ratio constraint {i} differs from the expected one"),
+            format_args!("copy ratio constraint {i} differs from the expected one"),
         )?;
         hints.push((
             RATIO_HINT,
@@ -846,7 +846,7 @@ fn check_hints(
         for (field, operand) in fields {
             ensure(
                 wanted.get(field) == Some(&graph.operand(operand, context)?),
-                format!("hint '{name}': field '{field}' differs from the expected expression"),
+                format_args!("hint '{name}': field '{field}' differs from the expected expression"),
             )?;
         }
     }

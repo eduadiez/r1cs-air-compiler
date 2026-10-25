@@ -98,7 +98,7 @@ pub fn convert(source: &Circuit, options: &ConversionOptions) -> Result<Network>
     ensure(
         (MIN_WIDTH..=MAX_WIDTH).contains(&options.width)
             && (2..options.width).contains(&options.chunk),
-        format!(
+        format_args!(
             "options.width must be {MIN_WIDTH}..={MAX_WIDTH} and options.chunk 2..width (width={}, chunk={})",
             options.width, options.chunk
         ),

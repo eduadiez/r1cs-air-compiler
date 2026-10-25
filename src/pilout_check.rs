@@ -29,11 +29,11 @@ pub fn check_binding(
 ) -> Result<()> {
     ensure(
         binding.version == CERTIFICATE_VERSION,
-        format!("unsupported certificate version {}", binding.version),
+        format_args!("unsupported certificate version {}", binding.version),
     )?;
     ensure(
         binding.relation == expected_relation,
-        format!(
+        format_args!(
             "certificate relation is '{}', expected '{expected_relation}'",
             binding.relation
         ),
@@ -91,7 +91,7 @@ pub struct Geometry {
 pub fn check_envelope<'a>(pilout: &'a pb::PilOut, expected: &Geometry) -> Result<&'a pb::Air> {
     ensure(
         pilout.name.as_deref() == Some(PILOUT_NAME),
-        format!("PILout must be named '{PILOUT_NAME}'"),
+        format_args!("PILout must be named '{PILOUT_NAME}'"),
     )?;
     ensure(
         pilout.base_field == P.to_be_bytes(),
@@ -119,7 +119,7 @@ pub fn check_envelope<'a>(pilout: &'a pb::PilOut, expected: &Geometry) -> Result
     let group = &pilout.air_groups[0];
     ensure(
         group.name.as_deref() == Some(AIR_NAME),
-        format!("AIR group must be named '{AIR_NAME}'"),
+        format_args!("AIR group must be named '{AIR_NAME}'"),
     )?;
     ensure(
         group.air_group_values.is_empty(),
@@ -129,7 +129,7 @@ pub fn check_envelope<'a>(pilout: &'a pb::PilOut, expected: &Geometry) -> Result
     let air = &group.airs[0];
     ensure(
         air.name.as_deref() == Some(AIR_NAME),
-        format!("AIR must be named '{AIR_NAME}'"),
+        format_args!("AIR must be named '{AIR_NAME}'"),
     )?;
     ensure(
         air.num_rows == Some(expected.rows),
@@ -216,7 +216,7 @@ pub fn check_symbols(
                 && symbol.dim == symbol.lengths.len() as u32
                 && symbol.commit_id.is_none()
                 && symbol.debug_line.is_none(),
-            format!("symbol '{}' has unexpected fields", symbol.name),
+            format_args!("symbol '{}' has unexpected fields", symbol.name),
         )?;
     }
     Ok(())
@@ -236,7 +236,7 @@ pub fn constraint_roots(air: &pb::Air, labels: &[String]) -> Result<Vec<usize>> 
         };
         ensure(
             row.debug_line.as_deref() == Some(label.as_str()),
-            format!("constraint {index} must be labeled '{label}'"),
+            format_args!("constraint {index} must be labeled '{label}'"),
         )?;
         let root = row
             .expression_idx
@@ -263,7 +263,7 @@ pub fn hint_fields<'a>(pilout: &'a pb::PilOut, names: &[&str]) -> Result<Vec<Hin
                 && hint.air_id == Some(0)
                 && hint.hint_fields.len() == 1
                 && hint.hint_fields[0].name.is_none(),
-            format!("hint '{name}': name, AIR or field layout"),
+            format_args!("hint '{name}': name, AIR or field layout"),
         )?;
         let Some(pb::hint_field::Value::HintFieldArray(array)) = &hint.hint_fields[0].value else {
             return Err(format!("hint '{name}': fields must be an array").into());
@@ -281,7 +281,7 @@ pub fn hint_fields<'a>(pilout: &'a pb::PilOut, names: &[&str]) -> Result<Vec<Hin
             };
             ensure(
                 fields.insert(field_name, operand).is_none(),
-                format!("hint '{name}': duplicate field '{field_name}'"),
+                format_args!("hint '{name}': duplicate field '{field_name}'"),
             )?;
         }
         result.push(fields);
@@ -297,7 +297,7 @@ pub fn check_field_names<T>(
 ) -> Result<()> {
     ensure(
         actual.keys().eq(expected.keys()),
-        format!("hint '{name}': field names"),
+        format_args!("hint '{name}': field names"),
     )
 }
 

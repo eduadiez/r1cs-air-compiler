@@ -7,7 +7,7 @@ use crate::{
         MIN_WIDTH,
     },
     ensure, ensure_within_limit,
-    field::{mul, neg, FieldElement},
+    field::{add, mul, neg, FieldElement},
     polynomial::accumulate,
     r1cs::{Circuit, Equation},
     Result, P,
@@ -16,9 +16,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Linear combination over wires: wire to nonzero coefficient.
 type Linear = BTreeMap<u32, u64>;
-/// Quadratic polynomial over wires: `(i, j)` with `i <= j` is the monomial
-/// `w_i · w_j`; wire 0 is the constant 1, so `(0, j)` is linear in `w_j`.
-type Quadratic = BTreeMap<(u32, u32), u64>;
+/// Quadratic polynomial over wires, as monomials in increasing order with
+/// nonzero coefficients: `(i, j)` with `i <= j` is the monomial `w_i · w_j`;
+/// wire 0 is the constant 1, so `(0, j)` is linear in `w_j`.
+type Quadratic = Vec<((u32, u32), u64)>;
 /// A slot activation: shape, columns and row.
 type Activation = (usize, Vec<usize>, usize);
 
@@ -57,7 +58,7 @@ pub fn check(source: &Circuit, network: &Network, layout: &Layout) -> Result<Che
             .map(|lc| lc.into_iter().filter(|(_, k)| k.0 != 0).collect());
         ensure(
             residual(actual, &expanded)? == residual(&expected, &identity)?,
-            format!("converted equation {index} differs from its source equation"),
+            format_args!("converted equation {index} differs from its source equation"),
         )?;
         equations.push(actual.clone());
     }
@@ -114,19 +115,19 @@ fn check_dimensions(source: &Circuit, network: &Network, layout: &Layout) -> Res
     )?;
     ensure(
         (MIN_WIDTH..=MAX_WIDTH).contains(&layout.width),
-        format!("width must be in {MIN_WIDTH}..={MAX_WIDTH}"),
+        format_args!("width must be in {MIN_WIDTH}..={MAX_WIDTH}"),
     )?;
     ensure(
         layout.min_rows >= MIN_ROWS && layout.min_rows.is_power_of_two(),
-        format!("minRows must be a power of two, at least {MIN_ROWS}"),
+        format_args!("minRows must be a power of two, at least {MIN_ROWS}"),
     )?;
     ensure(
         layout.rows.is_power_of_two() && layout.rows <= MAX_ROWS && layout.rows >= layout.min_rows,
-        format!("rows must be a power of two in minRows..={MAX_ROWS}"),
+        format_args!("rows must be a power of two in minRows..={MAX_ROWS}"),
     )?;
     ensure_within_limit(
         layout.rows.saturating_mul(layout.width) <= MAX_CELLS,
-        format!("layout exceeds {MAX_CELLS} cells"),
+        format_args!("layout exceeds {MAX_CELLS} cells"),
     )?;
     ensure(
         network.converted.len() == source.equations.len(),
@@ -140,10 +141,10 @@ fn check_canonical(equation: &Equation, wires: u32) -> Result<()> {
     for lc in equation {
         let mut last = None;
         for (wire, k) in lc {
-            ensure(*wire < wires, format!("wire {wire} out of range"))?;
+            ensure(*wire < wires, format_args!("wire {wire} out of range"))?;
             ensure(
                 k.0 > 0 && k.0 < P,
-                format!("coefficient of wire {wire} must be in 1..P"),
+                format_args!("coefficient of wire {wire} must be in 1..P"),
             )?;
             ensure(
                 last.is_none_or(|previous| *wire > previous),
@@ -171,22 +172,22 @@ fn expand_helpers(
                 .checked_sub(source.wires)
                 .map(|offset| offset as usize)
                 == Some(index),
-            format!("helper {index}: ids must follow the source wires in order"),
+            format_args!("helper {index}: ids must follow the source wires in order"),
         )?;
         ensure(
             helper.terms.len() >= 2,
-            format!("helper {index}: needs at least two terms"),
+            format_args!("helper {index}: needs at least two terms"),
         )?;
         // Terms are canonical and reference only earlier wires, so helpers are acyclic.
         check_canonical(&[helper.terms.clone(), vec![], vec![]], helper.id)
             .map_err(|e| format!("helper {index}: {e}"))?;
         ensure(
             helper.terms.iter().all(|(wire, _)| *wire > 0),
-            format!("helper {index}: terms must not use wire 0"),
+            format_args!("helper {index}: terms must not use wire 0"),
         )?;
         ensure(
             helper.terms[0].1 .0 == 1,
-            format!("helper {index}: first coefficient must be 1"),
+            format_args!("helper {index}: first coefficient must be 1"),
         )?;
         let mut values = BTreeMap::new();
         for (wire, k) in &helper.terms {
@@ -196,7 +197,7 @@ fn expand_helpers(
         }
         ensure_within_limit(
             values.len() <= MAX_HELPER_EXPANSION,
-            format!("helper {index}: expansion exceeds the size limit"),
+            format_args!("helper {index}: expansion exceeds the size limit"),
         )?;
         expanded.push(values);
         let mut terms = helper.terms.clone();
@@ -224,15 +225,24 @@ fn residual(equation: &Equation, expanded: &[Linear]) -> Result<Quadratic> {
         a.len().saturating_mul(b.len()) <= MAX_PRODUCT_TERMS,
         "placement check polynomial size limit",
     )?;
-    let mut result = BTreeMap::new();
+    // Collect every product term, then sort and merge equal monomials once:
+    // much faster than accumulating into a map when `a` and `b` are long.
+    let mut terms = Vec::with_capacity(a.len() * b.len() + c.len());
     for (i, x) in a {
         for (j, y) in b {
-            accumulate(&mut result, ((*i).min(*j), (*i).max(*j)), mul(*x, *y));
+            terms.push((((*i).min(*j), (*i).max(*j)), mul(*x, *y)));
         }
     }
-    for (i, z) in c {
-        accumulate(&mut result, (0, *i), neg(*z));
+    terms.extend(c.iter().map(|(i, z)| ((0, *i), neg(*z))));
+    terms.sort_unstable_by_key(|(monomial, _)| *monomial);
+    let mut result: Quadratic = Vec::with_capacity(terms.len());
+    for (monomial, k) in terms {
+        match result.last_mut() {
+            Some((last, sum)) if *last == monomial => *sum = add(*sum, k),
+            _ => result.push((monomial, k)),
+        }
     }
+    result.retain(|(_, sum)| *sum != 0);
     Ok(result)
 }
 
@@ -242,21 +252,24 @@ fn active_slots(layout: &Layout) -> Result<BTreeSet<Activation>> {
         check_group(id, group, layout.width)?;
     }
     for (id, selector) in layout.selectors.iter().enumerate() {
-        ensure(selector.id == id, format!("selector {id}: id out of order"))?;
+        ensure(
+            selector.id == id,
+            format_args!("selector {id}: id out of order"),
+        )?;
         ensure(
             !selector.rows.is_empty(),
-            format!("selector {id}: no active rows"),
+            format_args!("selector {id}: no active rows"),
         )?;
         ensure(
             selector.rows.windows(2).all(|pair| pair[0] < pair[1]),
-            format!("selector {id}: rows must be in increasing order"),
+            format_args!("selector {id}: rows must be in increasing order"),
         )?;
         ensure(
             selector
                 .rows
                 .iter()
                 .all(|row| *row < layout.arithmetic_rows),
-            format!("selector {id}: row beyond arithmeticRows"),
+            format_args!("selector {id}: row beyond arithmeticRows"),
         )?;
     }
     let mut active = BTreeSet::new();
@@ -264,31 +277,31 @@ fn active_slots(layout: &Layout) -> Result<BTreeSet<Activation>> {
     for (id, slot) in layout.slots.iter().enumerate() {
         ensure(
             slot.shape < layout.groups.len(),
-            format!("slot {id}: unknown shape"),
+            format_args!("slot {id}: unknown shape"),
         )?;
         ensure(
             slot.selector < layout.selectors.len(),
-            format!("slot {id}: unknown selector"),
+            format_args!("slot {id}: unknown selector"),
         )?;
         ensure(
             slot.rows == layout.selectors[slot.selector].rows,
-            format!("slot {id}: rows differ from its selector's rows"),
+            format_args!("slot {id}: rows differ from its selector's rows"),
         )?;
         ensure(
             slot.columns.len() == layout.groups[slot.shape].width,
-            format!("slot {id}: column count differs from its shape width"),
+            format_args!("slot {id}: column count differs from its shape width"),
         )?;
         ensure(
             slot.columns.iter().all(|column| *column < layout.width),
-            format!("slot {id}: column out of range"),
+            format_args!("slot {id}: column out of range"),
         )?;
         ensure(
             slot.columns.iter().collect::<BTreeSet<_>>().len() == slot.columns.len(),
-            format!("slot {id}: repeated column"),
+            format_args!("slot {id}: repeated column"),
         )?;
         ensure(
             slot_keys.insert((slot.shape, slot.columns.clone())),
-            format!("slot {id}: duplicate of an earlier slot"),
+            format_args!("slot {id}: duplicate of an earlier slot"),
         )?;
         for row in &slot.rows {
             active.insert((slot.shape, slot.columns.clone(), *row));
@@ -297,7 +310,7 @@ fn active_slots(layout: &Layout) -> Result<BTreeSet<Activation>> {
     for id in 0..layout.selectors.len() {
         ensure(
             layout.slots.iter().any(|slot| slot.selector == id),
-            format!("selector {id}: no slot uses it"),
+            format_args!("selector {id}: no slot uses it"),
         )?;
     }
     Ok(active)
@@ -306,25 +319,25 @@ fn active_slots(layout: &Layout) -> Result<BTreeSet<Activation>> {
 /// Group ids are positions; every term refers to the constant (position -1) or
 /// a position of the shape, in increasing order, with a coefficient in `1..P`.
 fn check_group(id: usize, group: &Group, width: usize) -> Result<()> {
-    ensure(group.id == id, format!("shape {id}: id out of order"))?;
+    ensure(group.id == id, format_args!("shape {id}: id out of order"))?;
     ensure(
         group.width <= width,
-        format!("shape {id}: wider than the layout"),
+        format_args!("shape {id}: wider than the layout"),
     )?;
     for lc in &group.terms {
         let mut last = None;
         for (position, k) in lc {
             ensure(
                 *position == -1 || usize::try_from(*position).is_ok_and(|p| p < group.width),
-                format!("shape {id}: position out of range"),
+                format_args!("shape {id}: position out of range"),
             )?;
             ensure(
                 k.0 > 0 && k.0 < P,
-                format!("shape {id}: coefficient must be in 1..P"),
+                format_args!("shape {id}: coefficient must be in 1..P"),
             )?;
             ensure(
                 last.is_none_or(|previous| *position > previous),
-                format!("shape {id}: positions must be in increasing order"),
+                format_args!("shape {id}: positions must be in increasing order"),
             )?;
             last = Some(*position);
         }
@@ -354,16 +367,16 @@ impl Cells {
     fn set(&mut self, row: usize, col: usize, wire: u32) -> Result<()> {
         ensure(
             row < self.rows && col < self.width,
-            format!("cell ({row}, {col}) out of range"),
+            format_args!("cell ({row}, {col}) out of range"),
         )?;
         ensure(
             wire > 0 && wire < self.wires,
-            format!("wire {wire} cannot occupy a cell"),
+            format_args!("wire {wire} cannot occupy a cell"),
         )?;
         let old = &mut self.map[row * self.width + col];
         ensure(
             *old == 0 || *old == wire,
-            format!("cell ({row}, {col}) would hold two different wires"),
+            format_args!("cell ({row}, {col}) would hold two different wires"),
         )?;
         if *old == 0 {
             *old = wire;
@@ -395,7 +408,7 @@ fn place_equations(
         let key = (placement.shape, placement.columns.clone(), placement.row);
         ensure(
             active.contains(&key),
-            format!(
+            format_args!(
                 "equation {} is placed on a row where its slot is not active",
                 placement.index
             ),
@@ -417,7 +430,7 @@ fn place_equations(
                 .placements
                 .iter()
                 .any(|placement| placement.shape == id),
-            format!("shape {id}: no equation uses it"),
+            format_args!("shape {id}: no equation uses it"),
         )?;
     }
     ensure(
@@ -439,28 +452,28 @@ fn check_placement(
     let index = placement.index;
     ensure(
         index < equations.len(),
-        format!("placement of unknown equation {index}"),
+        format_args!("placement of unknown equation {index}"),
     )?;
     ensure(
         seen.insert(index),
-        format!("equation {index} is placed twice"),
+        format_args!("equation {index} is placed twice"),
     )?;
     ensure(
         placement.shape < layout.groups.len(),
-        format!("equation {index}: unknown shape"),
+        format_args!("equation {index}: unknown shape"),
     )?;
     ensure(
         placement.row < layout.arithmetic_rows,
-        format!("equation {index}: row beyond arithmeticRows"),
+        format_args!("equation {index}: row beyond arithmeticRows"),
     )?;
     let group = &layout.groups[placement.shape];
     ensure(
         placement.wires.len() == group.width && placement.columns.len() == group.width,
-        format!("equation {index}: wire or column count differs from its shape width"),
+        format_args!("equation {index}: wire or column count differs from its shape width"),
     )?;
     ensure(
         placement.columns.iter().collect::<BTreeSet<_>>().len() == group.width,
-        format!("equation {index}: repeated column"),
+        format_args!("equation {index}: repeated column"),
     )?;
     let instantiated = group.terms.clone().map(|lc| {
         lc.into_iter()
@@ -473,6 +486,6 @@ fn check_placement(
     });
     ensure(
         residual(&instantiated, identity)? == residual(&equations[index], identity)?,
-        format!("equation {index}: its shape and wires give a different equation"),
+        format_args!("equation {index}: its shape and wires give a different equation"),
     )
 }

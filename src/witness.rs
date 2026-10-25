@@ -36,7 +36,7 @@ pub fn project(source: &[u8], certificate: &PackedCertificate, wtns: &[u8]) -> R
     for (index, equation) in checked.equations.iter().enumerate() {
         ensure(
             satisfied(equation, &values),
-            format!("witness does not satisfy equation {index} (helper equations come first)"),
+            format_args!("witness does not satisfy equation {index} (helper equations come first)"),
         )?;
     }
     let trace = checked
