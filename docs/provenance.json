@@ -148,7 +148,7 @@
       "sha256": "432bc40030a7049e34ea510ed253bafadf9da092fe48c3565f980c7cfe825666"
     },
     "fixtures/sha256/expected.json": {
-      "sha256": "9f34c2ebb9ed215fa829f2fa0b0e75216ea5748fa0fa450a26b2b8a065d2b26d"
+      "sha256": "2704be6128a3fa1900c6f81191e13b905878dd3ecfe50f3d439ad67891331bb2"
     },
     "fixtures/sha256/input.json": {
       "sha256": "07b31128c4ad004eb3552c19c7273dfd8f5f3935c8aaeab39768b5e12f1f770c"

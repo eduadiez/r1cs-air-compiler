@@ -242,16 +242,26 @@ struct Area {
     height: usize,
 }
 
-/// Consecutive rows `top..top + count` of the columns from `column` on.
+/// Consecutive rows `top..top + count` of `columns`.
 struct Piece {
-    column: usize,
+    columns: Vec<usize>,
     top: usize,
     count: usize,
 }
 
-/// The trace, `rows` rows high, divided into bands of columns as runs are
-/// placed. Free space is kept as rectangles cut from the bands.
-struct Bands {
+/// A way of dividing a trace of a fixed number of rows among runs of bundles.
+trait Packing {
+    /// Take `count` rows of `width` columns, in one or more pieces.
+    fn take(&mut self, width: usize, count: usize) -> Vec<Piece>;
+    /// Columns used so far.
+    fn width(&self) -> usize;
+    /// Rows used so far in any column.
+    fn used_rows(&self) -> usize;
+}
+
+/// The trace, `rows` rows high, divided into bands of adjacent columns as
+/// runs are placed. Free space is kept as rectangles cut from the bands.
+struct Rectangles {
     rows: usize,
     free: Vec<Area>,
     /// Columns taken by all bands.
@@ -259,14 +269,22 @@ struct Bands {
     /// Rows taken in any band.
     used_rows: usize,
 }
-impl Bands {
+impl Rectangles {
     fn new(rows: usize) -> Self {
-        Bands {
+        Rectangles {
             rows,
             free: vec![],
             width: 0,
             used_rows: 0,
         }
+    }
+}
+impl Packing for Rectangles {
+    fn width(&self) -> usize {
+        self.width
+    }
+    fn used_rows(&self) -> usize {
+        self.used_rows
     }
     /// Take `count` rows of `width` columns, in pieces. They go in the
     /// narrowest free rectangle at least `width` wide, preferring one with
@@ -297,7 +315,7 @@ impl Bands {
             };
             let taken = count.min(area.height);
             pieces.push(Piece {
-                column: area.column,
+                columns: (area.column..area.column + width).collect(),
                 top: area.top,
                 count: taken,
             });
@@ -319,6 +337,88 @@ impl Bands {
                     height: area.height - taken,
                 });
             }
+        }
+        pieces
+    }
+}
+
+/// The trace, `rows` rows high, as columns filled from the top down, each to
+/// its own level. A piece may use any columns, adjacent or not.
+struct Levels {
+    rows: usize,
+    /// Rows taken from the top of each column.
+    levels: Vec<usize>,
+    used_rows: usize,
+}
+impl Levels {
+    fn new(rows: usize) -> Self {
+        Levels {
+            rows,
+            levels: vec![],
+            used_rows: 0,
+        }
+    }
+}
+impl Packing for Levels {
+    fn width(&self) -> usize {
+        self.levels.len()
+    }
+    fn used_rows(&self) -> usize {
+        self.used_rows
+    }
+    /// Take `count` rows of `width` columns, in pieces. A piece starts at
+    /// the highest level among its columns, and the rows above it in its
+    /// other columns stay empty. Among windows of `width` consecutive columns
+    /// in order of level (fullest first, followed by `width` new columns), it
+    /// takes one with room for all the rows if any, then the one that leaves
+    /// the fewest cells empty above the piece, counting `rows / 8` more for
+    /// each new column so that existing columns are filled first.
+    fn take(&mut self, width: usize, mut count: usize) -> Vec<Piece> {
+        let new_column = self.rows / 8;
+        let mut pieces = vec![];
+        while count > 0 {
+            let mut order: Vec<(usize, Option<usize>)> = (0..self.levels.len())
+                .filter(|c| self.levels[*c] < self.rows)
+                .map(|c| (self.levels[c], Some(c)))
+                .collect();
+            order.sort_by_key(|(level, c)| (std::cmp::Reverse(*level), *c));
+            order.extend(std::iter::repeat_n((0, None), width));
+            let start = (0..=order.len() - width)
+                .min_by_key(|i| {
+                    let window = &order[*i..*i + width];
+                    let top = window[0].0;
+                    let empty: usize = window
+                        .iter()
+                        .map(|(level, column)| match column {
+                            Some(_) => top - level,
+                            None => top + new_column,
+                        })
+                        .sum();
+                    (self.rows - top < count, empty, *i)
+                })
+                .expect("the new columns form a window");
+            let top = order[start].0;
+            let taken = count.min(self.rows - top);
+            let mut columns: Vec<usize> = order[start..start + width]
+                .iter()
+                .map(|(_, column)| {
+                    column.unwrap_or_else(|| {
+                        self.levels.push(0);
+                        self.levels.len() - 1
+                    })
+                })
+                .collect();
+            for column in &columns {
+                self.levels[*column] = top + taken;
+            }
+            columns.sort_unstable();
+            self.used_rows = self.used_rows.max(top + taken);
+            pieces.push(Piece {
+                columns,
+                top,
+                count: taken,
+            });
+            count -= taken;
         }
         pieces
     }
@@ -558,12 +658,10 @@ fn bundles<'a>(
 }
 
 /// Place the equations in bundles (see [`bundles`]), one bundle per row in
-/// columns as wide as the bundle. The bundles of one key form a run, placed
-/// top down in one or more pieces of the free space (see [`Bands::take`]);
-/// each member of a piece shares one slot. Runs go widest first, then longest
-/// first. Public wires that appear in no equation get a
-/// cell of their own, and each public value binds to the first cell its wire
-/// was given.
+/// as many columns as the bundle has wires. The bundles of one key form a
+/// run, placed top down in one or more pieces of the trace; each member of a
+/// piece shares one slot. Runs go widest first, then longest first, and are
+/// packed both as [`Rectangles`] and as [`Levels`], keeping the narrower.
 fn place_in_bands(
     entries: &[Entry],
     network: &Network,
@@ -586,24 +684,53 @@ fn place_in_bands(
             run[0].members[0].index,
         )
     });
-    let mut bands = Bands::new(rows);
+    // Pack with both methods and keep the narrower trace.
+    let rectangles = arrange(entries, network, &runs, Rectangles::new(rows));
+    let levels = arrange(entries, network, &runs, Levels::new(rows));
+    let placed = if levels.width < rectangles.width {
+        levels
+    } else {
+        rectangles
+    };
+    ensure_within_limit(
+        placed.width <= MAX_WIDTH,
+        format_args!(
+            "the shapes need {} columns in {rows} rows, more than {MAX_WIDTH}; raise minRows",
+            placed.width
+        ),
+    )?;
+    Ok(Placed {
+        width: placed.width.max(MIN_WIDTH),
+        ..placed
+    })
+}
+
+/// Place `runs` with `packing`, then the public wires that appear in no
+/// equation, one cell each; each public value binds to the first cell its
+/// wire was given. The width is the packing's, possibly beyond `MAX_WIDTH`.
+fn arrange(
+    entries: &[Entry],
+    network: &Network,
+    runs: &[Vec<Bundle>],
+    mut packing: impl Packing,
+) -> Placed {
     let mut occupied = Occupied {
         first: vec![None; network.wires as usize],
         cells: vec![0; network.wires as usize],
     };
     let mut placements = vec![];
-    for run in &runs {
+    for run in runs {
         let width = run[0].wires.len();
         let mut bundles = run.iter();
-        for piece in bands.take(width, run.len()) {
+        for piece in packing.take(width, run.len()) {
             for (row, bundle) in (piece.top..piece.top + piece.count).zip(bundles.by_ref()) {
                 for (position, wire) in bundle.wires.iter().enumerate() {
-                    occupied.add(*wire, row, piece.column + position);
+                    occupied.add(*wire, row, piece.columns[position]);
                 }
                 for (member, (_, positions)) in bundle.members.iter().zip(&bundle.key) {
                     let columns = positions
                         .iter()
-                        .map(|p| piece.column + *p as usize)
+                        .map(|p| piece.columns[*p as usize])
                         .collect();
                     placements.push(member.at(row, columns));
                 }
@@ -618,9 +745,9 @@ fn place_in_bands(
         .filter(|wire| occupied.first[*wire as usize].is_none())
         .collect();
     let mut wires = unplaced.iter();
-    for piece in bands.take(1, unplaced.len()) {
+    for piece in packing.take(1, unplaced.len()) {
         for (row, wire) in (piece.top..piece.top + piece.count).zip(wires.by_ref()) {
-            occupied.add(*wire, row, piece.column);
+            occupied.add(*wire, row, piece.columns[0]);
         }
     }
     let public_bindings = (0..network.publics)
@@ -635,20 +762,13 @@ fn place_in_bands(
             }
         })
         .collect();
-    ensure_within_limit(
-        bands.width <= MAX_WIDTH,
-        format_args!(
-            "the shapes need {} columns in {rows} rows, more than {MAX_WIDTH}; raise minRows",
-            bands.width
-        ),
-    )?;
-    Ok(Placed {
-        width: bands.width.max(MIN_WIDTH),
+    Placed {
+        width: packing.width(),
         placements,
         public_bindings,
-        used_rows: bands.used_rows.max(1),
+        used_rows: packing.used_rows().max(1),
         requires_copy: occupied.cells.iter().any(|count| *count > 1),
-    })
+    }
 }
 
 /// An equation not placed yet: its index, shape group and wires.
