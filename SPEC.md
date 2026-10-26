@@ -163,19 +163,21 @@ denominator factor is nonzero, the constraints hold exactly when the product of
 all `num_c` equals the product of all `den_c`.
 
 **Degree reduction.** Every factor is linear in the columns, and each constraint
-must have degree at most five. For `width = 3` the products above already fit.
-For every larger width the compiler adds stage-two ratio columns (`copy_ratios`)
-holding partial products, each constrained by `ratio_i · den_i = num_i`:
+has degree at most three (`MAX_DEGREE` in `src/contract.rs`): a STARK prover
+with a blowup factor of 2 handles that degree without adding columns of its
+own. Since `width ≥ 3`, the products above never fit, so the compiler adds
+stage-two ratio columns (`copy_ratios`) holding partial products, each
+constrained by `ratio_i · den_i = num_i`:
 
-- the first ratio takes up to five numerator factors and up to four
+- the first ratio takes up to three numerator factors and up to two
   denominator factors;
-- each later ratio takes the previous ratio and the next four numerator factors
-  over the next four denominator factors;
-- ratios are added until at most four numerator factors (counting the last
-  ratio) and four denominator factors remain; the remaining factors go into the
+- each later ratio takes the previous ratio and the next two numerator factors
+  over the next two denominator factors;
+- ratios are added until at most two numerator factors (counting the last
+  ratio) and two denominator factors remain; the remaining factors go into the
   `z` constraint in place of the full products.
 
-This gives `max(1, ⌊(width - 1) / 4⌋)` ratio columns for `width > 3`. The
+This gives `⌊(width - 1) / 2⌋` ratio columns. The
 checker computes this count and the stage-two width itself, rejects references
 to any stage-two column beyond that width, and compares the ratio, recurrence
 and `LAST` constraints with its own reconstruction, operation by operation.

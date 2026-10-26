@@ -94,7 +94,7 @@
   },
   "fixtures": {
     "fixtures/adder/expected.json": {
-      "sha256": "53b825745b2b986a61bfebbd84699730381318e7104b74d16b413d863f85c899"
+      "sha256": "8537ef4c35483e200e3ad2a9c9f097b31188aad45f77681e9907848ffd922b44"
     },
     "fixtures/adder/input.json": {
       "sha256": "5e5c507dcf80530e860babbc56fad73fbdabb074d0c057b5886e55389ad5127f"
@@ -112,7 +112,7 @@
       "sha256": "206333175b61929e14ce031803046f427cb9510b0d39c26b27001aa7a7d512d9"
     },
     "fixtures/mux/expected.json": {
-      "sha256": "52e9ce0c5f099dc910276bb7e00b311f879ab079a3c47f52763347e340ab894e"
+      "sha256": "f5b60086e6393bfb8bb1218453b909447c7d3089a937d107a8315ec27c70a163"
     },
     "fixtures/mux/input.json": {
       "sha256": "fa851d090163a212842b128901fa32d274f6eff34f2a7ce4d6ae063104a177a4"
@@ -148,7 +148,7 @@
       "sha256": "432bc40030a7049e34ea510ed253bafadf9da092fe48c3565f980c7cfe825666"
     },
     "fixtures/sha256/expected.json": {
-      "sha256": "512f73c1716f910013daae202741cf1dd34e65c622639e3ca52b984274cda8e0"
+      "sha256": "f355c51300de778812500e7565f09bb3af9eb686a484c0af8142b2c1028157dd"
     },
     "fixtures/sha256/input.json": {
       "sha256": "07b31128c4ad004eb3552c19c7273dfd8f5f3935c8aaeab39768b5e12f1f770c"
@@ -166,7 +166,7 @@
       "sha256": "9316cf17ffda6271d227aec221ba2fd43e1d6754085819db9f34fdba5d143c6e"
     },
     "fixtures/xor/expected.json": {
-      "sha256": "08d81b00205a1dcd90301856cacb7b986f06c761102975d93f00bba47a37c108"
+      "sha256": "2f3d9eab277a4d674ffd39a212a636d46bff15b302bd4bb27a82c77f14bdd227"
     },
     "fixtures/xor/input.json": {
       "sha256": "613f4cb430084bc42313be0e834a97c04bccf50793a00c809e9391535128f399"

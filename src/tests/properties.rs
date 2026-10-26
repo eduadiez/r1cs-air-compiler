@@ -461,7 +461,7 @@ proptest! {
             // an accepted change can only have touched the slot and public
             // constraints, and must have left their polynomials as they were.
             let layout = &artifact.certificate.layout;
-            let ratios = if layout.width > 3 { ((layout.width - 1) / 4).max(1) } else { 0 };
+            let ratios = (layout.width - 1) / 2;
             let copy = if layout.requires_copy { ratios + 2 } else { 0 };
             let main = constraint_count(&artifact.pilout) - copy;
             let publics = artifact.certificate.network.publics;

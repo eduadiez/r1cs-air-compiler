@@ -76,7 +76,7 @@ fn rejects_copy(expected: &str, change: impl FnOnce(&mut pb::PilOut)) {
     rejects(expected, &source(), artifact(3), change);
 }
 
-/// `rejects` on an artifact with one ratio column.
+/// `rejects` on an artifact with several ratio columns.
 fn rejects_ratio(expected: &str, change: impl FnOnce(&mut pb::PilOut)) {
     let (source, artifact) = ratio_artifact(8);
     rejects(expected, &source, artifact, change);
@@ -199,11 +199,8 @@ fn ratio_column_counts_match_the_formula() {
         let (source, a) = ratio_artifact(width);
         packed_check::check(&source, &a.pilout, &a.certificate).unwrap();
         let pilout = pb::PilOut::decode(a.pilout.as_slice()).unwrap();
-        let ratios = if width <= 3 {
-            0
-        } else {
-            ((width - 1) / 4).max(1) as u32
-        };
+        // Degree-3 ratios take two factors of each kind.
+        let ratios = ((width - 1) / 2) as u32;
         assert_eq!(pilout.air_groups[0].airs[0].stage_widths[1], 1 + ratios);
         let ratio_hints = pilout.hints.iter().filter(|h| h.name == "im_col").count();
         assert_eq!(ratio_hints, ratios as usize);
@@ -298,7 +295,8 @@ fn changed_challenge_in_the_copy_argument_is_rejected() {
 #[test]
 fn changed_hints_are_rejected() {
     rejects_copy("hint 'gprod_col': name, AIR or field layout", |p| {
-        p.hints[0].name = "gsum_col".into();
+        let product = p.hints.iter().position(|h| h.name == "gprod_col").unwrap();
+        p.hints[product].name = "gsum_col".into();
     });
     rejects_copy("hint 'gprod_col': field names", |p| {
         hint_fields(p, "gprod_col").pop();
@@ -501,6 +499,8 @@ fn operands_are_checked_against_the_layout() {
         .len() as u32;
     accepts(3, witness_column(1, 2, 0));
     accepts(3, witness_column(2, 0, -1));
+    // Width 3 has one ratio column, stage-two column 1.
+    accepts(3, witness_column(2, 1, 0));
     accepts(3, fixed_operand(4, 1));
     accepts(3, fixed_operand(fixed_count - 1, 0));
     accepts(3, Operand::PublicValue(o::PublicValue { idx: 1 }));
@@ -510,7 +510,7 @@ fn operands_are_checked_against_the_layout() {
     let cases = [
         (witness_column(1, 3, 0), witness),
         (witness_column(1, 0, -1), witness),
-        (witness_column(2, 1, 0), witness),
+        (witness_column(2, 2, 0), witness),
         (witness_column(2, 1, -1), witness),
         (witness_column(2, 0, 1), witness),
         (witness_column(3, 0, 0), witness),

@@ -68,6 +68,10 @@ pub const ALPHA: u32 = 0;
 pub const GAMMA: u32 = 1;
 /// Symbol names of the challenges `α` and `γ`.
 pub const CHALLENGE_NAMES: [&str; 2] = ["alpha", "gamma"];
+/// Highest degree of any constraint. Degree 3 is what a STARK prover with a
+/// blowup factor of 2 handles without adding columns of its own, so each copy
+/// ratio takes two numerator and two denominator factors.
+pub const MAX_DEGREE: usize = 3;
 
 /// Smallest row count (and smallest `minRows`).
 pub const MIN_ROWS: usize = 64;

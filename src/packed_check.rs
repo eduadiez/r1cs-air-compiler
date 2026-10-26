@@ -12,7 +12,7 @@
 use crate::{
     certificate::{Layout, PackedCertificate},
     contract::{
-        label, AIR_NAME, ALPHA, CHALLENGE_NAMES, FIRST_COLUMN, GAMMA, PACKED_RELATION,
+        label, AIR_NAME, ALPHA, CHALLENGE_NAMES, FIRST_COLUMN, GAMMA, MAX_DEGREE, PACKED_RELATION,
         PRODUCT_COLUMN, PRODUCT_COLUMN_NAME, PRODUCT_HINT, PUBLICS_SYMBOL, RATIOS_SYMBOL,
         RATIO_HINT, STAGE_ONE, STAGE_TWO, SUM_HINT, TRACE_SYMBOL, ZERO_COLUMN_NAME,
     },
@@ -150,8 +150,8 @@ fn constraint_labels(layout: &Layout, publics: &PublicSelectors) -> Vec<String> 
 /// Number of copy ratio columns, from the formula in SPEC.md rather than the
 /// compiler's loop.
 fn copy_ratios(layout: &Layout) -> u32 {
-    if layout.requires_copy && layout.width > 3 {
-        ((layout.width - 1) / 4).max(1) as u32
+    if layout.requires_copy && layout.width >= MAX_DEGREE {
+        ((layout.width - 1) / (MAX_DEGREE - 1)).max(1) as u32
     } else {
         0
     }
@@ -753,8 +753,9 @@ fn copy_factors(graph: &mut ExpressionGraph, width: usize) -> (Vec<usize>, Vec<u
 }
 
 /// Compare each ratio constraint with its rebuilt form and add its hint. The
-/// first ratio takes up to five numerator and four denominator factors; each
-/// later one takes the previous ratio and up to four of each. Returns the
+/// first ratio takes up to `MAX_DEGREE` numerator and `MAX_DEGREE - 1`
+/// denominator factors; each later one takes the previous ratio and up to
+/// `MAX_DEGREE - 1` of each. Returns the
 /// numerator and denominator left for the running product.
 fn check_ratios(
     graph: &mut ExpressionGraph,
@@ -768,8 +769,8 @@ fn check_ratios(
     // The running numerator and the next unused numerator and denominator factor.
     let (mut numerator, mut next_num, mut next_den) = (graph.constant(1), 0, 0);
     for (i, root) in roots.iter().enumerate() {
-        let num_end = width.min(5 + 4 * i);
-        let den_end = width.min(4 + 4 * i);
+        let num_end = width.min(MAX_DEGREE + (MAX_DEGREE - 1) * i);
+        let den_end = width.min((MAX_DEGREE - 1) * (i + 1));
         for factor in &numerators[next_num..num_end] {
             numerator = graph.mul(numerator, *factor);
         }

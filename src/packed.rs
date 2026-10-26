@@ -5,8 +5,9 @@ use crate::{
     api::PackedArtifact,
     certificate::{Layout, Network, PackedCertificate},
     contract::{
-        label, ALPHA, CERTIFICATE_VERSION, FIRST_COLUMN, GAMMA, PACKED_RELATION, PRODUCT_COLUMN,
-        PRODUCT_COLUMN_NAME, PRODUCT_HINT, RATIOS_SYMBOL, RATIO_HINT, STAGE_TWO, ZERO_COLUMN_NAME,
+        label, ALPHA, CERTIFICATE_VERSION, FIRST_COLUMN, GAMMA, MAX_DEGREE, PACKED_RELATION,
+        PRODUCT_COLUMN, PRODUCT_COLUMN_NAME, PRODUCT_HINT, RATIOS_SYMBOL, RATIO_HINT, STAGE_TWO,
+        ZERO_COLUMN_NAME,
     },
     dag::{challenge, constant, operand, stage_two, trace, Op},
     emit::{hint, symbol, Builder},
@@ -191,7 +192,7 @@ impl Builder {
         })
     }
     /// Copy argument (SPEC.md, "Copy argument"): ratio columns of degree at
-    /// most five, the running product `z[r] · den[r] = z[r-1] · num[r]` (cyclic,
+    /// most `MAX_DEGREE`, the running product `z[r] · den[r] = z[r-1] · num[r]` (cyclic,
     /// so row 0 reads the last row) and `LAST · (z - 1) = 0`.
     fn constrain_copies(&mut self, width: usize, columns: CopyColumns) {
         // No simplification: the checker compares these constraints operation
@@ -273,10 +274,10 @@ impl Builder {
         (numerators, denominators)
     }
     /// Constrain stage-two ratio columns `ratio_i · den_i = num_i`, each of
-    /// degree at most five, until the remaining factors fit in the running
-    /// product: at most four numerator factors (counting the last ratio) and
-    /// four denominator factors. Returns the remaining numerator and denominator
-    /// products and the number of ratio columns.
+    /// degree at most `MAX_DEGREE`, until the remaining factors fit in the
+    /// running product: at most `MAX_DEGREE - 1` numerator factors (counting
+    /// the last ratio) and as many denominator factors. Returns the remaining
+    /// numerator and denominator products and the number of ratio columns.
     fn constrain_ratios(
         &mut self,
         width: usize,
@@ -286,14 +287,17 @@ impl Builder {
         // Next unused numerator and denominator factor.
         let (mut next_num, mut next_den, mut ratios) = (0, 0, 0);
         let mut numerator = constant(1);
-        if width > 3 {
-            while ratios == 0 || width - next_num + 1 >= 5 || width - next_den >= 5 {
-                // The first ratio takes five numerators; later ones four, plus
-                // the previous ratio.
-                let take = (5 - usize::from(ratios > 0)).min(width - next_num);
+        if width >= MAX_DEGREE {
+            while ratios == 0
+                || width - next_num + 1 >= MAX_DEGREE
+                || width - next_den >= MAX_DEGREE
+            {
+                // The first ratio takes `MAX_DEGREE` numerators; later ones one
+                // fewer, plus the previous ratio.
+                let take = (MAX_DEGREE - usize::from(ratios > 0)).min(width - next_num);
                 numerator = self.multiply(numerator, &numerators[next_num..next_num + take]);
                 next_num += take;
-                let take = 4.min(width - next_den);
+                let take = (MAX_DEGREE - 1).min(width - next_den);
                 let denominator =
                     self.multiply(constant(1), &denominators[next_den..next_den + take]);
                 next_den += take;

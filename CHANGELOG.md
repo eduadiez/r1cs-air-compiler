@@ -26,6 +26,10 @@ First version.
 - Layout strategies `mixed`, `local`, `components` and `columns`; `columns`
   puts each shape in its own band of columns, which gives far fewer slot
   constraints and selectors.
+- Copy ratios have degree 3 (two numerator and two denominator factors each),
+  so a prover with a blowup factor of 2 needs no intermediate columns of its
+  own; this changed the packed PILout and certificate of every fixture with a
+  copy argument.
 - `Error::kind` tells an invalid input (`ErrorKind::Invalid`) from one that
   exceeds a size limit (`ErrorKind::Limit`).
 - Types that only the library builds (artifacts, reports, `Witness`) and the
