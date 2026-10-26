@@ -260,9 +260,9 @@ impl Bands {
     /// Take `count` rows of `width` columns, in pieces. They go in the
     /// narrowest free rectangle at least `width` wide, preferring one with
     /// room for all of them (then the first); a rectangle too short takes what
-    /// fits and the rest goes elsewhere. Using a rectangle leaves the columns to the right of the
-    /// piece and the rows below it free. Without a fitting rectangle, a new
-    /// band is added.
+    /// fits and the rest goes elsewhere. Using a rectangle leaves the columns
+    /// to the right of the piece and the rows below it free. Without a fitting
+    /// rectangle, a new band is added.
     fn take(&mut self, width: usize, mut count: usize) -> Vec<Piece> {
         let mut pieces = vec![];
         while count > 0 {
@@ -475,15 +475,14 @@ fn bundles<'a>(
             let mut after = count.clone();
             after[a_key] -= chosen.len();
             after[b_key] -= chosen.len();
+            // The cost of the runs of both keys, counted once if they are equal.
             let cost = |counts: &[usize]| {
-                let keys = if a_key == b_key {
-                    vec![a_key]
+                let b_cost = if a_key == b_key {
+                    0.0
                 } else {
-                    vec![a_key, b_key]
+                    run_cost(counts[b_key], members[b_key], rows)
                 };
-                keys.iter()
-                    .map(|key| run_cost(counts[*key], members[*key], rows))
-                    .sum::<f64>()
+                run_cost(counts[a_key], members[a_key], rows) + b_cost
             };
             let saved_columns = (chosen.len() * shared.len()) as f64 / rows as f64;
             let change = cost(&after)
@@ -503,15 +502,15 @@ fn bundles<'a>(
         if joins == 0 {
             break;
         }
-        let mut slots: Vec<Option<Bundle>> = bundles.into_iter().map(Some).collect();
+        let mut pending: Vec<Option<Bundle>> = bundles.into_iter().map(Some).collect();
         let mut next = vec![];
-        for index in 0..slots.len() {
-            let Some(bundle) = slots[index].take() else {
+        for index in 0..pending.len() {
+            let Some(bundle) = pending[index].take() else {
                 continue;
             };
             next.push(match joined[index] {
                 Some(partner) => {
-                    bundle.join(slots[partner].take().expect("partner not yet joined"))
+                    bundle.join(pending[partner].take().expect("partner not yet joined"))
                 }
                 None => bundle,
             });
@@ -521,10 +520,11 @@ fn bundles<'a>(
     bundles
 }
 
-/// Place the equations in bundles (see [`bundles`]), one bundle per row in a
-/// band of columns as wide as the bundle. Bundles with the same key go in runs
-/// of at most `rows`, and each member of a run shares one slot. Keys go widest
-/// first, then most used first. Public wires that appear in no equation get a
+/// Place the equations in bundles (see [`bundles`]), one bundle per row in
+/// columns as wide as the bundle. The bundles of one key form a run, placed
+/// top down in one or more pieces of the free space (see [`Bands::take`]);
+/// each member of a piece shares one slot. Runs go widest first, then longest
+/// first. Public wires that appear in no equation get a
 /// cell of their own, and each public value binds to the first cell its wire
 /// was given.
 fn place_in_bands(
