@@ -148,7 +148,7 @@
       "sha256": "432bc40030a7049e34ea510ed253bafadf9da092fe48c3565f980c7cfe825666"
     },
     "fixtures/sha256/expected.json": {
-      "sha256": "f355c51300de778812500e7565f09bb3af9eb686a484c0af8142b2c1028157dd"
+      "sha256": "37d1d84f600f1890fd0a66d7666dc1e8aed6461420e088c037ad0451d400285f"
     },
     "fixtures/sha256/input.json": {
       "sha256": "07b31128c4ad004eb3552c19c7273dfd8f5f3935c8aaeab39768b5e12f1f770c"
@@ -163,7 +163,7 @@
       "sha256": "b60c6d15a150a5eb62e06a3351fe22812223a1606f61b81460338be25e585d71"
     },
     "fixtures/sha256/layout.json": {
-      "sha256": "9316cf17ffda6271d227aec221ba2fd43e1d6754085819db9f34fdba5d143c6e"
+      "sha256": "acdd9fcbdda8c7720a9c1927734f8a08c74d09cad0c29be32a333a4537e0cdb9"
     },
     "fixtures/xor/expected.json": {
       "sha256": "2f3d9eab277a4d674ffd39a212a636d46bff15b302bd4bb27a82c77f14bdd227"

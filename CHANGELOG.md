@@ -30,6 +30,7 @@ First version.
   so a prover with a blowup factor of 2 needs no intermediate columns of its
   own; this changed the packed PILout and certificate of every fixture with a
   copy argument.
+- The `sha256` fixture is laid out with the `columns` strategy at 1024 rows.
 - `Error::kind` tells an invalid input (`ErrorKind::Invalid`) from one that
   exceeds a size limit (`ErrorKind::Limit`).
 - Types that only the library builds (artifacts, reports, `Witness`) and the

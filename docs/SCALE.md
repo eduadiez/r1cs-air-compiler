@@ -17,15 +17,15 @@ memory, so circuits of this size need a packed layout.
 ## Packed layout
 
 With `fixtures/sha256/layout.json` (width 64, chunks of 32, `available` reuse,
-folding, `local` strategy) the AIR has 1024 rows, 64 stage-one and 32
-stage-two columns, 483 fixed columns and 976 constraints.
+folding, `columns` strategy, 1024 rows) the AIR has 1024 rows, 85 stage-one
+and 43 stage-two columns, 273 fixed columns and 363 constraints.
 
 | Output | Size |
 | --- | --- |
-| `kernel.pilout` | 1.8 MB |
+| `kernel.pilout` | 1.5 MB |
 | `certificate.json` | 6.9 MB |
-| `map.bin` | 256 KiB |
-| `trace.bin` | 512 KiB |
+| `map.bin` | 340 KiB |
+| `trace.bin` | 680 KiB |
 
 Most of the certificate is the converted constraints and the cell of each
 wire.
@@ -38,15 +38,19 @@ show the order of magnitude on one machine, not a guarantee.
 
 | Command | Time | Peak memory |
 | --- | --- | --- |
-| `air compile --layout` (includes the check) | 1.0 s | 140 MB |
-| `air check` | 0.5 s | 110 MB |
-| `air plan` | 0.4 s | 60 MB |
-| `air witness` | 0.8 s | 110 MB |
+| `air compile --layout` (includes the check) | 2.1 s | 140 MB |
+| `air check` | 0.6 s | 100 MB |
+| `air plan` | 1.5 s | 60 MB |
+| `air witness` | 0.8 s | 100 MB |
+
+Most of the time of `plan` (and of `compile`, which plans first) goes into
+joining equations into bundles for the `columns` strategy.
 
 With pil2-proofman at commit `eda04742b64abe0e5322a8231f0155438ffb62fe`
 (see [the backend check](../tools/backend-check/README.md)), the prover's
-setup took 0.8 s, verifying every constraint on the witness 0.9 s, and
-generating and verifying a STARK proof 0.9 s.
+setup took 0.5 s, verifying every constraint on the witness 0.9 s, and
+generating and verifying a STARK proof 1.0 s, as whole commands; most of that
+is starting the prover and loading the proving key.
 
 ## Larger circuits
 
