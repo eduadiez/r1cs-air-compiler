@@ -1,7 +1,7 @@
 //! Packed compiler, packed checker and witness projection.
 use super::{
     air, assert_limit, assert_rejected, challenge_operand, changed_pilout, constraint_labeled,
-    fixed_column, fixed_operand, hint_fields, r1cs_bytes, reuse_expression,
+    fixed_column, fixed_operand, hint_fields, r1cs_bytes, r1cs_with_terms, reuse_expression,
     with_unreferenced_operand, witness_column, wtns_bytes, Change,
 };
 use crate::{
@@ -154,6 +154,29 @@ fn columns_layouts_give_each_run_of_a_shape_one_slot() {
         assert_eq!(layout.slots.len(), runs);
         packed_check::check(&source, &a.pilout, &a.certificate).unwrap();
     }
+}
+
+#[test]
+fn columns_layouts_put_equations_that_share_wires_in_one_row() {
+    // 128 pairs `a · b = c` and `2c · d = e`: joined, each pair needs 5 cells
+    // instead of 6, in two runs of 64 rows with two slots each.
+    let pairs = 128;
+    let equations: Vec<[Vec<(u32, u64)>; 3]> = (0..pairs)
+        .flat_map(|i| {
+            let w = 5 * i + 1;
+            [
+                [vec![(w, 1)], vec![(w + 1, 1)], vec![(w + 2, 1)]],
+                [vec![(w + 2, 2)], vec![(w + 3, 1)], vec![(w + 4, 1)]],
+            ]
+        })
+        .collect();
+    let source = r1cs_with_terms([5 * pairs + 1, 0, 0, 5 * pairs], &equations);
+    let mut settings = config(8);
+    settings.strategy = Strategy::Columns;
+    let a = packed::compile(&source, &settings).unwrap();
+    let layout = &a.certificate.layout;
+    assert_eq!((layout.rows, layout.width, layout.slots.len()), (64, 10, 4));
+    packed_check::check(&source, &a.pilout, &a.certificate).unwrap();
 }
 
 #[test]

@@ -64,12 +64,14 @@ Unknown fields are rejected. The values of `reuse` and `strategy` mean:
 - `strategy: local`: prefer a row that already holds some of the equation's wires;
 - `strategy: components`: first place each group of wire-connected equations
   that fits in one row together, then continue as `local`;
-- `strategy: columns`: give the equations of each shape a band of columns,
-  one equation per row from the top down, starting a new band every `minRows`
-  equations; leftover runs share bands with room. The trace has `minRows`
-  rows and as many columns as the bands need, at most 1024 (otherwise the
-  command fails with kind `limit`). Wires get more cells, but the PILout has
-  far fewer slot constraints and selector columns.
+- `strategy: columns`: first join equations that share wires into bundles
+  that repeat with the same structure (at most `options.width` wires each),
+  then give each kind of bundle a band of columns, one bundle per row from the
+  top down, starting a new band every `minRows` bundles; leftover runs share
+  bands with room. The trace has `minRows` rows and as many columns as the
+  bands need, at most 1024 (otherwise the command fails with kind `limit`).
+  Wires get more cells than with the other strategies, but the PILout has far
+  fewer slot constraints and selector columns.
 
 ## Reports
 

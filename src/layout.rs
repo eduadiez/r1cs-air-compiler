@@ -135,7 +135,7 @@ pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
     )?;
     let (groups, entries) = shape_entries(network, width)?;
     let placed = if strategy == Strategy::Columns {
-        place_in_bands(&entries, network, min_rows)?
+        place_in_bands(&entries, network, min_rows, width)?
     } else {
         place_in_rows(&entries, network, width, strategy)
     };
@@ -277,22 +277,228 @@ impl Occupied {
     }
 }
 
-/// Place the equations of each shape, in runs of at most `rows` equations,
-/// one equation per row in a band of columns as wide as the shape; a run shares
-/// one slot. Shapes go widest first, then most used first. Public wires that
-/// appear in no equation get a cell of their own, and each public value binds
-/// to the first cell its wire was given.
-fn place_in_bands(entries: &[Entry], network: &Network, rows: usize) -> Result<Placed> {
-    let mut by_shape: BTreeMap<usize, Vec<&Entry>> = BTreeMap::new();
-    for entry in entries.iter().filter(|entry| !entry.wires.is_empty()) {
-        by_shape.entry(entry.shape).or_default().push(entry);
+/// Equations placed together in one row, sharing the cells of their common wires.
+struct Bundle<'a> {
+    members: Vec<&'a Entry>,
+    /// Distinct wires in order of first appearance; wire `i` goes to the
+    /// band's column `i`.
+    wires: Vec<u32>,
+    /// Shape and wire positions of each member. Bundles with equal keys
+    /// differ only in which wires they use, so they can share slots.
+    key: Vec<(usize, Vec<u32>)>,
+}
+impl<'a> Bundle<'a> {
+    fn single(entry: &'a Entry) -> Self {
+        Bundle {
+            members: vec![entry],
+            wires: entry.wires.clone(),
+            key: vec![(entry.shape, (0..entry.wires.len() as u32).collect())],
+        }
     }
-    let mut shapes: Vec<_> = by_shape.into_iter().collect();
-    shapes.sort_by_key(|(shape, entries)| {
+    /// The positions of the wires `self` shares with `other`, as pairs of
+    /// positions in `self` and in `other`.
+    fn shared(&self, other: &Bundle) -> Vec<(u32, u32)> {
+        let positions: BTreeMap<_, _> = other.wires.iter().zip(0u32..).collect();
+        self.wires
+            .iter()
+            .zip(0u32..)
+            .filter_map(|(wire, i)| positions.get(wire).map(|j| (i, *j)))
+            .collect()
+    }
+    /// `self` followed by `other`, sharing the cells of common wires.
+    fn join(mut self, other: Bundle<'a>) -> Self {
+        let mut positions: BTreeMap<u32, u32> = self.wires.iter().copied().zip(0..).collect();
+        for wire in &other.wires {
+            if !positions.contains_key(wire) {
+                positions.insert(*wire, self.wires.len() as u32);
+                self.wires.push(*wire);
+            }
+        }
+        for (shape, members) in other.key {
+            let moved = members
+                .iter()
+                .map(|p| positions[&other.wires[*p as usize]])
+                .collect();
+            self.key.push((shape, moved));
+        }
+        self.members.extend(other.members);
+        self
+    }
+}
+
+/// Rounds of joining bundles that share wires.
+const BUNDLE_ROUNDS: usize = 8;
+/// Wires held by more bundles than this are not used to find pairs to join.
+const MAX_HOLDERS: usize = 16;
+/// Relative proving costs used to decide joins, in slots: a column of the
+/// trace (with its share of the copy argument) costs about `SLOTS_PER_COLUMN`
+/// slot constraints, and a selector column about `SLOTS_PER_SELECTOR`. The
+/// values come from timing a STARK prover; see `docs/SCALE.md`.
+const SLOTS_PER_COLUMN: f64 = 22.0;
+const SLOTS_PER_SELECTOR: f64 = 0.5;
+
+/// Weighted cost of `count` bundles of a key with `members` equations: one
+/// slot per member and run of at most `rows` bundles, and a selector for a
+/// run that does not fill its band.
+fn run_cost(count: usize, members: usize, rows: usize) -> f64 {
+    let runs = count.div_ceil(rows);
+    let partial = usize::from(count % rows != 0);
+    (runs * members) as f64 + partial as f64 * SLOTS_PER_SELECTOR
+}
+
+/// Group equations into bundles of at most `max_width` wires. Each round
+/// collects, for every pair of bundles that share a wire, the pattern
+/// `(key, key, shared positions)`. Going from the patterns that save the most
+/// cells to the least, it joins the disjoint pairs of a pattern when that
+/// lowers the weighted cost of the runs involved (see [`run_cost`]) by more
+/// than the columns the shared cells save.
+fn bundles<'a>(
+    entries: &[&'a Entry],
+    wires: u32,
+    max_width: usize,
+    rows: usize,
+) -> Vec<Bundle<'a>> {
+    let mut bundles: Vec<Bundle> = entries.iter().map(|entry| Bundle::single(entry)).collect();
+    for _ in 0..BUNDLE_ROUNDS {
+        let mut ids = BTreeMap::new();
+        let keys: Vec<usize> = bundles
+            .iter()
+            .map(|bundle| {
+                let next = ids.len();
+                *ids.entry(bundle.key.clone()).or_insert(next)
+            })
+            .collect();
+        let mut holders = vec![vec![]; wires as usize];
+        for (index, bundle) in bundles.iter().enumerate() {
+            for wire in &bundle.wires {
+                holders[*wire as usize].push(index);
+            }
+        }
+        let mut pairs = BTreeSet::new();
+        for held in holders
+            .iter()
+            .filter(|held| (2..=MAX_HOLDERS).contains(&held.len()))
+        {
+            for (i, a) in held.iter().enumerate() {
+                for b in &held[i + 1..] {
+                    // Orient each pair by key so that equal patterns compare equal.
+                    pairs.insert(if (keys[*a], *a) <= (keys[*b], *b) {
+                        (*a, *b)
+                    } else {
+                        (*b, *a)
+                    });
+                }
+            }
+        }
+        let mut patterns: BTreeMap<_, Vec<(usize, usize)>> = BTreeMap::new();
+        for (a, b) in pairs {
+            let shared = bundles[a].shared(&bundles[b]);
+            if bundles[a].wires.len() + bundles[b].wires.len() - shared.len() <= max_width {
+                patterns
+                    .entry((keys[a], keys[b], shared))
+                    .or_default()
+                    .push((a, b));
+            }
+        }
+        let mut patterns: Vec<_> = patterns.into_iter().collect();
+        patterns
+            .sort_by_key(|((_, _, shared), pairs)| std::cmp::Reverse(pairs.len() * shared.len()));
+        // Instances and members of each key, kept up to date as pairs join.
+        let mut count = vec![0usize; ids.len()];
+        let mut members = vec![0usize; ids.len()];
+        for (bundle, key) in bundles.iter().zip(&keys) {
+            count[*key] += 1;
+            members[*key] = bundle.key.len();
+        }
+        let mut joined = vec![None; bundles.len()];
+        let mut joins = 0;
+        for ((a_key, b_key, shared), pairs) in &patterns {
+            let mut taken = BTreeSet::new();
+            let chosen: Vec<_> = pairs
+                .iter()
+                .filter(|(a, b)| {
+                    joined[*a].is_none()
+                        && joined[*b].is_none()
+                        && taken.insert(*a)
+                        && taken.insert(*b)
+                })
+                .collect();
+            let (a_key, b_key) = (*a_key, *b_key);
+            let mut after = count.clone();
+            after[a_key] -= chosen.len();
+            after[b_key] -= chosen.len();
+            let cost = |counts: &[usize]| {
+                let keys = if a_key == b_key {
+                    vec![a_key]
+                } else {
+                    vec![a_key, b_key]
+                };
+                keys.iter()
+                    .map(|key| run_cost(counts[*key], members[*key], rows))
+                    .sum::<f64>()
+            };
+            let saved_columns = (chosen.len() * shared.len()) as f64 / rows as f64;
+            let change = cost(&after)
+                + run_cost(chosen.len(), members[a_key] + members[b_key], rows)
+                - cost(&count)
+                - saved_columns * SLOTS_PER_COLUMN;
+            if chosen.is_empty() || change >= 0.0 {
+                continue;
+            }
+            count = after;
+            for (a, b) in chosen {
+                joined[*a] = Some(*b);
+                joined[*b] = Some(*a);
+                joins += 1;
+            }
+        }
+        if joins == 0 {
+            break;
+        }
+        let mut slots: Vec<Option<Bundle>> = bundles.into_iter().map(Some).collect();
+        let mut next = vec![];
+        for index in 0..slots.len() {
+            let Some(bundle) = slots[index].take() else {
+                continue;
+            };
+            next.push(match joined[index] {
+                Some(partner) => {
+                    bundle.join(slots[partner].take().expect("partner not yet joined"))
+                }
+                None => bundle,
+            });
+        }
+        bundles = next;
+    }
+    bundles
+}
+
+/// Place the equations in bundles (see [`bundles`]), one bundle per row in a
+/// band of columns as wide as the bundle. Bundles with the same key go in runs
+/// of at most `rows`, and each member of a run shares one slot. Keys go widest
+/// first, then most used first. Public wires that appear in no equation get a
+/// cell of their own, and each public value binds to the first cell its wire
+/// was given.
+fn place_in_bands(
+    entries: &[Entry],
+    network: &Network,
+    rows: usize,
+    max_width: usize,
+) -> Result<Placed> {
+    let with_wires: Vec<&Entry> = entries
+        .iter()
+        .filter(|entry| !entry.wires.is_empty())
+        .collect();
+    let mut by_key: BTreeMap<Vec<(usize, Vec<u32>)>, Vec<Bundle>> = BTreeMap::new();
+    for bundle in bundles(&with_wires, network.wires, max_width, rows) {
+        by_key.entry(bundle.key.clone()).or_default().push(bundle);
+    }
+    let mut runs: Vec<_> = by_key.into_values().collect();
+    runs.sort_by_key(|run| {
         (
-            std::cmp::Reverse(entries[0].wires.len()),
-            std::cmp::Reverse(entries.len()),
-            *shape,
+            std::cmp::Reverse(run[0].wires.len()),
+            std::cmp::Reverse(run.len()),
+            run[0].members[0].index,
         )
     });
     let mut bands = Bands {
@@ -305,16 +511,19 @@ fn place_in_bands(entries: &[Entry], network: &Network, rows: usize) -> Result<P
         cells: vec![0; network.wires as usize],
     };
     let mut placements = vec![];
-    for (_, run) in &shapes {
+    for run in &runs {
         let width = run[0].wires.len();
         for chunk in run.chunks(rows) {
             let (start, top) = bands.take(width, chunk.len());
-            for (offset, entry) in chunk.iter().enumerate() {
+            for (offset, bundle) in chunk.iter().enumerate() {
                 let row = top + offset;
-                for (position, wire) in entry.wires.iter().enumerate() {
+                for (position, wire) in bundle.wires.iter().enumerate() {
                     occupied.add(*wire, row, start + position);
                 }
-                placements.push(entry.at(row, (start..start + width).collect()));
+                for (member, (_, positions)) in bundle.members.iter().zip(&bundle.key) {
+                    let columns = positions.iter().map(|p| start + *p as usize).collect();
+                    placements.push(member.at(row, columns));
+                }
             }
         }
     }
