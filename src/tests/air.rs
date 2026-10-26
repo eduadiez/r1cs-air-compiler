@@ -20,7 +20,7 @@ pub enum Failure {
     /// Constraint `constraint` is nonzero on row `row`.
     Violated { constraint: usize, row: usize },
     /// A hint divides by zero for these challenges, so stage two cannot be
-    /// filled; the copy argument's failure case of `SPEC.md`.
+    /// filled; the permutation argument's failure case of `SPEC.md`.
     ZeroDenominator,
 }
 
@@ -237,7 +237,7 @@ fn the_xor_trace_satisfies_its_air_and_changes_do_not() {
         evaluate(&pilout, &trace)
     };
     assert_eq!(check(&witness.trace, &witness.publics), Ok(()));
-    // One cell of a wire with several cells: the copy argument fails.
+    // One cell of a wire with several cells: the permutation argument fails.
     let wire = (1..)
         .find(|w| artifact.map.iter().filter(|m| *m == w).count() > 1)
         .unwrap();
@@ -248,7 +248,7 @@ fn the_xor_trace_satisfies_its_air_and_changes_do_not() {
         check(&trace, &witness.publics),
         Err(Failure::Violated { .. })
     ));
-    // Every cell of that wire: the copy argument holds, an equation fails.
+    // Every cell of that wire: the permutation argument holds, an equation fails.
     let mut trace = witness.trace.clone();
     for (value, w) in trace.iter_mut().zip(&artifact.map) {
         if *w == wire {

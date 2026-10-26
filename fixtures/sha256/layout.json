@@ -1,1 +1,1 @@
-{"options":{"width":64,"chunk":32,"reuse":"available","fold":true},"strategy":"columns","minRows":1024}
+{"options":{"width":64,"auxiliaryTerms":32,"reuseAuxiliaries":"available","foldConstants":true},"strategy":"columns","minRows":1024}

@@ -1,8 +1,8 @@
 //! Rewrites source equations so that each one references at most `width`
-//! distinct wires, by introducing helper wires constrained to equal linear
-//! combinations of other wires. Also computes the canonical shape of an equation.
+//! distinct wires, by introducing auxiliary wires constrained to equal linear
+//! combinations of other wires. Also computes the canonical gate type of an equation.
 use crate::{
-    certificate::{Helper, Network, ShapeTerms},
+    certificate::{Auxiliary, GateTerms, RewrittenCircuit},
     contract::{MAX_WIDTH, MIN_WIDTH},
     ensure,
     field::{add, inverse, mul, neg, FieldElement},
@@ -12,32 +12,32 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// When an existing helper may stand in for terms of a later equation.
+/// When an existing auxiliary wire may stand in for terms of a later equation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum Reuse {
-    /// Every rewrite creates a new helper.
+    /// Every rewrite creates a new auxiliary wire.
     None,
-    /// Reuse a helper when the chosen terms are a multiple of its terms.
+    /// Reuse an auxiliary wire when the chosen terms are a multiple of its terms.
     Prefix,
     /// Like `Prefix`, and also search all sides of the equation for the
-    /// longest helper whose terms appear there up to a common factor.
+    /// longest auxiliary wire whose terms appear there up to a common factor.
     Available,
 }
-/// Settings for rewriting source equations with helpers.
+/// Settings for rewriting source equations with auxiliary wires.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ConversionOptions {
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RewriteOptions {
     /// Maximum number of distinct nonconstant wires per equation (`3..=1024`).
     pub width: usize,
-    /// Number of terms replaced by one new helper (`2..width`).
-    pub chunk: usize,
-    /// When an existing helper may be reused.
-    pub reuse: Reuse,
+    /// Number of terms replaced by one new auxiliary wire (`2..width`).
+    pub auxiliary_terms: usize,
+    /// When an existing auxiliary wire may be reused.
+    pub reuse_auxiliaries: Reuse,
     /// If one factor of `A · B = C` is a constant `k`, rewrite the equation as
     /// `0 = C - k · (other factor)` before splitting.
-    pub fold: bool,
+    pub fold_constants: bool,
 }
 /// Sum terms with the same wire, drop zero coefficients and sort by wire.
 fn canonical(terms: impl IntoIterator<Item = (u32, FieldElement)>) -> LinearCombination {
@@ -70,54 +70,55 @@ fn equation_width(equation: &Equation) -> usize {
         .collect::<BTreeSet<_>>()
         .len()
 }
-/// The linear equation `0 · 0 = terms - helper` that defines a helper.
-fn helper_equation(helper: &Helper) -> Equation {
-    let terms = helper.terms.iter().copied();
+/// The linear equation `0 · 0 = terms - auxiliary` that defines an auxiliary wire.
+fn auxiliary_equation(auxiliary: &Auxiliary) -> Equation {
+    let terms = auxiliary.terms.iter().copied();
     [
         vec![],
         vec![],
-        canonical(terms.chain([(helper.id, FieldElement(P - 1))])),
+        canonical(terms.chain([(auxiliary.id, FieldElement(P - 1))])),
     ]
 }
-/// Helper equations followed by the converted source equations: the order in
+/// Auxiliary equations followed by the rewritten circuit source equations: the order in
 /// which [`Placement::index`](crate::certificate::Placement::index) numbers them.
-pub fn equations(network: &Network) -> Vec<Equation> {
-    network
-        .helpers
+pub fn equations(rewritten: &RewrittenCircuit) -> Vec<Equation> {
+    rewritten
+        .auxiliaries
         .iter()
-        .map(helper_equation)
-        .chain(network.converted.iter().cloned())
+        .map(auxiliary_equation)
+        .chain(rewritten.equations.iter().cloned())
         .collect()
 }
 
 /// Rewrite each source equation until it references at most `options.width`
 /// distinct wires. Each step replaces some terms `Σ kᵢ·wᵢ` of one side by
-/// `k₀·h`, where `h` is a helper constrained to `Σ (kᵢ/k₀)·wᵢ`, so its first
-/// coefficient is 1. Helpers only reference earlier wires.
-pub fn convert(source: &Circuit, options: &ConversionOptions) -> Result<Network> {
+/// `k₀·h`, where `h` is an auxiliary wire constrained to `Σ (kᵢ/k₀)·wᵢ`, so its first
+/// coefficient is 1. Auxiliary wires only reference earlier wires.
+pub fn convert(source: &Circuit, options: &RewriteOptions) -> Result<RewrittenCircuit> {
     ensure(
         (MIN_WIDTH..=MAX_WIDTH).contains(&options.width)
-            && (2..options.width).contains(&options.chunk),
+            && (2..options.width).contains(&options.auxiliary_terms),
         format_args!(
-            "options.width must be {MIN_WIDTH}..={MAX_WIDTH} and options.chunk 2..width (width={}, chunk={})",
-            options.width, options.chunk
+            "options.width must be {MIN_WIDTH}..={MAX_WIDTH} and options.auxiliary_terms 2..width (width={}, chunk={})",
+            options.width, options.auxiliary_terms
         ),
     )?;
-    let mut network = Network {
+    let mut rewritten = RewrittenCircuit {
         original_wires: source.wires,
         wires: source.wires,
         publics: source.publics,
-        helpers: vec![],
-        converted: vec![],
+        auxiliaries: vec![],
+        equations: vec![],
     };
-    // Helper id for each helper's terms, used to reuse helpers across equations.
+    // Auxiliary id for each auxiliary wire's terms, used to reuse auxiliary wires across equations.
     let mut reusable = BTreeMap::new();
     for mut equation in source_equations(source) {
-        if options.fold {
+        if options.fold_constants {
             equation = fold_constant_factor(equation);
         }
         while equation_width(&equation) > options.width {
-            let (side, chosen, existing) = choose_chunk(&equation, options, &network.helpers)?;
+            let (side, chosen, existing) =
+                choose_terms(&equation, options, &rewritten.auxiliaries)?;
             let scale = chosen[0].1 .0;
             let inverse_scale = inverse(scale);
             let normalized: LinearCombination = chosen
@@ -125,7 +126,7 @@ pub fn convert(source: &Circuit, options: &ConversionOptions) -> Result<Network>
                 .map(|(wire, k)| (*wire, FieldElement(mul(k.0, inverse_scale))))
                 .collect();
             let reused = existing.or_else(|| {
-                if options.reuse == Reuse::None {
+                if options.reuse_auxiliaries == Reuse::None {
                     None
                 } else {
                     reusable.get(&normalized).copied()
@@ -134,15 +135,15 @@ pub fn convert(source: &Circuit, options: &ConversionOptions) -> Result<Network>
             let id = match reused {
                 Some(id) => id,
                 None => {
-                    // Each new helper removes at least one term, so the helper
+                    // Each new auxiliary wire removes at least one term, so the auxiliary wire
                     // count is bounded by the input size and the id fits in u32.
-                    let id = network.original_wires + network.helpers.len() as u32;
+                    let id = rewritten.original_wires + rewritten.auxiliaries.len() as u32;
                     ensure(
                         normalized.iter().all(|(wire, _)| *wire < id),
-                        "helper would refer to itself or a later wire",
+                        "auxiliary wire would refer to itself or a later wire",
                     )?;
                     reusable.insert(normalized.clone(), id);
-                    network.helpers.push(Helper {
+                    rewritten.auxiliaries.push(Auxiliary {
                         id,
                         terms: normalized,
                     });
@@ -160,14 +161,14 @@ pub fn convert(source: &Circuit, options: &ConversionOptions) -> Result<Network>
             );
             ensure(
                 next.len() < equation[side].len(),
-                "a helper must reduce the number of terms",
+                "an auxiliary wire must reduce the number of terms",
             )?;
             equation[side] = next;
         }
-        network.converted.push(equation);
+        rewritten.equations.push(equation);
     }
-    network.wires += network.helpers.len() as u32;
-    Ok(network)
+    rewritten.wires += rewritten.auxiliaries.len() as u32;
+    Ok(rewritten)
 }
 
 /// If `A` or `B` is a constant `k`, rewrite `A·B = C` as the linear equation
@@ -192,15 +193,15 @@ fn fold_constant_factor(equation: Equation) -> Equation {
     equation
 }
 
-/// Choose the side and terms to replace by a helper: by default the first
+/// Choose the side and terms to replace by an auxiliary wire: by default the first
 /// `chunk` nonconstant terms of the side with the most terms; with
-/// `Reuse::Available`, the terms of the longest existing helper that appear,
+/// `Reuse::Available`, the terms of the longest existing auxiliary wire that appear,
 /// up to a common factor, on any side. Returns the side, the chosen terms and
-/// the reused helper id, if any.
-fn choose_chunk(
+/// the reused auxiliary id, if any.
+fn choose_terms(
     equation: &Equation,
-    options: &ConversionOptions,
-    helpers: &[Helper],
+    options: &RewriteOptions,
+    auxiliaries: &[Auxiliary],
 ) -> Result<(usize, LinearCombination, Option<u32>)> {
     // Each side's nonconstant terms, the side with the most terms first.
     let mut sides: Vec<(usize, LinearCombination)> = (0..3)
@@ -214,36 +215,41 @@ fn choose_chunk(
         .collect();
     sides.sort_by_key(|(side, terms)| (std::cmp::Reverse(terms.len()), *side));
     let mut side = sides[0].0;
-    let mut chosen: LinearCombination = sides[0].1.iter().take(options.chunk).copied().collect();
+    let mut chosen: LinearCombination = sides[0]
+        .1
+        .iter()
+        .take(options.auxiliary_terms)
+        .copied()
+        .collect();
     ensure(
         chosen.len() >= 2,
         "cannot split an equation side with fewer than two terms",
     )?;
     let mut existing = None;
-    if options.reuse == Reuse::Available {
+    if options.reuse_auxiliaries == Reuse::Available {
         for (candidate, terms) in &sides {
             let coefficients: BTreeMap<_, _> = terms.iter().copied().collect();
-            for helper in helpers {
-                let Some(first) = coefficients.get(&helper.terms[0].0) else {
+            for auxiliary in auxiliaries {
+                let Some(first) = coefficients.get(&auxiliary.terms[0].0) else {
                     continue;
                 };
-                // The helper appears on this side as `scale` times its terms.
-                let scale = mul(first.0, inverse(helper.terms[0].1 .0));
-                let appears = helper
+                // The auxiliary wire appears on this side as `scale` times its terms.
+                let scale = mul(first.0, inverse(auxiliary.terms[0].1 .0));
+                let appears = auxiliary
                     .terms
                     .iter()
                     .all(|(wire, k)| coefficients.get(wire).map(|c| c.0) == Some(mul(scale, k.0)));
-                if helper.terms.len() < 2 || !appears {
+                if auxiliary.terms.len() < 2 || !appears {
                     continue;
                 }
-                if existing.is_none() || helper.terms.len() > chosen.len() {
+                if existing.is_none() || auxiliary.terms.len() > chosen.len() {
                     side = *candidate;
-                    chosen = helper
+                    chosen = auxiliary
                         .terms
                         .iter()
                         .map(|(wire, k)| (*wire, FieldElement(mul(scale, k.0))))
                         .collect();
-                    existing = Some(helper.id);
+                    existing = Some(auxiliary.id);
                 }
             }
         }
@@ -251,22 +257,22 @@ fn choose_chunk(
     Ok((side, chosen, existing))
 }
 
-/// An equation with its wires abstracted: equations with the same shape differ
+/// An equation with its wires abstracted: equations with the same gate type differ
 /// only in which wires they use, so one constraint can check all of them.
-pub struct Shape {
-    /// Serialized `terms`; equal keys mean equal shapes. [`shape`] keeps the
+pub struct CanonicalGate {
+    /// Serialized `terms`; equal keys mean equal gate types. [`shape`] keeps the
     /// orientation of `A` and `B` with the smaller key, so the format of this
     /// string is part of the compiler's deterministic output.
     pub key: String,
     /// The equation's wires; position `i` in `terms` stands for `wires[i]`.
     pub wires: Vec<u32>,
-    pub terms: ShapeTerms,
+    pub terms: GateTerms,
 }
-/// Canonical shape of `equation`. Wires are ordered by their coefficients in `A`, `B`
+/// Canonical gate type of `equation`. Wires are ordered by their coefficients in `A`, `B`
 /// and `C`, ties broken by wire id, and `A` and `B` are swapped when that gives
 /// a smaller key.
-pub fn shape(equation: &Equation) -> Shape {
-    fn orient(equation: &Equation) -> Shape {
+pub fn canonical_gate(equation: &Equation) -> CanonicalGate {
+    fn orient(equation: &Equation) -> CanonicalGate {
         let maps = equation
             .clone()
             .map(|lc| lc.into_iter().collect::<BTreeMap<_, _>>());
@@ -301,7 +307,7 @@ pub fn shape(equation: &Equation) -> Shape {
             t.sort_by_key(|(w, _)| *w);
             t
         });
-        Shape {
+        CanonicalGate {
             key: serde_json::to_string(&terms).expect("finite terms"),
             wires,
             terms,

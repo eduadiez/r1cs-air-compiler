@@ -1,4 +1,4 @@
-//! Data carried by certificates: the helper network, the packed layout and
+//! Data carried by certificates: the rewritten circuit, the packed layout and
 //! the two certificate types, with read-only accessors and the hash used to
 //! bind them. Nothing here builds or checks certificates, so the checkers can
 //! read them without depending on the code that builds them.
@@ -12,60 +12,60 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-/// Equation terms with wires replaced by their position in the shape; position
+/// Equation terms with wires replaced by their position in the gate type; position
 /// -1 is the constant 1.
-pub type ShapeTerms = [Vec<(i32, FieldElement)>; 3];
+pub type GateTerms = [Vec<(i32, FieldElement)>; 3];
 
-/// Helper wire `id`, constrained to equal `terms`. The first coefficient is 1
+/// Auxiliary wire `id`, constrained to equal `terms`. The first coefficient is 1
 /// and every term references an earlier wire.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Helper {
+pub struct Auxiliary {
     pub id: u32,
     pub terms: LinearCombination,
 }
-/// The source circuit after rewriting: its helpers and its rewritten equations.
+/// The source circuit after rewriting: its auxiliary wires and its rewritten equations.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Network {
+pub struct RewrittenCircuit {
     /// Wire count of the source circuit.
     pub original_wires: u32,
-    /// Source wires plus helpers; helper ids are `original_wires..wires`.
+    /// Source wires plus auxiliary wires; auxiliary ids are `original_wires..wires`.
     pub wires: u32,
     pub publics: u32,
-    pub helpers: Vec<Helper>,
-    /// One equation per source equation, in source order, possibly referencing helpers.
-    pub converted: Vec<Equation>,
+    pub auxiliaries: Vec<Auxiliary>,
+    /// One equation per source equation, in source order, possibly referencing auxiliary wires.
+    pub equations: Vec<Equation>,
 }
 
-/// A distinct equation shape.
+/// A distinct equation gate type.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Group {
+pub struct GateType {
     pub id: usize,
-    /// Number of wires in the shape.
+    /// Number of wires in the gate type.
     pub width: usize,
-    pub terms: ShapeTerms,
+    pub terms: GateTerms,
 }
-/// Where one equation is placed: shape position `i` stands for `wires[i]`,
+/// Where one equation is placed: gate type position `i` stands for `wires[i]`,
 /// stored at `(row, columns[i])`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Placement {
-    /// Index of the equation: helper equations first, then converted equations.
+    /// Index of the equation: auxiliary equations first, then rewritten equations.
     pub index: usize,
-    /// Shape group id.
-    pub shape: usize,
+    /// CanonicalGate group id.
+    pub gate_type: usize,
     pub wires: Vec<u32>,
     pub row: usize,
     pub columns: Vec<usize>,
 }
-/// One PILout constraint: shape `shape` applied to `columns`, enforced on
+/// One PILout constraint: gate type `shape` applied to `columns`, enforced on
 /// `rows` by selector column `selector`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Slot {
-    pub shape: usize,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Gate {
+    pub gate_type: usize,
     pub columns: Vec<usize>,
     pub rows: Vec<usize>,
     pub selector: usize,
@@ -99,13 +99,13 @@ pub struct Layout {
     pub used_rows: usize,
     /// The last row holding an equation, plus one.
     pub arithmetic_rows: usize,
-    pub groups: Vec<Group>,
+    pub gate_types: Vec<GateType>,
     pub placements: Vec<Placement>,
-    pub slots: Vec<Slot>,
+    pub gates: Vec<Gate>,
     pub selectors: Vec<Selector>,
     pub public_bindings: Vec<Binding>,
     /// Whether some wire occupies more than one cell.
-    pub requires_copy: bool,
+    pub requires_permutation: bool,
 }
 /// Certificate for a reference artifact: the source and PILout it binds, the
 /// trace geometry and the column of every wire.
@@ -163,7 +163,7 @@ impl ReferenceCertificate {
 }
 
 /// Certificate for a packed artifact: the source and PILout it binds, the
-/// helper network and the layout.
+/// rewritten circuit and the layout.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PackedCertificate {
@@ -173,7 +173,7 @@ pub struct PackedCertificate {
     pub(crate) relation: String,
     pub(crate) source_sha256: String,
     pub(crate) pilout_sha256: String,
-    pub(crate) network: Network,
+    pub(crate) rewritten_circuit: RewrittenCircuit,
     pub(crate) layout: Layout,
 }
 impl PackedCertificate {
@@ -202,12 +202,12 @@ impl PackedCertificate {
         self.layout.width
     }
     /// Whether some wire occupies more than one cell, so that the PILout
-    /// contains a copy argument.
-    pub fn requires_copy(&self) -> bool {
-        self.layout.requires_copy
+    /// contains a permutation argument.
+    pub fn requires_permutation(&self) -> bool {
+        self.layout.requires_permutation
     }
-    /// Number of helper wires.
-    pub fn helper_count(&self) -> usize {
-        self.network.helpers.len()
+    /// Number of auxiliary wires.
+    pub fn auxiliary_count(&self) -> usize {
+        self.rewritten_circuit.auxiliaries.len()
     }
 }

@@ -13,7 +13,7 @@ Each function takes the R1CS file as bytes (`source`).
 | `compile_reference(source, rows)` | `ReferenceArtifact` | Builds the reference artifact, then runs the reference checker on it |
 | `compile_optimized_reference(source, rows)` | `ReferenceArtifact` | The same, with expressions simplified and repeated subexpressions reused |
 | `compile_packed(source, &config)` | `PackedArtifact` | Builds the packed artifact, then runs the packed checker on it |
-| `plan_layout(source, &config)` | `LayoutPlan` | Builds the helpers and the placement and runs the placement check; no PILout |
+| `plan_layout(source, &config)` | `LayoutPlan` | Builds the auxiliary wires and the placement and runs the placement check; no PILout |
 | `check_reference(source, pilout, &certificate)` | `ReferenceCheckReport` | Checks a reference artifact from any origin |
 | `check_packed(source, pilout, &certificate)` | `PackedCheckReport` | Checks a packed artifact from any origin |
 | `project_witness(source, pilout, &certificate, wtns)` | `Witness` | Runs `check_packed`, checks that the witness satisfies every equation, then fills the trace |
@@ -45,11 +45,11 @@ fn main() -> Result<()> {
 | `ReferenceArtifact` | `pilout` (bytes) and `certificate` |
 | `PackedArtifact` | `pilout`, `certificate` and `map`, the wire in each cell row by row (0 for an unused cell) |
 | `ReferenceCertificate` | Private fields; methods `version`, `relation`, `source_sha256`, `pilout_sha256`, `rows`, `width`, `public_wires`, `wire_columns` |
-| `PackedCertificate` | Private fields; methods `version`, `relation`, `source_sha256`, `pilout_sha256`, `rows`, `width`, `requires_copy`, `helper_count` |
-| `LayoutPlan` | Methods `rows`, `width`, `helper_count`, `requires_copy`, `checked_equations`, `map` |
+| `PackedCertificate` | Private fields; methods `version`, `relation`, `source_sha256`, `pilout_sha256`, `rows`, `width`, `requires_permutation`, `auxiliary_count` |
+| `LayoutPlan` | Methods `rows`, `width`, `auxiliary_count`, `requires_permutation`, `checked_equations`, `map` |
 | `ReferenceCheckReport`, `PackedCheckReport` | The fields of the CLI's `check` report, in snake case |
 | `Witness` | `trace` (stage one, row by row) and `publics`, as `Vec<u64>` |
-| `LayoutConfig`, `ConversionOptions`, `Strategy`, `Reuse` | The packed layout settings |
+| `LayoutConfig`, `RewriteOptions`, `Strategy`, `Reuse` | The packed layout settings |
 | `Error`, `ErrorKind`, `Result<T>` | See [Errors](#errors) |
 
 The certificates serialize to the certificate JSON of
@@ -61,7 +61,7 @@ Every public type except `Error` implements `Debug`, `Clone` and `PartialEq`.
 `Strategy`, `Reuse`, `ErrorKind`, the artifacts, the check reports and
 `Witness` are `#[non_exhaustive]`: later versions may add variants and fields,
 so a `match` on these enums needs a wildcard arm. `LayoutConfig` and
-`ConversionOptions` have public fields and are built by the caller.
+`RewriteOptions` have public fields and are built by the caller.
 
 ## Errors
 

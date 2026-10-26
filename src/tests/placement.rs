@@ -1,27 +1,27 @@
-//! Placement check: helper networks and layouts against their source.
+//! Placement check: auxiliary wire rewritten_circuits and layouts against their source.
 use super::{assert_limit, assert_rejected, packed::config, r1cs_bytes};
 use crate::{
-    certificate::{Group, Helper, Layout, Network, Placement, Selector, Slot},
+    certificate::{Auxiliary, Gate, GateType, Layout, Placement, RewrittenCircuit, Selector},
     field::{add, mul, FieldElement},
     layout::{self, LayoutConfig, Strategy},
-    network, packed, placement_check, r1cs, P,
+    packed, placement_check, r1cs, rewrite, P,
 };
 
-/// The xor fixture packed with its layout: helpers, shared shapes and a copy
+/// The xor fixture packed with its layout: auxiliary wires, shared gate types and a copy
 /// argument at width 8.
-fn xor_plan() -> (r1cs::Circuit, Network, Layout) {
+fn xor_plan() -> (r1cs::Circuit, RewrittenCircuit, Layout) {
     let source = include_bytes!("../../fixtures/xor/kernel.r1cs");
     let settings: LayoutConfig =
         serde_json::from_slice(include_bytes!("../../fixtures/xor/layout.json")).unwrap();
     let artifact = packed::compile(source, &settings).unwrap();
     let circuit = r1cs::read(source).unwrap();
     let certificate = artifact.certificate;
-    (circuit, certificate.network, certificate.layout)
+    (circuit, certificate.rewritten_circuit, certificate.layout)
 }
 
-/// Apply `change` to the xor network and layout and require the placement
+/// Apply `change` to the xor rewritten and layout and require the placement
 /// check to reject the result with `expected`.
-fn rejects(expected: &str, change: impl Fn(&mut Network, &mut Layout)) {
+fn rejects(expected: &str, change: impl Fn(&mut RewrittenCircuit, &mut Layout)) {
     let (circuit, mut net, mut plan) = xor_plan();
     assert!(placement_check::check(&circuit, &net, &plan).is_ok());
     change(&mut net, &mut plan);
@@ -29,15 +29,15 @@ fn rejects(expected: &str, change: impl Fn(&mut Network, &mut Layout)) {
 }
 
 /// Like `rejects`, but require a size limit error.
-fn exceeds(expected: &str, change: impl Fn(&mut Network, &mut Layout)) {
+fn exceeds(expected: &str, change: impl Fn(&mut RewrittenCircuit, &mut Layout)) {
     let (circuit, mut net, mut plan) = xor_plan();
     change(&mut net, &mut plan);
     assert_limit(placement_check::check(&circuit, &net, &plan), expected);
 }
 
 #[test]
-fn network_and_layout_dimensions_are_checked() {
-    let counts = "network wire or public counts differ from the source";
+fn rewritten_circuit_and_layout_dimensions_are_checked() {
+    let counts = "rewritten wire or public counts differ from the source";
     rejects(counts, |n, _| n.original_wires += 1);
     rejects(counts, |n, _| n.publics += 1);
     rejects(counts, |n, _| n.wires += 1);
@@ -64,62 +64,63 @@ fn network_and_layout_dimensions_are_checked() {
     rejects("arithmeticRows must be the last row", |_, l| {
         l.arithmetic_rows += 1
     });
-    rejects("one converted equation per source equation", |n, _| {
-        n.converted.pop();
+    rejects("one rewritten equation per source equation", |n, _| {
+        n.equations.pop();
     });
-    rejects("requiresCopy must be set exactly", |_, l| {
-        l.requires_copy = false
+    rejects("requiresPermutation must be set exactly", |_, l| {
+        l.requires_permutation = false
     });
 }
 
 #[test]
-fn helpers_are_checked() {
+fn auxiliaries_are_checked() {
     rejects(
-        "helper 0: ids must follow the source wires in order",
-        |n, _| n.helpers[0].id += 1,
+        "auxiliary wire 0: ids must follow the source wires in order",
+        |n, _| n.auxiliaries[0].id += 1,
     );
-    rejects("helper 0: needs at least two terms", |n, _| {
-        n.helpers[0].terms.truncate(1);
+    rejects("auxiliary wire 0: needs at least two terms", |n, _| {
+        n.auxiliaries[0].terms.truncate(1);
     });
-    rejects("helper 0: first coefficient must be 1", |n, _| {
-        n.helpers[0].terms[0].1 = FieldElement(2)
+    rejects("auxiliary wire 0: first coefficient must be 1", |n, _| {
+        n.auxiliaries[0].terms[0].1 = FieldElement(2)
     });
-    rejects("helper 0: terms must not use wire 0", |n, _| {
-        n.helpers[0].terms[0].0 = 0
+    rejects("auxiliary wire 0: terms must not use wire 0", |n, _| {
+        n.auxiliaries[0].terms[0].0 = 0
     });
-    let (_, network, _) = xor_plan();
-    let first_helper = network.helpers[0].id;
+    let (_, rewritten, _) = xor_plan();
+    let first_auxiliary = rewritten.auxiliaries[0].id;
     rejects(
-        &format!("helper 0: wire {first_helper} out of range"),
+        &format!("auxiliary wire 0: wire {first_auxiliary} out of range"),
         |n, _| {
-            let id = n.helpers[0].id;
-            n.helpers[0].terms.push((id, FieldElement(1)));
+            let id = n.auxiliaries[0].id;
+            n.auxiliaries[0].terms.push((id, FieldElement(1)));
         },
     );
-    rejects("helper 0: wires must be in increasing order", |n, _| {
-        n.helpers[0].terms.reverse()
-    });
+    rejects(
+        "auxiliary wire 0: wires must be in increasing order",
+        |n, _| n.auxiliaries[0].terms.reverse(),
+    );
 }
 
 #[test]
-fn converted_equations_are_checked() {
-    let coefficient = "converted equation 0: coefficient of wire";
-    rejects(coefficient, |n, _| n.converted[0][2][0].1 = FieldElement(0));
-    rejects(coefficient, |n, _| n.converted[0][2][0].1 = FieldElement(P));
-    let (_, network, _) = xor_plan();
-    let past_last = network.wires;
+fn rewritten_equations_are_checked() {
+    let coefficient = "rewritten equation 0: coefficient of wire";
+    rejects(coefficient, |n, _| n.equations[0][2][0].1 = FieldElement(0));
+    rejects(coefficient, |n, _| n.equations[0][2][0].1 = FieldElement(P));
+    let (_, rewritten, _) = xor_plan();
+    let past_last = rewritten.wires;
     rejects(
-        &format!("converted equation 0: wire {past_last} out of range"),
+        &format!("rewritten equation 0: wire {past_last} out of range"),
         |n, _| {
             let wire = n.wires;
-            n.converted[0][2].push((wire, FieldElement(1)));
+            n.equations[0][2].push((wire, FieldElement(1)));
         },
     );
     // Changes that keep the relation but break canonical form.
-    let with_spare_wire = |n: &Network| {
-        (0..n.converted.len())
+    let with_spare_wire = |n: &RewrittenCircuit| {
+        (0..n.equations.len())
             .find(|i| {
-                n.converted[*i][2]
+                n.equations[*i][2]
                     .last()
                     .is_some_and(|(wire, _)| *wire + 1 < n.wires)
             })
@@ -128,50 +129,52 @@ fn converted_equations_are_checked() {
     rejects("coefficient of wire", |n, _| {
         let i = with_spare_wire(n);
         let wire = n.wires - 1;
-        n.converted[i][2].push((wire, FieldElement(0)));
+        n.equations[i][2].push((wire, FieldElement(0)));
     });
     rejects("coefficient of wire", |n, _| {
         let i = with_spare_wire(n);
         let wire = n.wires - 1;
-        n.converted[i][2].push((wire, FieldElement(P)));
+        n.equations[i][2].push((wire, FieldElement(P)));
     });
     rejects("wires must be in increasing order", |n, _| {
         let i = with_spare_wire(n);
-        let (wire, k) = n.converted[i][2].pop().unwrap();
+        let (wire, k) = n.equations[i][2].pop().unwrap();
         let rest = add(k.0, P - 2);
-        n.converted[i][2].extend([(wire, FieldElement(2)), (wire, FieldElement(rest))]);
+        n.equations[i][2].extend([(wire, FieldElement(2)), (wire, FieldElement(rest))]);
     });
 }
 
 #[test]
-fn changed_converted_equation_is_rejected() {
+fn changed_rewritten_equation_is_rejected() {
     let source = r1cs::read(&r1cs_bytes([5, 1, 1, 2], &[[1, 2, 3], [1, 3, 4]])).unwrap();
-    let mut net = network::convert(&source, &config(3).options).unwrap();
+    let mut net = rewrite::convert(&source, &config(3).options).unwrap();
     // Change one coefficient; the equation count is unchanged.
-    net.converted[0][2][0].1 .0 = 2;
+    net.equations[0][2][0].1 .0 = 2;
     let plan = layout::pack(&net, &config(3)).unwrap();
     assert_rejected(
         placement_check::check(&source, &net, &plan),
-        "converted equation 0 differs from its source equation",
+        "rewritten equation 0 differs from its source equation",
     );
 }
 
 #[test]
 fn shapes_are_checked() {
-    rejects("shape 0: id out of order", |_, l| l.groups[0].id = 1);
-    rejects("shape 0: wider than the layout", |_, l| {
-        l.groups[0].width = l.width + 1
+    rejects("gate type 0: id out of order", |_, l| {
+        l.gate_types[0].id = 1
     });
-    rejects("shape 0: position out of range", |_, l| {
-        l.groups[0].terms[2][0].0 = -2
+    rejects("gate type 0: wider than the layout", |_, l| {
+        l.gate_types[0].width = l.width + 1
     });
-    rejects("shape 0: position out of range", |_, l| {
-        let width = l.groups[0].width as i32;
-        l.groups[0].terms[2].last_mut().unwrap().0 = width;
+    rejects("gate type 0: position out of range", |_, l| {
+        l.gate_types[0].terms[2][0].0 = -2
+    });
+    rejects("gate type 0: position out of range", |_, l| {
+        let width = l.gate_types[0].width as i32;
+        l.gate_types[0].terms[2].last_mut().unwrap().0 = width;
     });
     // A zero or P coefficient at an unused position leaves the relation intact.
     let with_spare_position = |l: &Layout| {
-        l.groups
+        l.gate_types
             .iter()
             .position(|g| {
                 g.terms[2]
@@ -183,47 +186,54 @@ fn shapes_are_checked() {
     for k in [0, P] {
         rejects("coefficient must be in 1..P", |_, l| {
             let g = with_spare_position(l);
-            let position = l.groups[g].width as i32 - 1;
-            l.groups[g].terms[2].push((position, FieldElement(k)));
+            let position = l.gate_types[g].width as i32 - 1;
+            l.gate_types[g].terms[2].push((position, FieldElement(k)));
         });
     }
-    rejects("shape 0: coefficient must be in 1..P", |_, l| {
-        l.groups[0].terms[2][0].1 = FieldElement(0)
+    rejects("gate type 0: coefficient must be in 1..P", |_, l| {
+        l.gate_types[0].terms[2][0].1 = FieldElement(0)
     });
-    rejects("shape 0: positions must be in increasing order", |_, l| {
-        let (position, k) = l.groups[0].terms[2].pop().unwrap();
-        let rest = add(k.0, P - 2);
-        l.groups[0].terms[2].extend([(position, FieldElement(2)), (position, FieldElement(rest))]);
-    });
-    rejects("shape 0: positions must be in increasing order", |_, l| {
-        let first = l.groups[0].terms[2][0];
-        l.groups[0].terms[2].push(first);
-    });
+    rejects(
+        "gate type 0: positions must be in increasing order",
+        |_, l| {
+            let (position, k) = l.gate_types[0].terms[2].pop().unwrap();
+            let rest = add(k.0, P - 2);
+            l.gate_types[0].terms[2]
+                .extend([(position, FieldElement(2)), (position, FieldElement(rest))]);
+        },
+    );
+    rejects(
+        "gate type 0: positions must be in increasing order",
+        |_, l| {
+            let first = l.gate_types[0].terms[2][0];
+            l.gate_types[0].terms[2].push(first);
+        },
+    );
 }
 
 #[test]
 fn shapes_must_give_back_the_placed_equation() {
-    let changed = "its shape and wires give a different equation";
+    let changed = "its gate type and wires give a different equation";
     // A changed coefficient in any of A, B or C changes the equation.
     for side in 0..3 {
         rejects(changed, |_, l| {
             let g = l
-                .groups
+                .gate_types
                 .iter()
                 .position(|g| !g.terms[side].is_empty())
                 .unwrap();
-            let k = &mut l.groups[g].terms[side][0].1;
+            let k = &mut l.gate_types[g].terms[side][0].1;
             *k = FieldElement(mul(k.0, 2));
         });
     }
     // Swapping A and B gives back the same A·B - C.
     let (circuit, net, mut plan) = xor_plan();
     let g = plan
-        .groups
+        .gate_types
         .iter()
         .position(|g| g.terms[0] != g.terms[1])
         .unwrap();
-    plan.groups[g].terms.swap(0, 1);
+    plan.gate_types[g].terms.swap(0, 1);
     placement_check::check(&circuit, &net, &plan).unwrap();
 }
 
@@ -241,37 +251,37 @@ fn selectors_and_slots_are_checked() {
         let row = l.arithmetic_rows;
         l.selectors[0].rows.push(row);
     });
-    rejects("slot 0: unknown shape", |_, l| {
-        l.slots[0].shape = l.groups.len()
+    rejects("gate 0: unknown gate type", |_, l| {
+        l.gates[0].gate_type = l.gate_types.len()
     });
-    rejects("slot 0: unknown selector", |_, l| {
-        l.slots[0].selector = l.selectors.len()
+    rejects("gate 0: unknown selector", |_, l| {
+        l.gates[0].selector = l.selectors.len()
     });
-    rejects("slot 0: rows differ from its selector's rows", |_, l| {
-        l.slots[0].rows.push(63)
+    rejects("gate 0: rows differ from its selector's rows", |_, l| {
+        l.gates[0].rows.push(63)
     });
     rejects(
-        "slot 0: column count differs from its shape width",
+        "gate 0: column count differs from its gate type width",
         |_, l| {
-            l.slots[0].columns.pop();
+            l.gates[0].columns.pop();
         },
     );
-    rejects("slot 0: column out of range", |_, l| {
-        l.slots[0].columns[0] = l.width
+    rejects("gate 0: column out of range", |_, l| {
+        l.gates[0].columns[0] = l.width
     });
-    rejects("slot 0: repeated column", |_, l| {
-        l.slots[0].columns[1] = l.slots[0].columns[0];
+    rejects("gate 0: repeated column", |_, l| {
+        l.gates[0].columns[1] = l.gates[0].columns[0];
     });
-    rejects("duplicate of an earlier slot", |_, l| {
-        let slot = l.slots[0].clone();
-        l.slots.push(slot);
+    rejects("duplicate of an earlier gate", |_, l| {
+        let gate = l.gates[0].clone();
+        l.gates.push(gate);
     });
 }
 
 #[test]
 fn every_active_slot_row_needs_a_placement() {
     rejects(
-        "placements must match the active slot rows exactly",
+        "placements must match the active gate rows exactly",
         |_, l| {
             // Activate selector 0 on one more row that holds equations.
             let selector = &l.selectors[0];
@@ -282,8 +292,8 @@ fn every_active_slot_row_needs_a_placement() {
             rows.push(row);
             rows.sort_unstable();
             l.selectors[0].rows = rows.clone();
-            for slot in l.slots.iter_mut().filter(|s| s.selector == 0) {
-                slot.rows = rows.clone();
+            for gate in l.gates.iter_mut().filter(|s| s.selector == 0) {
+                gate.rows = rows.clone();
             }
         },
     );
@@ -293,23 +303,26 @@ fn every_active_slot_row_needs_a_placement() {
 fn placements_are_checked() {
     let (_, _, plan) = xor_plan();
     let first = plan.placements[0].index;
-    rejects("one placement per helper and converted equation", |_, l| {
-        l.placements.pop();
-    });
+    rejects(
+        "one placement per auxiliary wire and rewritten equation",
+        |_, l| {
+            l.placements.pop();
+        },
+    );
     rejects("placement of unknown equation", |_, l| {
         l.placements[0].index = l.placements.len()
     });
     rejects("is placed twice", |_, l| {
         l.placements[1].index = l.placements[0].index
     });
-    rejects(&format!("equation {first}: unknown shape"), |_, l| {
-        l.placements[0].shape = l.groups.len()
+    rejects(&format!("equation {first}: unknown gate type"), |_, l| {
+        l.placements[0].gate_type = l.gate_types.len()
     });
     rejects(
         &format!("equation {first}: row beyond arithmeticRows"),
         |_, l| l.placements[0].row = l.arithmetic_rows,
     );
-    let count = format!("equation {first}: wire or column count differs from its shape width");
+    let count = format!("equation {first}: wire or column count differs from its gate type width");
     rejects(&count, |_, l| {
         l.placements[0].wires.pop();
     });
@@ -320,26 +333,26 @@ fn placements_are_checked() {
         l.placements[0].columns[1] = l.placements[0].columns[0];
     });
     rejects(
-        &format!("equation {first}: its shape and wires give a different equation"),
+        &format!("equation {first}: its gate type and wires give a different equation"),
         |_, l| {
-            let shape = l.placements[0].shape;
-            let k = l.groups[shape].terms[2][0].1 .0;
-            l.groups[shape].terms[2][0].1 = FieldElement(if k == 1 { 2 } else { 1 });
+            let shape = l.placements[0].gate_type;
+            let k = l.gate_types[shape].terms[2][0].1 .0;
+            l.gate_types[shape].terms[2][0].1 = FieldElement(if k == 1 { 2 } else { 1 });
         },
     );
     rejects(
-        &format!("equation {first} is placed on a row where its slot is not active"),
+        &format!("equation {first} is placed on a row where its gate is not active"),
         |_, l| {
             let placement = &l.placements[0];
             let active: Vec<_> = l
-                .slots
+                .gates
                 .iter()
-                .filter(|s| s.shape == placement.shape && s.columns == placement.columns)
+                .filter(|s| s.gate_type == placement.gate_type && s.columns == placement.columns)
                 .flat_map(|s| s.rows.clone())
                 .collect();
             let row = (0..l.arithmetic_rows)
                 .find(|r| !active.contains(r))
-                .expect("a row where the slot is inactive");
+                .expect("a row where the gate is inactive");
             l.placements[0].row = row;
         },
     );
@@ -347,14 +360,14 @@ fn placements_are_checked() {
 
 #[test]
 fn unused_selectors_and_shapes_are_rejected() {
-    rejects("no slot uses it", |_, l| {
+    rejects("no gate uses it", |_, l| {
         let id = l.selectors.len();
         l.selectors.push(Selector { id, rows: vec![0] });
     });
     rejects("no equation uses it", |_, l| {
-        let mut unused = l.groups[0].clone();
-        unused.id = l.groups.len();
-        l.groups.push(unused);
+        let mut unused = l.gate_types[0].clone();
+        unused.id = l.gate_types.len();
+        l.gate_types.push(unused);
     });
 }
 
@@ -395,15 +408,18 @@ fn a_cell_cannot_hold_two_different_wires() {
 }
 
 /// Source `1 · w1 = w2` (factor A is the constant wire 0), placed by hand as one
-/// equation of the given shape on row 0, columns 0, 1 and 2.
-fn constant_factor_plan(group: Group, wires: Vec<u32>) -> (r1cs::Circuit, Network, Layout) {
+/// equation of the given gate type on row 0, columns 0, 1 and 2.
+fn constant_factor_plan(
+    group: GateType,
+    wires: Vec<u32>,
+) -> (r1cs::Circuit, RewrittenCircuit, Layout) {
     let circuit = r1cs::read(&r1cs_bytes([3, 0, 0, 2], &[[0, 1, 2]])).unwrap();
-    let network = Network {
+    let rewritten = RewrittenCircuit {
         original_wires: 3,
         wires: 3,
         publics: 0,
-        helpers: vec![],
-        converted: vec![circuit.equations[0].clone()],
+        auxiliaries: vec![],
+        equations: vec![circuit.equations[0].clone()],
     };
     let columns = vec![0, 1, 2];
     let layout = Layout {
@@ -412,16 +428,16 @@ fn constant_factor_plan(group: Group, wires: Vec<u32>) -> (r1cs::Circuit, Networ
         rows: 64,
         used_rows: 1,
         arithmetic_rows: 1,
-        groups: vec![group],
+        gate_types: vec![group],
         placements: vec![Placement {
             index: 0,
-            shape: 0,
+            gate_type: 0,
             wires,
             row: 0,
             columns: columns.clone(),
         }],
-        slots: vec![Slot {
-            shape: 0,
+        gates: vec![Gate {
+            gate_type: 0,
             columns,
             rows: vec![0],
             selector: 0,
@@ -431,54 +447,54 @@ fn constant_factor_plan(group: Group, wires: Vec<u32>) -> (r1cs::Circuit, Networ
             rows: vec![0],
         }],
         public_bindings: vec![],
-        requires_copy: false,
+        requires_permutation: false,
     };
-    (circuit, network, layout)
+    (circuit, rewritten, layout)
 }
 
 #[test]
-fn only_nonconstant_source_and_helper_wires_occupy_cells() {
+fn only_nonconstant_source_and_auxiliary_wires_occupy_cells() {
     let one = FieldElement(1);
-    // Wire 0 at shape position 0: the shape gives back the equation, but the
+    // Wire 0 at gate type position 0: the gate type gives back the equation, but the
     // cell would stand for the constant 1 without any constraint.
-    let group = Group {
+    let group = GateType {
         id: 0,
         width: 3,
         terms: [vec![(0, one)], vec![(1, one)], vec![(2, one)]],
     };
-    let (circuit, network, layout) = constant_factor_plan(group, vec![0, 1, 2]);
+    let (circuit, rewritten, layout) = constant_factor_plan(group, vec![0, 1, 2]);
     assert_rejected(
-        placement_check::check(&circuit, &network, &layout),
+        placement_check::check(&circuit, &rewritten, &layout),
         "wire 0 cannot occupy a cell",
     );
     // An unknown wire at a position that no term uses.
-    let group = Group {
+    let group = GateType {
         id: 0,
         width: 3,
         terms: [vec![(-1, one)], vec![(0, one)], vec![(1, one)]],
     };
     for unknown in [3, 999] {
-        let (circuit, network, layout) = constant_factor_plan(group.clone(), vec![1, 2, unknown]);
+        let (circuit, rewritten, layout) = constant_factor_plan(group.clone(), vec![1, 2, unknown]);
         assert_rejected(
-            placement_check::check(&circuit, &network, &layout),
+            placement_check::check(&circuit, &rewritten, &layout),
             &format!("wire {unknown} cannot occupy a cell"),
         );
     }
 }
 
-/// Source `w1 · w2 = w3` with one helper, wire 4 defined by `terms`, and factor
+/// Source `w1 · w2 = w3` with one auxiliary wire, wire 4 defined by `terms`, and factor
 /// A rewritten as `a`.
-fn helper_network(
+fn auxiliary_network(
     terms: Vec<(u32, FieldElement)>,
     a: Vec<(u32, FieldElement)>,
-) -> (r1cs::Circuit, Network, Layout) {
+) -> (r1cs::Circuit, RewrittenCircuit, Layout) {
     let circuit = r1cs::read(&r1cs_bytes([4, 0, 0, 3], &[[1, 2, 3]])).unwrap();
-    let net = Network {
+    let net = RewrittenCircuit {
         original_wires: 4,
         wires: 5,
         publics: 0,
-        helpers: vec![Helper { id: 4, terms }],
-        converted: vec![[a, vec![(2, FieldElement(1))], vec![(3, FieldElement(1))]]],
+        auxiliaries: vec![Auxiliary { id: 4, terms }],
+        equations: vec![[a, vec![(2, FieldElement(1))], vec![(3, FieldElement(1))]]],
     };
     let mut settings = config(3);
     settings.strategy = Strategy::Mixed;
@@ -487,9 +503,9 @@ fn helper_network(
 }
 
 #[test]
-fn helpers_must_be_normalized_even_when_the_relation_holds() {
+fn auxiliaries_must_be_normalized_even_when_the_relation_holds() {
     let check = |terms, a| {
-        let (circuit, net, plan) = helper_network(terms, a);
+        let (circuit, net, plan) = auxiliary_network(terms, a);
         placement_check::check(&circuit, &net, &plan)
     };
     let inverse_of_two = P.div_ceil(2); // (P + 1) / 2
@@ -502,7 +518,7 @@ fn helpers_must_be_normalized_even_when_the_relation_holds() {
     // h = w1 alone.
     assert_rejected(
         check(vec![(1, FieldElement(1))], vec![(4, FieldElement(1))]),
-        "helper 0: needs at least two terms",
+        "auxiliary wire 0: needs at least two terms",
     );
     // h = 1 + w1, A = h - 1.
     assert_rejected(
@@ -510,7 +526,7 @@ fn helpers_must_be_normalized_even_when_the_relation_holds() {
             vec![(0, FieldElement(1)), (1, FieldElement(1))],
             vec![(0, FieldElement(P - 1)), (4, FieldElement(1))],
         ),
-        "helper 0: terms must not use wire 0",
+        "auxiliary wire 0: terms must not use wire 0",
     );
     // h = 2·w1 + w2, A = (h - w2) / 2.
     assert_rejected(
@@ -521,6 +537,6 @@ fn helpers_must_be_normalized_even_when_the_relation_holds() {
                 (4, FieldElement(inverse_of_two)),
             ],
         ),
-        "helper 0: first coefficient must be 1",
+        "auxiliary wire 0: first coefficient must be 1",
     );
 }

@@ -324,13 +324,13 @@ fn reports_have_the_documented_fields() {
         "packed/certificate.json",
     ]);
     assert_eq!(checked["relation"], "r1cs-packed-static-copy");
-    assert_eq!(checked["requiresCopy"], true);
+    assert_eq!(checked["requiresPermutation"], true);
     let plan = cli.ok(&["plan", &source, "plan", "--layout", &layout]);
     for key in [
         "rows",
         "width",
-        "helpers",
-        "requiresCopy",
+        "auxiliary wires",
+        "requiresPermutation",
         "checkedEquations",
     ] {
         assert!(!plan[key].is_null(), "plan report lacks {key}");
@@ -361,7 +361,7 @@ fn errors_name_the_failing_input() {
     assert!(!cli.path("out").exists());
     fs::write(
         cli.path("bad-layout.json"),
-        r#"{"options":{"width":2,"chunk":4,"reuse":"prefix","fold":true},"strategy":"local","minRows":64}"#,
+        r#"{"options":{"width":2,"auxiliaryTerms":4,"reuseAuxiliaries":"prefix","foldConstants":true},"strategy":"local","minRows":64}"#,
     )
     .unwrap();
     cli.fails(

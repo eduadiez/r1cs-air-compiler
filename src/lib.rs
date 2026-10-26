@@ -26,13 +26,13 @@ mod emit;
 mod error;
 mod field;
 mod layout;
-mod network;
 mod packed;
 mod packed_check;
 mod pilout_check;
 mod placement_check;
 mod polynomial;
 mod r1cs;
+mod rewrite;
 mod witness;
 
 // Generated from the vendored schema; its names and style are not ours.
@@ -51,8 +51,8 @@ pub use contract::{PACKED_RELATION, REFERENCE_RELATION};
 pub use error::{Error, ErrorKind, Result};
 pub use field::GOLDILOCKS_PRIME;
 pub use layout::{LayoutConfig, Strategy};
-pub use network::{ConversionOptions, Reuse};
 pub use packed_check::PackedCheckReport;
+pub use rewrite::{Reuse, RewriteOptions};
 pub use witness::Witness;
 
 pub(crate) use certificate::sha256_hex;

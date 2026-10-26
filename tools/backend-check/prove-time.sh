@@ -82,7 +82,7 @@ stark = json.load(open(info))["starkStruct"]
 print(json.dumps({
     "rows": layout["rows"],
     "width": layout["width"],
-    "slots": len(layout["slots"]),
+    "gates": len(layout["gates"]),
     "selectors": len(layout["selectors"]),
     "powBits": stark["powBits"],
     "queries": stark["nQueries"],

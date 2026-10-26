@@ -236,12 +236,12 @@ fn checkers_do_not_use_compiler_modules() {
         ("polynomial.rs", include_str!("../polynomial.rs")),
         ("witness.rs", include_str!("../witness.rs")),
     ];
-    const COMPILER_MODULES: &[&str] = &["compiler", "dag", "emit", "layout", "network", "packed"];
+    const COMPILER_MODULES: &[&str] = &["compiler", "dag", "emit", "layout", "rewritten", "packed"];
     const COMPILER_TYPES: &[&str] = &[
         "PackedArtifact",
         "LayoutConfig",
         "Strategy",
-        "ConversionOptions",
+        "RewriteOptions",
         "Reuse",
     ];
     let words = |text: &str| -> Vec<String> {

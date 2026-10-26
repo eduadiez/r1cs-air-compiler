@@ -1,4 +1,4 @@
-//! The xor fixture's artifacts, compiled once, and a helper that rebinds a
+//! The xor fixture's artifacts, compiled once, and an auxiliary wire that rebinds a
 //! certificate to fuzzed PILout bytes.
 // Each target uses only some of these.
 #![allow(dead_code)]

@@ -73,7 +73,7 @@ impl Builder {
     }
 
     /// Constrain stage-two column 0 to zero and add its `gsum_col` hint.
-    /// Artifacts without a copy argument use this column (`stage2_zero`), so
+    /// Artifacts without a permutation argument use this column (`stage2_zero`), so
     /// both artifact kinds have a stage two. The hint numerator is written as
     /// `α - α`: zero, but an expression over a stage-two challenge. The
     /// expressions are never simplified, whatever the optimization mode.
@@ -165,7 +165,7 @@ impl Builder {
     /// Add the stage-two challenge symbols and the public-value symbol, then
     /// encode the PILout.
     pub fn finish(mut self, publics: u32) -> Vec<u8> {
-        // The two stage-two challenges, called α and γ in the copy argument.
+        // The two stage-two challenges, called α and γ in the permutation argument.
         for index in [ALPHA, GAMMA] {
             self.symbols.push(pb::Symbol {
                 name: CHALLENGE_NAMES[index as usize].into(),

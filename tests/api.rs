@@ -1,5 +1,5 @@
 //! Tests of the public library API.
-use r1cs_air_compiler::{self as air, ConversionOptions, LayoutConfig, Reuse, Strategy};
+use r1cs_air_compiler::{self as air, LayoutConfig, Reuse, RewriteOptions, Strategy};
 use std::error::Error as _;
 
 const SOURCE: &[u8] = include_bytes!("../fixtures/xor/kernel.r1cs");
@@ -7,15 +7,15 @@ const WITNESS: &[u8] = include_bytes!("../fixtures/xor/input.wtns");
 
 fn config() -> LayoutConfig {
     LayoutConfig {
-        options: ConversionOptions {
+        options: RewriteOptions {
             width: 8,
-            chunk: 4,
-            reuse: Reuse::Prefix,
-            fold: true,
+            auxiliary_terms: 4,
+            reuse_auxiliaries: Reuse::Prefix,
+            fold_constants: true,
         },
         strategy: Strategy::Local,
         min_rows: 64,
-        bundle_width: None,
+        row_group_width: None,
     }
 }
 
@@ -46,11 +46,14 @@ fn packed_artifacts_plan_compile_check_and_project() -> air::Result<()> {
     assert_eq!(plan.map(), packed.map);
     assert_eq!(plan.rows(), certificate.rows());
     assert_eq!(plan.width(), certificate.width());
-    assert_eq!(plan.helper_count(), certificate.helper_count());
-    assert_eq!(plan.requires_copy(), certificate.requires_copy());
+    assert_eq!(plan.auxiliary_count(), certificate.auxiliary_count());
+    assert_eq!(
+        plan.requires_permutation(),
+        certificate.requires_permutation()
+    );
     assert!(plan.checked_equations() > 0);
     let report = air::check_packed(SOURCE, &packed.pilout, certificate)?;
-    assert!(report.accepted && report.requires_copy);
+    assert!(report.accepted && report.requires_permutation);
     let witness = air::project_witness(SOURCE, &packed.pilout, certificate, WITNESS)?;
     assert_eq!(witness.trace.len(), plan.rows() * plan.width());
     assert_eq!(witness.publics, [3_974_687_968, 305_419_896, 4_275_878_552]);
@@ -98,7 +101,7 @@ fn errors_tell_whether_a_size_limit_was_exceeded() -> air::Result<()> {
     // 1024 columns and 65536 rows exceed the largest trace.
     let mut large = config();
     large.options.width = 1024;
-    large.options.chunk = 512;
+    large.options.auxiliary_terms = 512;
     large.min_rows = 1 << 16;
     let error = air::compile_packed(SOURCE, &large).unwrap_err();
     assert_eq!(kind(error), air::ErrorKind::Limit);

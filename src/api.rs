@@ -30,11 +30,11 @@ pub struct PackedArtifact {
     pub certificate: PackedCertificate,
 }
 
-/// A checked packed layout without PILout. Serializes to JSON with its helper
-/// network and placement; the cell map is available through [`LayoutPlan::map`].
+/// A checked packed layout without PILout. Serializes to JSON with its auxiliary wire
+/// rewritten and placement; the cell map is available through [`LayoutPlan::map`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct LayoutPlan {
-    network: certificate::Network,
+    rewritten_circuit: certificate::RewrittenCircuit,
     layout: certificate::Layout,
     #[serde(skip)]
     map: Vec<u32>,
@@ -54,16 +54,16 @@ impl LayoutPlan {
     pub fn map(&self) -> &[u32] {
         &self.map
     }
-    /// Number of constrained helper wires.
-    pub fn helper_count(&self) -> usize {
-        self.network.helpers.len()
+    /// Number of constrained auxiliary wires.
+    pub fn auxiliary_count(&self) -> usize {
+        self.rewritten_circuit.auxiliaries.len()
     }
-    /// Whether some wire occupies more than one cell, so that a copy argument
+    /// Whether some wire occupies more than one cell, so that a permutation argument
     /// is needed to make those cells equal.
-    pub fn requires_copy(&self) -> bool {
-        self.layout.requires_copy
+    pub fn requires_permutation(&self) -> bool {
+        self.layout.requires_permutation
     }
-    /// Number of placed equations: helper definitions plus rewritten source equations.
+    /// Number of placed equations: auxiliary definitions plus rewritten source equations.
     pub fn checked_equations(&self) -> usize {
         self.checked_equations
     }
@@ -121,9 +121,9 @@ pub fn check_reference(
 /// and layouts that fail the placement check.
 pub fn plan_layout(source: &[u8], config: &LayoutConfig) -> Result<LayoutPlan> {
     let circuit = r1cs::read(source).context("layout source")?;
-    let (network, layout, checked) = packed::plan(&circuit, config)?;
+    let (rewritten, layout, checked) = packed::plan(&circuit, config)?;
     Ok(LayoutPlan {
-        network,
+        rewritten_circuit: rewritten,
         layout,
         map: checked.map,
         checked_equations: checked.equations.len(),
@@ -134,7 +134,7 @@ pub fn plan_layout(source: &[u8], config: &LayoutConfig) -> Result<LayoutPlan> {
 ///
 /// # Errors
 /// Fails on malformed R1CS or invalid settings, and if the checker rejects any
-/// helper, placement, public binding or copy constraint.
+/// auxiliary wire, placement, public binding or copy constraint.
 pub fn compile_packed(source: &[u8], config: &LayoutConfig) -> Result<PackedArtifact> {
     let artifact = packed::compile(source, config).context("packed compilation")?;
     check_packed(source, &artifact.pilout, &artifact.certificate)?;
@@ -142,7 +142,7 @@ pub fn compile_packed(source: &[u8], config: &LayoutConfig) -> Result<PackedArti
 }
 
 /// Check that `pilout` encodes the packed relation of `source` as described by
-/// `certificate`: helpers, placement, selectors, public bindings, the copy
+/// `certificate`: auxiliary wires, placement, selectors, public bindings, the copy
 /// argument and hints.
 ///
 /// # Errors
@@ -161,7 +161,7 @@ pub fn check_packed(
 ///
 /// # Errors
 /// Fails if the artifact does not pass [`check_packed`], if the witness is
-/// malformed, or if it does not satisfy every source and helper equation.
+/// malformed, or if it does not satisfy every source and auxiliary equation.
 pub fn project_witness(
     source: &[u8],
     pilout: &[u8],

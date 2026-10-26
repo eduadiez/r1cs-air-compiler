@@ -44,12 +44,12 @@ contains `"formallyVerified": false`.
   - Stage one: the witness columns `a[0] … a[width - 1]`.
   - Stage two: columns computed after two challenges `α` and `γ` (symbols
     `alpha` and `gamma`) are drawn. Column 0 is `stage2_zero` or
-    `copy_product`; columns `1, 2, …` are `copy_ratios`.
+    `permutation_product`; columns `1, 2, …` are `permutation_ratios`.
   - Fixed columns: values known at compile time, named `Kernel.{name}`.
   - Cell: one row of one stage-one column.
 - **Constraint.** A polynomial in the columns that must be zero on every row.
-  It reads every column at the current row, except that the copy argument reads
-  `copy_product` at the previous row and `FIRST` at the next row; row offsets
+  It reads every column at the current row, except that the permutation argument reads
+  `permutation_product` at the previous row and `FIRST` at the next row; row offsets
   wrap around.
 - **Selector.** A fixed column that is 1 on some rows and 0 on the others;
   multiplying a constraint by it turns the constraint off on the other rows.
@@ -99,13 +99,13 @@ polynomials, the certificate and the checker are unchanged.
 
 1. `w` satisfies every equation of the circuit;
 2. `w_{j+1} = public[j]` for every public index `j`;
-3. with `w` extended to the helpers below by their definitions, every cell
+3. with `w` extended to the auxiliary wires below by their definitions, every cell
    assigned to a wire `u` holds `w_u`.
 
-### Helpers
+### Auxiliary wires
 
-Helpers keep each equation to at most `width` distinct wires. They are new
-wires numbered `N, N + 1, …` in order. Helper `h` is defined by
+Auxiliary wires keep each equation to at most `width` distinct wires. They are new
+wires numbered `N, N + 1, …` in order. Auxiliary wire `h` is defined by
 `h = Σ kᵢ · wᵢ`, with:
 
 - at least two terms;
@@ -114,34 +114,34 @@ wires numbered `N, N + 1, …` in order. Helper `h` is defined by
 
 Its definition is placed as the equation `0 · 0 = Σ kᵢ · wᵢ - h`.
 
-Each source equation is rewritten into a *converted equation* that may use
-helpers. The checker replaces every helper by its definition, down to source
+Each source equation is rewritten into a *rewritten equation* that may use
+auxiliary wires. The checker replaces every auxiliary wire by its definition, down to source
 wires, and requires `A · B - C` of the result to be the same polynomial as
 `Aᵢ · Bᵢ - Cᵢ` of the source equation.
 
 ### Placement
 
-Every helper definition and every converted equation is placed exactly once:
+Every auxiliary definition and every rewritten equation is placed exactly once:
 on one row, with each of its wires in a different column of that row. A cell
 holds at most one wire, never `w₀`. A wire may occupy several cells. A cell
 with no wire is *unused*.
 
-### Shapes, slots and selectors
+### Gate types, gates and selectors
 
-- A **shape** is an equation with its wires replaced by positions `0, 1, …`
-  (position `-1` is the constant `w₀`). Shapes are the certificate's `groups`.
-- A **slot** is a shape together with one distinct column per position. A
-  placement uses a slot on its row; putting its wires into the shape must give
+- A **gate type** is an equation with its wires replaced by positions `0, 1, …`
+  (position `-1` is the constant `w₀`). Gate types are the certificate's `gateTypes`.
+- A **gate** is a gate type together with one distinct column per position. A
+  placement uses a gate on its row; putting its wires into the gate type must give
   the same `A · B - C` polynomial as its equation.
-- Each slot has a **selector** `E{i}`: a fixed column that is 1 exactly on the
-  slot's rows. The compiler makes one selector per distinct set of rows, so
-  slots used on the same rows share it.
-- For each slot, the PILout has the constraint `E · (A · B - C)`, with shape
-  position `p` read from the slot's column `p`.
+- Each gate has a **selector** `E{i}`: a fixed column that is 1 exactly on the
+  gate's rows. The compiler makes one selector per distinct set of rows, so
+  gates used on the same rows share it.
+- For each gate, the PILout has the constraint `E · (A · B - C)`, with gate type
+  position `p` read from the gate's column `p`.
 
-The checker requires that the placements are exactly the pairs (slot, row)
-where the slot is active, that no two slots are equal, that every selector is
-used by a slot, and that every shape is used by a placement.
+The checker requires that the placements are exactly the pairs (gate, row)
+where the gate is active, that no two gates are equal, that every selector is
+used by a gate, and that every gate type is used by a placement.
 
 ### Public values
 
@@ -169,18 +169,19 @@ PA{c} · a[c] - Σ PH{h} · PL{l} · public[j]
 summed over the public values `j` bound in column `c`, with `h · s + l` the
 number of the row of `j`.
 
-### Copies
+### Copy constraints
 
-If some wire occupies several cells (`requiresCopy`), the
-[copy argument](#copy-argument) forces all its cells to hold the same value.
-Otherwise the PILout has no copy argument, and stage two holds only
+If some wire occupies several cells (`requiresPermutation`), the
+[permutation argument](#permutation-argument) forces all its cells to hold the same value.
+Otherwise the PILout has no permutation argument, and stage two holds only
 `stage2_zero`, constrained to zero as in the reference relation.
 
-## Copy argument
+## Permutation argument
 
-The copy argument is a permutation argument: each cell gets a distinct label,
-a permutation of the labels links the cells of each wire, and a product
-identity over random challenges holds only if linked cells hold equal values.
+The permutation argument enforces the copy constraints: each cell gets a
+distinct label, a permutation of the labels links the cells of each wire, and
+a product identity over random challenges holds only if linked cells hold equal
+values.
 
 **Labels.** Cell `(r, c)` has the label `ω^r · COSET^c`, where
 `ω = 7^((P - 1) / n)` generates the row domain and `COSET` is the constant in
@@ -192,23 +193,23 @@ permuted label is the label of the previous cell of the same wire; the first
 cell takes the label of the last. An unused cell, or the only cell of a wire,
 keeps its own label.
 
-**Copy columns.** The columns holding at least one cell of a wire with several
+**Permutation columns.** The columns holding at least one cell of a wire with several
 cells, in increasing order; `p` is their number. In every other column each
 cell keeps its own label, so its numerator and denominator factors below are
-equal, and leaving the column out does not change the products. For each copy
+equal, and leaving the column out does not change the products. For each permutation
 column `c`, the fixed column `S{c}` holds the permuted labels. The checker
-derives the copy columns from the layout and rebuilds `ID`, every `S{c}` and
+derives the permutation columns from the layout and rebuilds `ID`, every `S{c}` and
 `FIRST`.
 
-**Factors**, for each row and copy column `c`:
+**Factors**, for each row and permutation column `c`:
 
 ```text
 num_c = a[c] + α · S{c} + γ
 den_c = a[c] + α · COSET^c · ID + γ
 ```
 
-**Running product.** The stage-two column `z` (`copy_product`) holds, on row
-`r`, the product of `num_c / den_c` over all copy columns and rows `0 … r`.
+**Running product.** The stage-two column `z` (`permutation_product`) holds, on row
+`r`, the product of `num_c / den_c` over all permutation columns and rows `0 … r`.
 The constraints are:
 
 ```text
@@ -219,14 +220,14 @@ LAST · (z - 1) = 0
 `LAST` is `FIRST` read at the next row, so it is 1 only on the last row.
 [Lemma 1](#packed-relation) shows that, when every denominator factor is
 nonzero, these constraints hold exactly when `∏ num = ∏ den` over all cells of
-the copy columns.
+the permutation columns.
 
 **Degree reduction.** Every constraint has degree at most 3 (`MAX_DEGREE` in
 `src/contract.rs`), which a STARK prover with a blowup factor of 2 handles
 without adding columns of its own. The recurrence above has degree `p + 1`, so
 it fits when `p ≤ 2`. Otherwise the compiler adds `⌊(p - 1) / 2⌋` ratio
-columns (`copy_ratios`), numbered from 1. With factors indexed `0 … p - 1` in
-copy-column order:
+columns (`permutation_ratios`), numbered from 1. With factors indexed `0 … p - 1` in
+permutation-column order:
 
 ```text
 ratio_1 · den_0 · den_1          = num_0 · num_1 · num_2
@@ -254,7 +255,7 @@ requires exactly these hints, in this order, each with exactly these fields:
 | --- | --- | --- |
 | `im_col` | each ratio column, in order | `reference`: the column; `numerator`: the right side of its constraint; `denominator`: the product of denominator factors on its left side |
 | `gprod_col` | `z` | `reference`: `z + 0`; `numerator_air`, `denominator_air`: the products left in the recurrence; `numerator_direct`, `denominator_direct`, `result`: 1 |
-| `gsum_col` | `stage2_zero` (only without a copy argument) | `reference`: `stage2_zero + 0`; `numerator_air`: `α - α`; `denominator_air`: 1; `numerator_direct`: 0; `denominator_direct`: 1 |
+| `gsum_col` | `stage2_zero` (only without a permutation argument) | `reference`: `stage2_zero + 0`; `numerator_air`: `α - α`; `denominator_air`: 1; `numerator_direct`: 0; `denominator_direct`: 1 |
 
 The `gsum_col` numerator `α - α` is zero, but written as an expression over a
 stage-two challenge.
@@ -264,7 +265,7 @@ stage-two challenge.
 - `Air.numRows` holds the row count `n`, not `log2(n)` as a comment in the
   vendored schema says. Both checkers require this, and the backend exercised by
   `tools/backend-check` reads it the same way.
-- The constants that define copy labels (`7` and `COSET`) are fixed by a unit
+- The constants that define permutation labels (`7` and `COSET`) are fixed by a unit
   test.
 - PILout bytes must be the canonical protobuf encoding of the decoded message,
   so unknown fields are rejected. Field elements are big-endian bytes with no
@@ -280,10 +281,10 @@ stage-two challenge.
 | Form | Constraints (label) | Fixed columns |
 | --- | --- | --- |
 | reference | `stage-two zero`; `R1CS {i}` per equation; `public {j}` per public value | `FIRST`, only with public values |
-| packed | `stage-two zero` only without a copy argument; `packed equation` per slot; `packed public` per `PA` column; with a copy argument, `copy ratio` per ratio, then `copy recurrence` and `copy closure` | with a copy argument, `ID`, `S{c}` per copy column in increasing order and `FIRST` (so `FIRST` is fixed column `p + 1`); then `E{i}` in selector order; `PH{h}`; `PL{l}`; `PA{c}` in the order of the first public value bound in each column |
+| packed | `stage-two zero` only without a permutation argument; `packed gate` per gate; `packed public` per `PA` column; with a permutation argument, `permutation ratio` per ratio, then `permutation recurrence` and `permutation closure` | with a permutation argument, `ID`, `S{c}` per permutation column in increasing order and `FIRST` (so `FIRST` is fixed column `p + 1`); then `E{i}` in selector order; `PH{h}`; `PL{l}`; `PA{c}` in the order of the first public value bound in each column |
 
 The packed checker evaluates expressions as polynomials only up to the last
-slot or public constraint, so copy-argument expressions must come after those.
+gate or public constraint, so permutation-argument expressions must come after those.
 
 ## Certificates
 
@@ -300,12 +301,12 @@ A **reference** certificate adds `rows`, `width` (`N - 1`), `publicWires`
 
 A **packed** certificate adds:
 
-- `network`: `originalWires` (`N`), `wires` (`N` plus the helpers), `publics`
-  (`k`), `helpers` (each `id` and `terms`), and the converted equations
-  `converted`, one per source equation;
+- `rewrittenCircuit`: `originalWires` (`N`), `wires` (`N` plus the auxiliary wires), `publics`
+  (`k`), `auxiliaries` (each `id` and `terms`), and the rewritten equations
+  `equations`, one per source equation;
 - `layout`: `minRows`, `width`, `rows`, `usedRows`, `arithmeticRows`, the
-  shapes `groups`, `placements`, `slots`, `selectors`, `publicBindings` and
-  `requiresCopy`.
+  gate types `gateTypes`, `placements`, `gates`, `selectors`, `publicBindings` and
+  `requiresPermutation`.
 
 The layout must satisfy:
 
@@ -316,19 +317,19 @@ The layout must satisfy:
   least 1;
 - `rows` = `usedRows` rounded up to a power of two, and at least `minRows`;
 - `publicBindings[j]` binds public value `j` to wire `j + 1`;
-- `requiresCopy` is true exactly when some wire occupies several cells.
+- `requiresPermutation` is true exactly when some wire occupies several cells.
 
-Settings that do not affect the relation (helper chunk size, reuse policy,
-folding and placement strategy) are not recorded.
+Settings that do not affect the relation (`auxiliaryTerms`, `reuseAuxiliaries`,
+`foldConstants`, the placement strategy and `rowGroupWidth`) are not recorded.
 
 ## Correctness argument
 
 This section argues on paper that soundness and completeness hold for every
 artifact the checker accepts. It assumes that acceptance means:
 
-- the certificate passes the checks above (for packed artifacts: the helper and
-  placement identities, one wire per cell, the public bindings, the active slot
-  rows, `requiresCopy` and distinct labels);
+- the certificate passes the checks above (for packed artifacts: the auxiliary wire and
+  placement identities, one wire per cell, the public bindings, the active gate
+  rows, `requiresPermutation` and distinct labels);
 - the PILout contains exactly the constraints, fixed columns and hints above.
 
 Whether the checker's code achieves this is a separate question (see
@@ -352,17 +353,17 @@ holds on every row and the public constraints hold on row 0.
 
 ### Packed relation
 
-In this section, *cells* are the cells of the copy columns, and `M` is their
+In this section, *cells* are the cells of the permutation columns, and `M` is their
 number. The checker requires `n · width ≤ MAX_CELLS`, so `M ≤ MAX_CELLS`.
 Every cell of a wire with several cells is among them; the other cells need no
-copy argument, since they are unused or hold a wire with one cell.
+permutation argument, since they are unused or hold a wire with one cell.
 
 Write `label(x)` for the label of cell `x` and `prev(x)` for the previous cell
 of the same wire, so `S` holds `label(prev(x))` at cell `x`. The map `prev` is
 a permutation of the cells whose cycles are exactly the sets of cells of each
 wire; an unused cell, or the only cell of a wire, is its own cycle.
 
-**Lemma 1 (copy argument).** Fix the stage-one values `a(x)`, and suppose
+**Lemma 1 (permutation argument).** Fix the stage-one values `a(x)`, and suppose
 every denominator factor `a(x) + α · label(x) + γ` is nonzero.
 
 1. If stage-two values satisfy the ratio, recurrence and `LAST` constraints,
@@ -384,7 +385,7 @@ row 0: `z[0] = N[0] / D[0]` and `z[r] = z[r - 1] · N[r] / D[r]` for `r ≥ 1`, 
 a reordering of the denominator factors, so `z[n - 1] = 1`. Hence `LAST` holds,
 and so does the recurrence on row 0, which reads `z[n - 1] = 1`.
 
-**Lemma 2 (copy failure probability).** Fix `a`, then draw `α` and `γ`
+**Lemma 2 (permutation failure probability).** Fix `a`, then draw `α` and `γ`
 uniformly from `K`. Except with probability at most `2M / |K|`, every
 denominator factor is nonzero, and `∏ num = ∏ den` holds only if the cells of
 each wire hold equal values.
@@ -416,13 +417,13 @@ the sum vanish.
 exceptions of Lemma 2.
 
 1. Every wire's cells hold one value: by Lemmas 1 and 2, or trivially without a
-   copy argument, since each wire then has at most one cell. Let `w_u` be that
+   permutation argument, since each wire then has at most one cell. Let `w_u` be that
    value for wire `u`, `w₀ = 1`, and `w_u = 0` for a wire without cells.
-2. On every row where a slot is active, its selector is 1, so the equation
+2. On every row where a gate is active, its selector is 1, so the equation
    placed there holds for `w`.
-3. Every helper definition is placed, so each helper equals its linear
+3. Every auxiliary definition is placed, so each auxiliary wire equals its linear
    combination of earlier wires.
-4. Every converted equation is placed, and its `A · B - C`, with each helper
+4. Every rewritten equation is placed, and its `A · B - C`, with each auxiliary wire
    replaced by its definition, is the same polynomial as `Aᵢ · Bᵢ - Cᵢ` of its
    source equation; so the source equation holds for `w`. This is a polynomial
    identity, so it holds whatever value a wire without cells takes, in
@@ -430,13 +431,13 @@ exceptions of Lemma 2.
 5. By Lemma 3, `w_{j+1} = public[j]`.
 
 *Completeness.* Given an assignment `w` that satisfies the circuit with the
-values `public`, compute each helper from its definition, in order, put each
+values `public`, compute each auxiliary wire from its definition, in order, put each
 wire's value in all of its cells, and put 0 in unused cells. Each placed
-equation is a helper definition or a converted equation, and both hold, so
-every slot constraint holds on its active rows and vanishes elsewhere. By
+equation is an auxiliary definition or a rewritten equation, and both hold, so
+every gate constraint holds on its active rows and vanishes elsewhere. By
 Lemma 3, the public constraints hold. If every denominator factor is nonzero,
 Lemma 1 (2) gives stage two; this fails with probability at most `M / |K|`.
-Without a copy argument, `stage2_zero` is 0 as in the reference relation.
+Without a permutation argument, `stage2_zero` is 0 as in the reference relation.
 
 **Bound.** With `M ≤ MAX_CELLS < 2^22` and `|K| ≥ P > 2^63`, the bound
 `2M / |K|` is below `2^-40` for one draw of the challenges. It assumes the

@@ -1,9 +1,9 @@
-//! Compiles a circuit to the packed PILout: helpers from `network`, placement
-//! from `layout`, one constraint per slot, public bindings, and, when a wire
-//! occupies several cells, a copy argument that makes those cells equal.
+//! Compiles a circuit to the packed PILout: auxiliary wires from `rewritten`, placement
+//! from `layout`, one constraint per gate, public bindings, and, when a wire
+//! occupies several cells, a permutation argument that makes those cells equal.
 use crate::{
     api::PackedArtifact,
-    certificate::{Layout, Network, PackedCertificate},
+    certificate::{Layout, PackedCertificate, RewrittenCircuit},
     contract::{
         label, ALPHA, CERTIFICATE_VERSION, FIRST_COLUMN, GAMMA, MAX_DEGREE, PACKED_RELATION,
         PRODUCT_COLUMN, PRODUCT_COLUMN_NAME, PRODUCT_HINT, RATIOS_SYMBOL, RATIO_HINT, STAGE_TWO,
@@ -14,20 +14,19 @@ use crate::{
     ensure,
     field::{mul, pow, FieldElement, COSET, GENERATOR},
     layout::{self, LayoutConfig},
-    network,
     placement_check::{self, Checked},
     proto as pb,
     r1cs::{self, Circuit},
-    sha256_hex, Context, Result, P,
+    rewrite, sha256_hex, Context, Result, P,
 };
 use pb::{operand::Operand, SymbolType};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// References to the copy-argument fixed columns.
-struct CopyColumns {
+struct PermutationColumns {
     /// `ω^r`.
     id: pb::Operand,
-    /// The columns in the copy argument, those holding a cell of a wire with
+    /// The columns in the permutation argument, those holding a cell of a wire with
     /// several cells, in increasing order.
     columns: Vec<usize>,
     /// `S{c}` for each of those columns `c`.
@@ -42,8 +41,8 @@ fn indicator(rows: usize, on: impl IntoIterator<Item = usize>) -> Vec<u64> {
 }
 /// Packed-only parts of the PILout.
 impl Builder {
-    /// Shape terms with shape position `i` read from stage-one column `columns[i]`.
-    fn shape_linear_combination(
+    /// CanonicalGate terms with gate type position `i` read from stage-one column `columns[i]`.
+    fn gate_linear_combination(
         &mut self,
         terms: &[(i32, FieldElement)],
         columns: &[usize],
@@ -60,26 +59,26 @@ impl Builder {
         }
         result
     }
-    /// Add one selector column `E{id}` per selector, and for each slot the
+    /// Add one selector column `E{id}` per selector, and for each gate the
     /// constraint `E · (A·B - C) = 0`.
-    fn constrain_slots(&mut self, layout: &Layout) {
+    fn constrain_gates(&mut self, layout: &Layout) {
         let selectors: Vec<_> = layout
             .selectors
             .iter()
-            .map(|slot| {
-                let values = indicator(layout.rows, slot.rows.iter().copied());
-                self.fixed(&format!("E{}", slot.id), values)
+            .map(|gate| {
+                let values = indicator(layout.rows, gate.rows.iter().copied());
+                self.fixed(&format!("E{}", gate.id), values)
             })
             .collect();
-        for slot in &layout.slots {
-            let terms = &layout.groups[slot.shape].terms;
-            let left = self.shape_linear_combination(&terms[0], &slot.columns);
-            let right = self.shape_linear_combination(&terms[1], &slot.columns);
-            let output = self.shape_linear_combination(&terms[2], &slot.columns);
+        for gate in &layout.gates {
+            let terms = &layout.gate_types[gate.gate_type].terms;
+            let left = self.gate_linear_combination(&terms[0], &gate.columns);
+            let right = self.gate_linear_combination(&terms[1], &gate.columns);
+            let output = self.gate_linear_combination(&terms[2], &gate.columns);
             let product = self.expression(Op::Mul, left, right);
             let residual = self.expression(Op::Sub, product, output);
-            let active = self.expression(Op::Mul, selectors[slot.selector].clone(), residual);
-            self.constrain(active, label::PACKED_EQUATION.into());
+            let active = self.expression(Op::Mul, selectors[gate.selector].clone(), residual);
+            self.constrain(active, label::PACKED_GATE.into());
         }
     }
     /// Bind public values to their cells (SPEC.md, "Public values"). The `q`
@@ -171,9 +170,9 @@ impl Builder {
         }
         terms.pop().unwrap_or_else(|| constant(0))
     }
-    /// Add the copy-argument fixed columns `ID`, `S{c}` for each copy column
+    /// Add the copy-argument fixed columns `ID`, `S{c}` for each permutation column
     /// `c` in increasing order, and `FIRST`.
-    fn copy_columns(&mut self, layout: &Layout, map: &[u32]) -> Result<CopyColumns> {
+    fn permutation_columns(&mut self, layout: &Layout, map: &[u32]) -> Result<PermutationColumns> {
         let (labels, permuted) = labels(map, layout.rows, layout.width)?;
         let id = self.fixed(
             "ID",
@@ -181,7 +180,7 @@ impl Builder {
                 .map(|row| labels[row * layout.width])
                 .collect(),
         );
-        let columns = copy_columns(map, layout.width);
+        let columns = permutation_columns(map, layout.width);
         let permuted = columns
             .iter()
             .map(|column| {
@@ -192,25 +191,25 @@ impl Builder {
             })
             .collect();
         let first = self.fixed(FIRST_COLUMN, indicator(layout.rows, [0]));
-        Ok(CopyColumns {
+        Ok(PermutationColumns {
             id,
             columns,
             permuted,
             first,
         })
     }
-    /// Copy argument (SPEC.md, "Copy argument"): the ratio constraints, the
+    /// Permutation argument (SPEC.md, "Permutation argument"): the ratio constraints, the
     /// running product `z[r] · den[r] = z[r-1] · num[r]` (cyclic, so row 0
     /// reads the last row) and `LAST · (z - 1) = 0`, each of degree at most
     /// `MAX_DEGREE`.
-    fn constrain_copies(&mut self, columns: CopyColumns) {
+    fn constrain_permutation(&mut self, columns: PermutationColumns) {
         // No simplification: the checker compares these constraints operation
         // by operation.
-        self.without_simplification(|builder| builder.constrain_copies_exactly(columns));
+        self.without_simplification(|builder| builder.constrain_permutation_exactly(columns));
     }
-    fn constrain_copies_exactly(&mut self, columns: CopyColumns) {
+    fn constrain_permutation_exactly(&mut self, columns: PermutationColumns) {
         let (numerators, denominators) =
-            self.copy_factors(&columns.id, &columns.columns, columns.permuted);
+            self.permutation_factors(&columns.id, &columns.columns, columns.permuted);
         let (numerator, denominator, ratios) = self.constrain_ratios(&numerators, &denominators);
         self.air.stage_widths[1] += ratios;
         if ratios > 0 {
@@ -233,7 +232,7 @@ impl Builder {
         let left = self.expression(Op::Mul, z.clone(), denominator.clone());
         let right = self.expression(Op::Mul, previous, numerator.clone());
         let recurrence = self.expression(Op::Sub, left, right);
-        self.constrain(recurrence, label::COPY_RECURRENCE.into());
+        self.constrain(recurrence, label::PERMUTATION_RECURRENCE.into());
         let Some(Operand::FixedCol(first)) = columns.first.operand else {
             unreachable!("fixed() returns a fixed column")
         };
@@ -243,7 +242,7 @@ impl Builder {
         }));
         let end = self.expression(Op::Sub, z.clone(), constant(1));
         let closure = self.expression(Op::Mul, last, end);
-        self.constrain(closure, label::COPY_CLOSURE.into());
+        self.constrain(closure, label::PERMUTATION_CLOSURE.into());
         let reference = self.expression(Op::Add, z, constant(0));
         self.hints.push(hint(
             PRODUCT_HINT,
@@ -260,7 +259,7 @@ impl Builder {
     /// For each column `c` with value `w`: the numerator factor `w + α·S_c + γ`,
     /// with the permuted label column `S_c`, and the denominator factor
     /// `w + α·COSET^c·ID + γ`, with the cell's own label.
-    fn copy_factors(
+    fn permutation_factors(
         &mut self,
         id: &pb::Operand,
         columns: &[usize],
@@ -293,7 +292,7 @@ impl Builder {
         numerators: &[pb::Operand],
         denominators: &[pb::Operand],
     ) -> (pb::Operand, pb::Operand, u32) {
-        // One numerator and one denominator factor per copy column.
+        // One numerator and one denominator factor per permutation column.
         let factors = numerators.len();
         // Next unused numerator and denominator factor.
         let (mut next_num, mut next_den, mut ratios) = (0, 0, 0);
@@ -316,7 +315,7 @@ impl Builder {
                 let ratio = stage_two(ratios);
                 let left = self.expression(Op::Mul, ratio.clone(), denominator.clone());
                 let residual = self.expression(Op::Sub, left, numerator.clone());
-                self.constrain(residual, label::COPY_RATIO.into());
+                self.constrain(residual, label::PERMUTATION_RATIO.into());
                 self.hints.push(hint(
                     RATIO_HINT,
                     vec![
@@ -350,9 +349,9 @@ fn ceil_sqrt(n: usize) -> usize {
 }
 
 /// The columns holding a cell of a wire that occupies several cells, in
-/// increasing order; only they take part in the copy argument, since in every
+/// increasing order; only they take part in the permutation argument, since in every
 /// other column each cell keeps its own label.
-fn copy_columns(map: &[u32], width: usize) -> Vec<usize> {
+fn permutation_columns(map: &[u32], width: usize) -> Vec<usize> {
     let mut cells = BTreeMap::<u32, usize>::new();
     for wire in map.iter().filter(|wire| **wire != 0) {
         *cells.entry(*wire).or_default() += 1;
@@ -388,7 +387,7 @@ fn labels(map: &[u32], rows: usize, width: usize) -> Result<(Vec<u64>, Vec<u64>)
     }
     ensure(
         labels.iter().collect::<BTreeSet<_>>().len() == labels.len(),
-        "copy labels must be distinct",
+        "permutation labels must be distinct",
     )?;
     // Swapping each later cell of a wire with its first cell leaves every
     // cell holding the label of the wire's previous cell, cyclically.
@@ -407,27 +406,30 @@ fn labels(map: &[u32], rows: usize, width: usize) -> Result<(Vec<u64>, Vec<u64>)
     Ok((labels, permuted))
 }
 
-/// Build the helper network and layout and check the placement.
-pub fn plan(circuit: &Circuit, config: &LayoutConfig) -> Result<(Network, Layout, Checked)> {
-    let network = network::convert(circuit, &config.options).context("layout options")?;
-    let layout = layout::pack(&network, config).context("layout geometry")?;
+/// Build the rewritten circuit and layout and check the placement.
+pub fn plan(
+    circuit: &Circuit,
+    config: &LayoutConfig,
+) -> Result<(RewrittenCircuit, Layout, Checked)> {
+    let rewritten = rewrite::convert(circuit, &config.options).context("layout options")?;
+    let layout = layout::pack(&rewritten, config).context("layout geometry")?;
     let checked =
-        placement_check::check(circuit, &network, &layout).context("layout validation")?;
-    Ok((network, layout, checked))
+        placement_check::check(circuit, &rewritten, &layout).context("layout validation")?;
+    Ok((rewritten, layout, checked))
 }
 
-/// Build the helper network and layout, check the placement, and generate the
+/// Build the rewritten circuit and layout, check the placement, and generate the
 /// PILout and certificate. The caller runs the PILout checker.
 pub fn compile(source: &[u8], config: &LayoutConfig) -> Result<PackedArtifact> {
     let circuit = r1cs::read(source).context("packed source")?;
-    let (network, layout, checked) = plan(&circuit, config)?;
-    let pilout = build_pilout(&network, &layout, &checked.map)?;
+    let (rewritten, layout, checked) = plan(&circuit, config)?;
+    let pilout = build_pilout(&rewritten, &layout, &checked.map)?;
     let certificate = PackedCertificate {
         version: CERTIFICATE_VERSION,
         relation: PACKED_RELATION.into(),
         source_sha256: sha256_hex(source),
         pilout_sha256: sha256_hex(&pilout),
-        network,
+        rewritten_circuit: rewritten,
         layout,
     };
     Ok(PackedArtifact {
@@ -438,25 +440,25 @@ pub fn compile(source: &[u8], config: &LayoutConfig) -> Result<PackedArtifact> {
 }
 
 /// Generate the PILout. Fixed columns come in this order: `ID`, `S{c}` for each
-/// copy column `c` and `FIRST` (only with a copy argument), the selectors `E*`,
+/// permutation column `c` and `FIRST` (only with a permutation argument), the selectors `E*`,
 /// then `PH*`, `PL*` and `PA*`.
-fn build_pilout(network: &Network, layout: &Layout, map: &[u32]) -> Result<Vec<u8>> {
-    let product = if layout.requires_copy {
+fn build_pilout(rewritten: &RewrittenCircuit, layout: &Layout, map: &[u32]) -> Result<Vec<u8>> {
+    let product = if layout.requires_permutation {
         PRODUCT_COLUMN_NAME
     } else {
         ZERO_COLUMN_NAME
     };
     let mut builder = Builder::new(layout.rows as u32, layout.width as u32, product, true);
-    let copy = if layout.requires_copy {
-        Some(builder.copy_columns(layout, map)?)
+    let copy = if layout.requires_permutation {
+        Some(builder.permutation_columns(layout, map)?)
     } else {
         builder.constrain_zero_column();
         None
     };
-    builder.constrain_slots(layout);
+    builder.constrain_gates(layout);
     builder.bind_publics(layout);
     if let Some(columns) = copy {
-        builder.constrain_copies(columns);
+        builder.constrain_permutation(columns);
     }
-    Ok(builder.finish(network.publics))
+    Ok(builder.finish(rewritten.publics))
 }

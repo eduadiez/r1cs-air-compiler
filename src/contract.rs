@@ -16,13 +16,13 @@ pub const AIR_NAME: &str = "Kernel";
 pub const TRACE_SYMBOL: &str = "a";
 /// Symbol name of the public values.
 pub const PUBLICS_SYMBOL: &str = "publics";
-/// Symbol name of the copy argument's ratio columns.
-pub const RATIOS_SYMBOL: &str = "copy_ratios";
+/// Symbol name of the permutation argument's ratio columns.
+pub const RATIOS_SYMBOL: &str = "permutation_ratios";
 /// Name of the fixed column that is 1 on row 0 only.
 pub const FIRST_COLUMN: &str = "FIRST";
 /// Hint computing a ratio column.
 pub const RATIO_HINT: &str = "im_col";
-/// Hint computing the copy argument's running product.
+/// Hint computing the permutation argument's running product.
 pub const PRODUCT_HINT: &str = "gprod_col";
 /// Hint computing the zero column.
 pub const SUM_HINT: &str = "gsum_col";
@@ -31,16 +31,16 @@ pub const SUM_HINT: &str = "gsum_col";
 pub mod label {
     /// The zero column's constraint.
     pub const ZERO_COLUMN: &str = "stage-two zero";
-    /// A packed slot constraint.
-    pub const PACKED_EQUATION: &str = "packed equation";
+    /// A packed gate constraint.
+    pub const PACKED_GATE: &str = "packed gate";
     /// A packed public-binding constraint.
     pub const PACKED_PUBLIC: &str = "packed public";
     /// A copy-argument ratio constraint.
-    pub const COPY_RATIO: &str = "copy ratio";
-    /// The copy argument's running-product recurrence.
-    pub const COPY_RECURRENCE: &str = "copy recurrence";
-    /// The copy argument's last-row closure.
-    pub const COPY_CLOSURE: &str = "copy closure";
+    pub const PERMUTATION_RATIO: &str = "permutation ratio";
+    /// The permutation argument's running-product recurrence.
+    pub const PERMUTATION_RECURRENCE: &str = "permutation recurrence";
+    /// The permutation argument's last-row closure.
+    pub const PERMUTATION_CLOSURE: &str = "permutation closure";
     /// The reference constraint of source equation `index`.
     pub fn source_equation(index: usize) -> String {
         format!("R1CS {index}")
@@ -55,11 +55,11 @@ pub mod label {
 pub const STAGE_ONE: u32 = 1;
 /// Stage of the columns computed after the challenges are drawn.
 pub const STAGE_TWO: u32 = 2;
-/// Stage-two column 0: the copy argument's running product, or the zero column.
+/// Stage-two column 0: the permutation argument's running product, or the zero column.
 pub const PRODUCT_COLUMN: u32 = 0;
-/// Symbol name of stage-two column 0 with a copy argument.
-pub const PRODUCT_COLUMN_NAME: &str = "copy_product";
-/// Symbol name of stage-two column 0 without a copy argument; it is
+/// Symbol name of stage-two column 0 with a permutation argument.
+pub const PRODUCT_COLUMN_NAME: &str = "permutation_product";
+/// Symbol name of stage-two column 0 without a permutation argument; it is
 /// constrained to zero.
 pub const ZERO_COLUMN_NAME: &str = "stage2_zero";
 /// Index of the stage-two challenge `α`.
@@ -97,5 +97,5 @@ pub const MAX_EXPRESSIONS: usize = 300_000;
 pub const MAX_PRODUCT_TERMS: usize = 1_000_000;
 /// Largest total number of terms over all evaluated expressions.
 pub const MAX_EVALUATED_TERMS: usize = 2_000_000;
-/// Largest number of source wires in the expansion of one helper.
-pub const MAX_HELPER_EXPANSION: usize = 100_000;
+/// Largest number of source wires in the expansion of one auxiliary wire.
+pub const MAX_AUXILIARY_EXPANSION: usize = 100_000;

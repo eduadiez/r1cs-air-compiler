@@ -5,7 +5,7 @@ and the checkers (which accept or reject them). Witness projection runs only
 on a packed artifact the packed checker has accepted.
 
 ```text
-api ──→ compiler side: compiler, dag, emit, network, layout, packed
+api ──→ compiler side: compiler, dag, emit, rewrite, layout, packed
   └──→ checker side:  checker, packed_check, placement_check, pilout_check, polynomial, witness
 shared by both:       r1cs, field, contract, certificate, error, protobuf schema
 ```
@@ -19,18 +19,18 @@ All modules are in `src/`.
 | `api` | entry | Public functions: each compile function builds an artifact, then runs the checker on it |
 | `error` | shared | The `Error` type: a message, its kind (invalid input or size limit) and the error that caused it |
 | `r1cs` | shared | R1CS and WTNS parser |
-| `field` | shared | Goldilocks arithmetic, the field element type and the two constants that define copy labels |
+| `field` | shared | Goldilocks arithmetic, the field element type and the two constants that define permutation labels |
 | `contract` | shared | Constants only: relation, symbol, hint and constraint names, stages and size limits |
-| `certificate` | shared | Certificate data (helper network, layout, both certificate types) and accessors; no building or checking |
+| `certificate` | shared | Certificate data (rewritten circuit, layout, both certificate types) and accessors; no building or checking |
 | `compiler`, `dag` | compiler | Reference PILout, with optional expression simplification and reuse (`dag`) |
 | `emit` | compiler | PILout building blocks shared by both compilers: symbols, hints, encoding |
-| `network` | compiler | Helper wires, and the shape of each equation |
+| `rewrittenCircuit` | compiler | Auxiliary wire wires, and the gate type of each equation |
 | `layout` | compiler | Placement of equations in cells, by strategy |
-| `packed` | compiler | Packed PILout: slot constraints, public bindings and the copy argument, in that order |
+| `packed` | compiler | Packed PILout: gate constraints, public bindings and the permutation argument, in that order |
 | `polynomial` | checker | Exact polynomials and the expression evaluator |
 | `pilout_check` | checker | Checks shared by both checkers: decoding, common PILout fields, symbols and hint layout |
 | `checker` | checker | Reference checker |
-| `placement_check` | checker | Checks that the helpers and the placement preserve the source equations and public order |
+| `placement_check` | checker | Checks that the auxiliary wires and the placement preserve the source equations and public order |
 | `packed_check` | checker | Packed checker: rebuilds the expected PILout contents and compares |
 | `witness` | checker | Checks a Circom witness and copies its values into the trace cells |
 | `bin/air` | entry | The `air` command, a thin layer over the public API |

@@ -7,8 +7,9 @@ use super::{
 use crate::{
     contract::{label, REFERENCE_RELATION},
     layout::{LayoutConfig, Strategy},
-    network::{ConversionOptions, Reuse},
-    packed, packed_check, proto as pb, r1cs, sha256_hex, witness, PackedArtifact, P,
+    packed, packed_check, proto as pb, r1cs,
+    rewrite::{Reuse, RewriteOptions},
+    sha256_hex, witness, PackedArtifact, P,
 };
 use prost::Message;
 
@@ -20,19 +21,19 @@ fn source() -> Vec<u8> {
 
 pub fn config(width: usize) -> LayoutConfig {
     LayoutConfig {
-        options: ConversionOptions {
+        options: RewriteOptions {
             width,
-            chunk: 2,
-            reuse: Reuse::Available,
-            fold: true,
+            auxiliary_terms: 2,
+            reuse_auxiliaries: Reuse::Available,
+            fold_constants: true,
         },
         strategy: Strategy::Components,
-        bundle_width: None,
+        row_group_width: None,
         min_rows: 64,
     }
 }
 
-/// `source()` packed at `width`; width 3 needs a copy argument, width 4 does not.
+/// `source()` packed at `width`; width 3 needs a permutation argument, width 4 does not.
 fn artifact(width: usize) -> PackedArtifact {
     packed::compile(&source(), &config(width)).unwrap()
 }
@@ -56,7 +57,7 @@ fn ring_source(n: u32) -> Vec<u8> {
 }
 
 /// Columns of `artifact` holding a cell of a wire with several cells.
-fn copy_columns(artifact: &PackedArtifact) -> std::collections::BTreeSet<usize> {
+fn permutation_columns(artifact: &PackedArtifact) -> std::collections::BTreeSet<usize> {
     let width = artifact.certificate.layout.width;
     let mut cells = std::collections::BTreeMap::<u32, usize>::new();
     for wire in artifact.map.iter().filter(|w| **w != 0) {
@@ -69,12 +70,12 @@ fn copy_columns(artifact: &PackedArtifact) -> std::collections::BTreeSet<usize> 
     columns
 }
 
-/// An artifact with a copy argument and ratio columns.
+/// An artifact with a permutation argument and ratio columns.
 fn ratio_artifact(width: usize) -> (Vec<u8>, PackedArtifact) {
     let source = ring_source(4 * width as u32);
     let artifact = packed::compile(&source, &config(width)).unwrap();
-    assert!(artifact.certificate.layout.requires_copy);
-    assert!(copy_columns(&artifact).len() >= 3);
+    assert!(artifact.certificate.layout.requires_permutation);
+    assert!(permutation_columns(&artifact).len() >= 3);
     (source, artifact)
 }
 
@@ -97,8 +98,8 @@ fn rejects(
     );
 }
 
-/// `rejects` on `source()` packed at width 3, with a copy argument.
-fn rejects_copy(expected: &str, change: impl FnOnce(&mut pb::PilOut)) {
+/// `rejects` on `source()` packed at width 3, with a permutation argument.
+fn rejects_permutation(expected: &str, change: impl FnOnce(&mut pb::PilOut)) {
     rejects(expected, &source(), artifact(3), change);
 }
 
@@ -112,7 +113,7 @@ fn rejects_ratio(expected: &str, change: impl FnOnce(&mut pb::PilOut)) {
 fn layouts_with_and_without_copy_argument_are_accepted() {
     for width in [3, 4] {
         let a = artifact(width);
-        assert_eq!(a.certificate.layout.requires_copy, width == 3);
+        assert_eq!(a.certificate.layout.requires_permutation, width == 3);
         assert!(packed_check::check(&source(), &a.pilout, &a.certificate).is_ok());
     }
 }
@@ -140,7 +141,7 @@ fn public_row_selectors_are_accepted_at_square_boundaries() {
             .collect();
         let source = r1cs_bytes([wires, 0, k, wires - 1 - k], &equations);
         let mut settings = config(3);
-        settings.options.reuse = Reuse::None;
+        settings.options.reuse_auxiliaries = Reuse::None;
         let a = packed::compile(&source, &settings).unwrap();
         let rows: std::collections::BTreeSet<_> = a
             .certificate
@@ -166,8 +167,8 @@ fn unused_public_wire_gets_its_own_row() {
 
 #[test]
 fn columns_layouts_give_each_run_of_a_shape_one_slot() {
-    // 100 equations of one shape form one run: at 64 rows it takes two
-    // pieces side by side, each with its own slot; at 128 rows, one piece.
+    // 100 equations of one gate type form one stack: at 64 rows it takes two
+    // segments side by side, each with its own gate; at 128 rows, one segment.
     let source = connected_source(100);
     for (min_rows, runs) in [(64, 2), (128, 1)] {
         let mut settings = config(3);
@@ -177,7 +178,7 @@ fn columns_layouts_give_each_run_of_a_shape_one_slot() {
         let layout = &a.certificate.layout;
         assert_eq!(layout.rows, min_rows);
         assert_eq!(layout.width, 3 * runs);
-        assert_eq!(layout.slots.len(), runs);
+        assert_eq!(layout.gates.len(), runs);
         packed_check::check(&source, &a.pilout, &a.certificate).unwrap();
     }
 }
@@ -185,7 +186,7 @@ fn columns_layouts_give_each_run_of_a_shape_one_slot() {
 #[test]
 fn columns_layouts_put_equations_that_share_wires_in_one_row() {
     // 128 pairs `a · b = c` and `2c · d = e`: joined, each pair needs 5 cells
-    // instead of 6, in two pieces of 64 rows with two slots each.
+    // instead of 6, in two segments of 64 rows with two gates each.
     let pairs = 128;
     let equations: Vec<[Vec<(u32, u64)>; 3]> = (0..pairs)
         .flat_map(|i| {
@@ -201,7 +202,7 @@ fn columns_layouts_put_equations_that_share_wires_in_one_row() {
     settings.strategy = Strategy::Columns;
     let a = packed::compile(&source, &settings).unwrap();
     let layout = &a.certificate.layout;
-    assert_eq!((layout.rows, layout.width, layout.slots.len()), (64, 10, 4));
+    assert_eq!((layout.rows, layout.width, layout.gates.len()), (64, 10, 4));
     packed_check::check(&source, &a.pilout, &a.certificate).unwrap();
 }
 
@@ -209,23 +210,23 @@ fn columns_layouts_put_equations_that_share_wires_in_one_row() {
 fn bundle_width_is_checked() {
     let mut settings = config(8);
     settings.strategy = Strategy::Columns;
-    for bundle_width in [8, 16, 1024] {
-        settings.bundle_width = Some(bundle_width);
+    for row_group_width in [8, 16, 1024] {
+        settings.row_group_width = Some(row_group_width);
         let a = packed::compile(&source(), &settings).unwrap();
         packed_check::check(&source(), &a.pilout, &a.certificate).unwrap();
     }
-    for bundle_width in [7, 1025] {
-        settings.bundle_width = Some(bundle_width);
+    for row_group_width in [7, 1025] {
+        settings.row_group_width = Some(row_group_width);
         assert_rejected(
             packed::compile(&source(), &settings),
-            "bundleWidth must be in options.width..=1024",
+            "rowGroupWidth must be in options.width..=1024",
         );
     }
 }
 
 #[test]
 fn columns_layouts_wider_than_the_limit_are_rejected() {
-    // 64 · 1025 single-wire equations of one shape need 1025 columns at 64 rows.
+    // 64 · 1025 single-wire equations of one gate type need 1025 columns at 64 rows.
     let n = 64 * 1025;
     let equations: Vec<_> = (1..=n).map(|wire| [wire, wire, wire]).collect();
     let source = r1cs_bytes([n + 1, 0, 0, n], &equations);
@@ -233,7 +234,7 @@ fn columns_layouts_wider_than_the_limit_are_rejected() {
     settings.strategy = Strategy::Columns;
     assert_limit(
         packed::compile(&source, &settings),
-        "the shapes need 1025 columns in 64 rows, more than 1024; raise minRows",
+        "the gate types need 1025 columns in 64 rows, more than 1024; raise minRows",
     );
 }
 
@@ -249,14 +250,17 @@ fn only_copy_columns_have_permuted_labels() {
             .filter_map(|s| s.name.strip_prefix("Kernel."))
             .filter(|name| name.starts_with('S') && name[1..].parse::<usize>().is_ok())
             .collect();
-        let expected: Vec<String> = copy_columns(&a).iter().map(|c| format!("S{c}")).collect();
+        let expected: Vec<String> = permutation_columns(&a)
+            .iter()
+            .map(|c| format!("S{c}"))
+            .collect();
         let expected = expected.iter().map(String::as_str).collect();
         assert_eq!(names, expected);
         some_left_out |= names.len() < a.certificate.layout.width;
     }
     assert!(
         some_left_out,
-        "no case leaves a column out of the copy argument"
+        "no case leaves a column out of the permutation argument"
     );
 }
 
@@ -265,8 +269,8 @@ fn copy_arguments_without_ratio_columns_are_checked() {
     // Two equations share wire 1, which takes cells in one column only.
     let source = connected_source(2);
     let a = packed::compile(&source, &config(3)).unwrap();
-    let copy = copy_columns(&a).len();
-    assert!(a.certificate.layout.requires_copy && copy <= 2);
+    let copy = permutation_columns(&a).len();
+    assert!(a.certificate.layout.requires_permutation && copy <= 2);
     let pilout = pb::PilOut::decode(a.pilout.as_slice()).unwrap();
     assert_eq!(pilout.air_groups[0].airs[0].stage_widths[1], 1);
     assert!(pilout.symbols.iter().all(|s| s.name != "copy_ratios"));
@@ -277,12 +281,12 @@ fn copy_arguments_without_ratio_columns_are_checked() {
         .unwrap();
     assert_eq!(first.id, copy as u32 + 1);
     rejects(
-        "copy recurrence differs from the expected one",
+        "permutation recurrence differs from the expected one",
         &source,
         a,
         |p| {
-            let recurrence = constraint_labeled(p, label::COPY_RECURRENCE);
-            let closure = constraint_labeled(p, label::COPY_CLOSURE);
+            let recurrence = constraint_labeled(p, label::PERMUTATION_RECURRENCE);
+            let closure = constraint_labeled(p, label::PERMUTATION_CLOSURE);
             reuse_expression(p, recurrence, closure);
         },
     );
@@ -298,10 +302,10 @@ fn row_counts_and_bundle_widths_are_limited() {
         "minRows exceeds 65536",
     );
     let mut settings = config(3);
-    settings.bundle_width = Some(6);
+    settings.row_group_width = Some(6);
     assert_rejected(
         packed::compile(&source(), &settings),
-        "bundleWidth applies only to the columns strategy",
+        "rowGroupWidth applies only to the columns strategy",
     );
 }
 
@@ -311,8 +315,8 @@ fn ratio_column_counts_match_the_formula() {
         let (source, a) = ratio_artifact(width);
         packed_check::check(&source, &a.pilout, &a.certificate).unwrap();
         let pilout = pb::PilOut::decode(a.pilout.as_slice()).unwrap();
-        // Degree-3 ratios take two factors of each kind, one per copy column.
-        let ratios = ((copy_columns(&a).len() - 1) / 2) as u32;
+        // Degree-3 ratios take two factors of each kind, one per permutation column.
+        let ratios = ((permutation_columns(&a).len() - 1) / 2) as u32;
         assert_eq!(pilout.air_groups[0].airs[0].stage_widths[1], 1 + ratios);
         let ratio_hints = pilout.hints.iter().filter(|h| h.name == "im_col").count();
         assert_eq!(ratio_hints, ratios as usize);
@@ -336,38 +340,38 @@ fn inputs_above_small_size_limits_are_accepted() {
 
 #[test]
 fn changed_fixed_columns_are_rejected() {
-    rejects_copy("fixed column E0 differs at row 0", |p| {
+    rejects_permutation("fixed column E0 differs at row 0", |p| {
         fixed_column(p, "E0").values[0] = vec![7];
     });
-    rejects_copy("fixed column S0 differs at row 0", |p| {
+    rejects_permutation("fixed column S0 differs at row 0", |p| {
         fixed_column(p, "S0").values[0] = vec![1];
     });
-    rejects_copy("fixed column ID differs at row 1", |p| {
+    rejects_permutation("fixed column ID differs at row 1", |p| {
         fixed_column(p, "ID").values[1] = vec![1];
     });
 }
 
 #[test]
 fn changed_constraints_are_rejected() {
-    rejects_copy(
-        "constraint 0 differs from the expected slot or public constraint",
+    rejects_permutation(
+        "constraint 0 differs from the expected gate or public constraint",
         |p| reuse_expression(p, 0, 1),
     );
-    rejects_copy("copy closure differs from the expected one", |p| {
-        let closure = constraint_labeled(p, label::COPY_CLOSURE);
-        let recurrence = constraint_labeled(p, label::COPY_RECURRENCE);
+    rejects_permutation("permutation closure differs from the expected one", |p| {
+        let closure = constraint_labeled(p, label::PERMUTATION_CLOSURE);
+        let recurrence = constraint_labeled(p, label::PERMUTATION_RECURRENCE);
         reuse_expression(p, closure, recurrence);
     });
     rejects_ratio(
-        "copy ratio constraint 0 differs from the expected one",
+        "permutation ratio constraint 0 differs from the expected one",
         |p| {
-            let ratio = constraint_labeled(p, label::COPY_RATIO);
-            let recurrence = constraint_labeled(p, label::COPY_RECURRENCE);
+            let ratio = constraint_labeled(p, label::PERMUTATION_RATIO);
+            let recurrence = constraint_labeled(p, label::PERMUTATION_RECURRENCE);
             reuse_expression(p, ratio, recurrence);
         },
     );
-    rejects_copy("must be labeled 'copy closure'", |p| {
-        let closure = constraint_labeled(p, label::COPY_CLOSURE);
+    rejects_permutation("must be labeled 'permutation closure'", |p| {
+        let closure = constraint_labeled(p, label::PERMUTATION_CLOSURE);
         let Some(pb::constraint::Constraint::EveryRow(row)) =
             &mut air(p).constraints[closure].constraint
         else {
@@ -382,39 +386,42 @@ fn changed_challenge_in_the_copy_argument_is_rejected() {
     // Turn the last α operand into γ, or the last γ into α; every operand
     // stays valid.
     for (from, to) in [(0, 1), (1, 0)] {
-        rejects_ratio("copy recurrence differs from the expected one", |p| {
-            use pb::expression::Operation;
-            for expression in air(p).expressions.iter_mut().rev() {
-                let (lhs, rhs) = match &mut expression.operation {
-                    Some(Operation::Add(x)) => (&mut x.lhs, &mut x.rhs),
-                    Some(Operation::Sub(x)) => (&mut x.lhs, &mut x.rhs),
-                    Some(Operation::Mul(x)) => (&mut x.lhs, &mut x.rhs),
-                    Some(Operation::Neg(_)) | None => continue,
-                };
-                for operand in [lhs, rhs].into_iter().flatten() {
-                    if let Some(pb::operand::Operand::Challenge(c)) = &mut operand.operand {
-                        if c.idx == from {
-                            c.idx = to;
-                            return;
+        rejects_ratio(
+            "permutation recurrence differs from the expected one",
+            |p| {
+                use pb::expression::Operation;
+                for expression in air(p).expressions.iter_mut().rev() {
+                    let (lhs, rhs) = match &mut expression.operation {
+                        Some(Operation::Add(x)) => (&mut x.lhs, &mut x.rhs),
+                        Some(Operation::Sub(x)) => (&mut x.lhs, &mut x.rhs),
+                        Some(Operation::Mul(x)) => (&mut x.lhs, &mut x.rhs),
+                        Some(Operation::Neg(_)) | None => continue,
+                    };
+                    for operand in [lhs, rhs].into_iter().flatten() {
+                        if let Some(pb::operand::Operand::Challenge(c)) = &mut operand.operand {
+                            if c.idx == from {
+                                c.idx = to;
+                                return;
+                            }
                         }
                     }
                 }
-            }
-            panic!("no challenge operand");
-        });
+                panic!("no challenge operand");
+            },
+        );
     }
 }
 
 #[test]
 fn changed_hints_are_rejected() {
-    rejects_copy("hint 'gprod_col': name, AIR or field layout", |p| {
+    rejects_permutation("hint 'gprod_col': name, AIR or field layout", |p| {
         let product = p.hints.iter().position(|h| h.name == "gprod_col").unwrap();
         p.hints[product].name = "gsum_col".into();
     });
-    rejects_copy("hint 'gprod_col': field names", |p| {
+    rejects_permutation("hint 'gprod_col': field names", |p| {
         hint_fields(p, "gprod_col").pop();
     });
-    rejects_copy("hint 'gprod_col': field names", |p| {
+    rejects_permutation("hint 'gprod_col': field names", |p| {
         hint_fields(p, "gprod_col")[0].name = Some("renamed".into());
     });
     rejects_ratio(
@@ -603,7 +610,7 @@ fn operands_are_checked_against_the_layout() {
         a.certificate.pilout_sha256 = sha256_hex(&bytes);
         assert!(packed_check::check(&source(), &bytes, &a.certificate).is_ok());
     };
-    // Width 3 has a copy argument: ID, S0..S2 and FIRST (index 4), then selectors.
+    // Width 3 has a permutation argument: ID, S0..S2 and FIRST (index 4), then selectors.
     let fixed_count = pb::PilOut::decode(artifact(3).pilout.as_slice())
         .unwrap()
         .air_groups[0]
@@ -649,7 +656,7 @@ fn operands_are_checked_against_the_layout() {
             with_unreferenced_operand(bad),
         );
     }
-    // Without a copy argument no previous-row or next-row reference is allowed.
+    // Without a permutation argument no previous-row or next-row reference is allowed.
     accepts(4, witness_column(2, 0, 0));
     for (bad, expected) in [
         (witness_column(2, 0, -1), witness),
@@ -691,11 +698,14 @@ fn certificate_fields_are_checked() {
         "certificate relation is 'r1cs-per-row-publics-at-row-zero', expected 'r1cs-packed-static-copy'",
     );
     let mut changed = artifact(3).certificate;
-    changed.layout.requires_copy = false;
-    assert_rejected(check(changed), "requiresCopy must be set exactly when");
+    changed.layout.requires_permutation = false;
+    assert_rejected(
+        check(changed),
+        "requiresPermutation must be set exactly when",
+    );
     let mut changed = artifact(3).certificate;
-    changed.network.converted.pop();
-    assert_rejected(check(changed), "one converted equation per source equation");
+    changed.rewritten_circuit.equations.pop();
+    assert_rejected(check(changed), "one rewritten equation per source equation");
     let mut changed = artifact(4).certificate;
     changed.layout.public_bindings[0].wire = 4;
     let pilout = artifact(4).pilout;

@@ -53,7 +53,7 @@ compiler beyond what [the specification](../../SPEC.md) states.
 the R1CS file `SOURCE` with the layout file `LAYOUT`, projects the witness
 `INPUT` (a WTNS file), runs the setup, and generates and verifies `RUNS` proofs
 (default 3). It prints one JSON object with the layout's `rows`, `width`,
-`slots` and `selectors`, the prover's `powBits` and `queries`, and the median
+`gates` and `selectors`, the prover's `powBits` and `queries`, and the median
 time of each prover phase in `milliseconds`.
 
 Compare layouts by `withoutGrinding`: the proof time minus the FRI query
@@ -73,7 +73,7 @@ shows the effect.
 `available` reuse, folding and chunks of half the width:
 
 - `local` at widths 32, 64 and 96, `minRows` 64;
-- `columns` at width `WIDTH` (default 64), with `bundleWidth` `WIDTH` and
+- `columns` at width `WIDTH` (default 64), with `rowGroupWidth` `WIDTH` and
   `2 × WIDTH`, at `minRows` 64, 128, … up to 65536. Each sweep skips sizes
   that do not fit and stops when the estimate has risen twice in a row or a
   candidate no longer fits.

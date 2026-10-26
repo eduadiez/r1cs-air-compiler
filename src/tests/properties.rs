@@ -12,8 +12,9 @@ use crate::{
     api, checker, compiler,
     field::{inverse, mul},
     layout::{LayoutConfig, Strategy as Placement},
-    network::{ConversionOptions, Reuse},
-    packed, packed_check, proto as pb, r1cs, sha256_hex, P,
+    packed, packed_check, proto as pb, r1cs,
+    rewrite::{Reuse, RewriteOptions},
+    sha256_hex, P,
 };
 use proptest::prelude::*;
 use proptest::sample::subsequence;
@@ -133,11 +134,11 @@ fn layout_config() -> impl Strategy<Value = LayoutConfig> {
         })
         .prop_map(
             |((width, fold, reuse, strategy, wide), chunk)| LayoutConfig {
-                options: ConversionOptions {
+                options: RewriteOptions {
                     width,
-                    chunk,
-                    reuse: [Reuse::None, Reuse::Prefix, Reuse::Available][reuse],
-                    fold,
+                    auxiliary_terms: chunk,
+                    reuse_auxiliaries: [Reuse::None, Reuse::Prefix, Reuse::Available][reuse],
+                    fold_constants: fold,
                 },
                 strategy: [
                     Placement::Mixed,
@@ -146,8 +147,8 @@ fn layout_config() -> impl Strategy<Value = LayoutConfig> {
                     Placement::Columns,
                 ][strategy],
                 min_rows: 64,
-                // Only the columns strategy accepts a bundle width.
-                bundle_width: (wide && strategy == 3).then_some(2 * width),
+                // Only the columns strategy accepts a row group width.
+                row_group_width: (wide && strategy == 3).then_some(2 * width),
             },
         )
 }
@@ -157,8 +158,8 @@ fn layout_config() -> impl Strategy<Value = LayoutConfig> {
 enum Tamper {
     /// Set the `n`-th cell to a value.
     Cell(usize, u64),
-    /// Set every cell of the `n`-th placed wire (helpers included) to a value,
-    /// which leaves the copy argument satisfied.
+    /// Set every cell of the `n`-th placed wire (auxiliary wires included) to a value,
+    /// which leaves the permutation argument satisfied.
     Wire(usize, u64),
     /// Set the `n`-th public value.
     Public(usize, u64),
@@ -347,9 +348,9 @@ fn constraint_count(pilout: &[u8]) -> usize {
     decode(pilout).air_groups[0].airs[0].constraints.len()
 }
 
-/// Number of constraints before the copy argument's, which come last and
+/// Number of constraints before the permutation argument's, which come last and
 /// are labeled `copy ...`.
-fn slot_and_public_constraints(pilout: &[u8]) -> usize {
+fn gate_and_public_constraints(pilout: &[u8]) -> usize {
     decode(pilout).air_groups[0].airs[0]
         .constraints
         .iter()
@@ -429,8 +430,8 @@ proptest! {
         let wtns = super::wtns_bytes(&values);
         let witness =
             api::project_witness(&source, &artifact.pilout, &artifact.certificate, &wtns).unwrap();
-        // Cells of source wires hold their values; helper values are computed
-        // by the projection, which checks every helper equation.
+        // Cells of source wires hold their values; auxiliary wire values are computed
+        // by the projection, which checks every auxiliary equation.
         for (wire, value) in artifact.map.iter().zip(&witness.trace) {
             let wire = *wire as usize;
             if wire == 0 {
@@ -482,11 +483,11 @@ proptest! {
         prop_assume!(applied);
         artifact.certificate.pilout_sha256 = sha256_hex(&changed);
         if packed_check::check(&source, &changed, &artifact.certificate).is_ok() {
-            // The checker compares the copy argument operation by operation, so
-            // an accepted change can only have touched the slot and public
+            // The checker compares the permutation argument operation by operation, so
+            // an accepted change can only have touched the gate and public
             // constraints, and must have left their polynomials as they were.
-            let main = slot_and_public_constraints(&artifact.pilout);
-            let publics = artifact.certificate.network.publics;
+            let main = gate_and_public_constraints(&artifact.pilout);
+            let publics = artifact.certificate.rewritten_circuit.publics;
             prop_assert_eq!(
                 constraint_polynomials(&artifact.pilout, width, publics, main),
                 constraint_polynomials(&changed, width, publics, main)

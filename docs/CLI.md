@@ -38,7 +38,7 @@ fails with kind `usage`. `SOURCE` is an R1CS file.
 | --- | --- |
 | `kernel.pilout` | The AIR, as PILout (protobuf) |
 | `certificate.json` | The certificate checked by `check`; its fields are listed in [the specification](../SPEC.md#certificates) |
-| `plan.json` | The `network` and `layout` fields a packed certificate would have |
+| `plan.json` | The `rewrittenCircuit` and `layout` fields a packed certificate would have |
 | `map.bin` | The wire in each cell, row by row, as little-endian `u32` (0 for an unused cell) |
 | `trace.bin` | The stage-one trace, row by row, as little-endian `u64` field elements |
 | `public.bin` | The public values in order, as little-endian `u64` field elements |
@@ -50,30 +50,30 @@ The JSON files are compact JSON followed by a newline.
 `--layout` takes a JSON file such as `fixtures/xor/layout.json`:
 
 ```json
-{"options":{"width":8,"chunk":4,"reuse":"prefix","fold":true},"strategy":"local","minRows":64}
+{"options":{"width":8,"auxiliaryTerms":4,"reuseAuxiliaries":"prefix","foldConstants":true},"strategy":"local","minRows":64}
 ```
 
 | Field | Values | Meaning |
 | --- | --- | --- |
 | `options.width` | 3 to 1024 | The most distinct wires one equation may use; with the row strategies, also the columns per row |
-| `options.chunk` | 2 to `width - 1` | Terms replaced by each new helper wire |
-| `options.reuse` | `none`, `prefix`, `available` | When an existing helper may stand in for terms of a later equation (see below) |
-| `options.fold` | `true`, `false` | If `A` or `B` in `A · B = C` is a constant `k`, rewrite the equation as the linear `0 = C - k · (other factor)` first |
+| `options.auxiliaryTerms` | 2 to `width - 1` | Terms replaced by each new auxiliary wire |
+| `options.reuseAuxiliaries` | `none`, `prefix`, `available` | When an existing auxiliary wire may stand in for terms of a later equation (see below) |
+| `options.foldConstants` | `true`, `false` | If `A` or `B` in `A · B = C` is a constant `k`, rewrite the equation as the linear `0 = C - k · (other factor)` first |
 | `strategy` | `mixed`, `local`, `components`, `columns` | How equations are placed (see below) |
 | `minRows` | power of two, 64 to 65536 | With `columns`, the row count; otherwise the least row count |
-| `bundleWidth` | `options.width` to 1024 | Optional, `columns` only: the most wires in one bundle. Defaults to `options.width` |
+| `rowGroupWidth` | `options.width` to 1024 | Optional, `columns` only: the most wires in one row group. Defaults to `options.width` |
 
-A helper wire is a new wire constrained to equal a linear combination of other
-wires; helpers keep each equation within `options.width` wires. Unknown fields
-are rejected, and so is `bundleWidth` with a strategy other than `columns`.
+An auxiliary wire is a new wire constrained to equal a linear combination of other
+wires; auxiliary wires keep each equation within `options.width` wires. Unknown fields
+are rejected, and so is `rowGroupWidth` with a strategy other than `columns`.
 
-`reuse`:
+`reuseAuxiliaries`:
 
-- `none`: every split creates a new helper.
-- `prefix`: reuse a helper whose terms, up to a common factor, are the terms
+- `none`: every split creates a new auxiliary wire.
+- `prefix`: reuse an auxiliary wire whose terms, up to a common factor, are the terms
   being replaced.
 - `available`: like `prefix`, and also search every side of the equation for
-  the longest existing helper that appears there.
+  the longest existing auxiliary wire that appears there.
 
 `strategy`:
 
@@ -81,21 +81,21 @@ are rejected, and so is `bundleWidth` with a strategy other than `columns`.
 - `local`: prefer a row that already holds some of the equation's wires.
 - `components`: first place each group of wire-connected equations that fits
   in one row together, then continue as `local`.
-- `columns`: join equations that share wires into bundles (at most
-  `bundleWidth` wires each), then stack the bundles of each kind one per row
-  in the same columns, so they share one constraint per slot. The trace has
+- `columns`: join equations that share wires into row groups (at most
+  `rowGroupWidth` wires each), then stack the row groups of each kind one per row
+  in the same columns, so they share one constraint per gate. The trace has
   exactly `minRows` rows and as many columns as needed, at most 1024; if more
   are needed the command fails with kind `limit`, and a larger `minRows` may
   help. The columns are packed in two ways and the cheaper trace is kept (a
-  column in the copy argument counts 2.6 times); one way keeps cells that may
-  need copies in their own columns, so the other columns stay out of the copy
+  column in the permutation argument counts 2.6 times); one way keeps cells that may
+  need copies in their own columns, so the other columns stay out of the permutation
   argument.
 
 With the row strategies (`mixed`, `local`, `components`), the trace has
 `options.width` columns and the used rows rounded up to a power of two, but at
 least `minRows`. Any layout may have at most 65536 rows and 4 000 000 cells.
 
-`columns` gives wires more cells than the row strategies, but far fewer slot
+`columns` gives wires more cells than the row strategies, but far fewer gate
 constraints and selector columns, which usually makes proving faster.
 [Scale](SCALE.md#prover-time) compares the strategies, and
 `tools/backend-check/choose-layout.sh` estimates the best layout for a circuit.
@@ -116,8 +116,8 @@ Keys are printed in alphabetical order; their order carries no meaning. The
 | --- | --- |
 | `compile` | `mode` (`reference`, `optimized-reference` or `packed`), `piloutBytes`, `certificate` (the whole certificate) |
 | `check` (reference) | `accepted`, `relation`, `sourceEquations`, `publicBindings`, `rows`, `width`, `formallyVerified` |
-| `check` (packed) | `accepted`, `relation`, `sourceEquations`, `helpers`, `rows`, `width`, `requiresCopy`, `formallyVerified` |
-| `plan` | `rows`, `width`, `helpers`, `requiresCopy`, `checkedEquations` (helper definitions plus source equations) |
+| `check` (packed) | `accepted`, `relation`, `sourceEquations`, `auxiliaries`, `rows`, `width`, `requiresPermutation`, `formallyVerified` |
+| `plan` | `rows`, `width`, `auxiliaries`, `requiresPermutation`, `checkedEquations` (auxiliary definitions plus source equations) |
 | `witness` | `traceWords`, `publicWords` |
 
 `accepted` is always `true` (a rejected artifact gives an error instead), and

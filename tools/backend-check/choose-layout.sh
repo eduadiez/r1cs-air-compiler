@@ -7,7 +7,7 @@
 #
 # Candidates, all with chunks of half the width:
 # - local at widths 32, 64 and 96, minRows 64;
-# - columns at width WIDTH, with bundleWidth WIDTH and 2 * WIDTH, at minRows
+# - columns at width WIDTH, with rowGroupWidth WIDTH and 2 * WIDTH, at minRows
 #   64, 128, ... 65536; each sweep stops when the estimate has risen twice in
 #   a row or a candidate no longer fits.
 # Needs a WORK_DIR in which run.sh has already built pil2-proofman.
@@ -80,7 +80,7 @@ EOF
 }
 
 options() {
-    echo "{\"width\":$1,\"chunk\":$(($1 / 2)),\"reuse\":\"available\",\"fold\":true}"
+    echo "{\"width\":$1,\"auxiliaryTerms\":$(($1 / 2)),\"reuseAuxiliaries\":\"available\",\"foldConstants\":true}"
 }
 
 for row_width in 32 64 96; do
@@ -89,15 +89,15 @@ for row_width in 32 64 96; do
 done >"$out/local.jsonl"
 # Larger minRows give narrower traces. Too few rows make the trace wider than
 # the limit; past the first minRows that fits, stop once the estimate has
-# risen twice in a row or a candidate no longer fits. Each bundle width
+# risen twice in a row or a candidate no longer fits. Each row group width
 # (WIDTH and twice WIDTH) gets its own sweep.
-for bundle in "$width" $((2 * width)); do
+for row_group in "$width" $((2 * width)); do
     rows=64
     rises=0
     previous=""
     while [ "$rows" -le 65536 ] && [ "$rises" -lt 2 ]; do
-        if line=$(candidate "columns-$bundle-$rows" \
-            "{\"options\":$(options "$width"),\"strategy\":\"columns\",\"minRows\":$rows,\"bundleWidth\":$bundle}"); then
+        if line=$(candidate "columns-$row_group-$rows" \
+            "{\"options\":$(options "$width"),\"strategy\":\"columns\",\"minRows\":$rows,\"rowGroupWidth\":$row_group}"); then
             echo "$line"
             estimate=$(printf '%s' "$line" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["estimateMs"])')
             if [ -n "$previous" ] && [ "$estimate" -gt "$previous" ]; then

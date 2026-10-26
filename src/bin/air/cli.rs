@@ -323,8 +323,8 @@ fn plan(args: &[String]) -> CommandResult<Value> {
     Ok(json!({
         "rows": plan.rows(),
         "width": plan.width(),
-        "helpers": plan.helper_count(),
-        "requiresCopy": plan.requires_copy(),
+        "auxiliary wires": plan.auxiliary_count(),
+        "requiresPermutation": plan.requires_permutation(),
         "checkedEquations": plan.checked_equations(),
     }))
 }

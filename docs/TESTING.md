@@ -68,7 +68,7 @@ every row for random challenges. On random satisfiable circuits (2–6 inputs,
   every cell of a wire holds the same value, the values read back through the
   certificate satisfy the circuit, and the public values match.
 
-A case where a copy denominator is zero for the drawn challenges is skipped,
+A case where a permutation denominator is zero for the drawn challenges is skipped,
 as the specification allows. A unit test checks that the evaluator rejects
 each kind of change on the xor fixture, so these properties cannot pass by
 accepting every trace.

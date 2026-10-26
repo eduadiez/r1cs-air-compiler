@@ -1,9 +1,9 @@
-//! Placement check: verifies that a helper network and layout preserve the
+//! Placement check: verifies that a rewritten circuit and layout preserve the
 //! source equations and public order, without calling the code that built them.
 use crate::{
-    certificate::{Group, Layout, Network, Placement},
+    certificate::{GateType, Layout, Placement, RewrittenCircuit},
     contract::{
-        MAX_CELLS, MAX_HELPER_EXPANSION, MAX_PRODUCT_TERMS, MAX_ROWS, MAX_WIDTH, MIN_ROWS,
+        MAX_AUXILIARY_EXPANSION, MAX_CELLS, MAX_PRODUCT_TERMS, MAX_ROWS, MAX_WIDTH, MIN_ROWS,
         MIN_WIDTH,
     },
     ensure, ensure_within_limit,
@@ -20,50 +20,55 @@ type Linear = BTreeMap<u32, u64>;
 /// nonzero coefficients: `(i, j)` with `i <= j` is the monomial `w_i · w_j`;
 /// wire 0 is the constant 1, so `(0, j)` is linear in `w_j`.
 type Quadratic = Vec<((u32, u32), u64)>;
-/// A slot activation: shape, columns and row.
+/// A gate activation: gate type, columns and row.
 type Activation = (usize, Vec<usize>, usize);
 
 /// Result of a successful placement check.
 pub struct Checked {
     /// Wire in each cell, row by row; 0 marks an unused cell.
     pub map: Vec<u32>,
-    /// Helper equations, then converted equations, as numbered by
+    /// Auxiliary equations, then rewritten equations, as numbered by
     /// [`Placement::index`].
     pub equations: Vec<Equation>,
     /// Cells `(row, column)` of each wire.
     pub occurrences: BTreeMap<u32, Vec<(usize, usize)>>,
 }
 
-/// Check a network and layout against their source:
-/// 1. each helper references only earlier wires and has first coefficient 1;
-/// 2. after replacing helpers by their definitions, every converted equation
+/// Check a rewritten and layout against their source:
+/// 1. each auxiliary wire references only earlier wires and has first coefficient 1;
+/// 2. after replacing auxiliary wires by their definitions, every rewritten equation
 ///    is exactly its source equation;
-/// 3. every helper and converted equation is placed exactly once, on a row
-///    where its slot is active, in a shape that gives back the same equation,
+/// 3. every auxiliary wire and rewritten equation is placed exactly once, on a row
+///    where its gate is active, in a gate type that gives back the same equation,
 ///    and no cell holds two different wires;
 /// 4. public values bind to wires `1..=publics` in order, and the row counts
-///    and `requires_copy` match the cells.
-pub fn check(source: &Circuit, network: &Network, layout: &Layout) -> Result<Checked> {
-    check_dimensions(source, network, layout)?;
-    // Every wire standing for itself, to compare equations without expanding helpers.
-    let identity: Vec<Linear> = (0..network.wires)
+///    and `requires_permutation` match the cells.
+pub fn check(source: &Circuit, rewritten: &RewrittenCircuit, layout: &Layout) -> Result<Checked> {
+    check_dimensions(source, rewritten, layout)?;
+    // Every wire standing for itself, to compare equations without expanding auxiliary wires.
+    let identity: Vec<Linear> = (0..rewritten.wires)
         .map(|w| BTreeMap::from([(w, 1)]))
         .collect();
-    let (expanded, mut equations) = expand_helpers(source, network, &identity)?;
-    for (index, (actual, expected)) in network.converted.iter().zip(&source.equations).enumerate() {
-        check_canonical(actual, network.wires)
-            .map_err(|e| format!("converted equation {index}: {e}"))?;
+    let (expanded, mut equations) = expand_auxiliaries(source, rewritten, &identity)?;
+    for (index, (actual, expected)) in rewritten
+        .equations
+        .iter()
+        .zip(&source.equations)
+        .enumerate()
+    {
+        check_canonical(actual, rewritten.wires)
+            .map_err(|e| format!("rewritten equation {index}: {e}"))?;
         let expected = expected
             .clone()
             .map(|lc| lc.into_iter().filter(|(_, k)| k.0 != 0).collect());
         ensure(
             residual(actual, &expanded)? == residual(&expected, &identity)?,
-            format_args!("converted equation {index} differs from its source equation"),
+            format_args!("rewritten equation {index} differs from its source equation"),
         )?;
         equations.push(actual.clone());
     }
-    let active = active_slots(layout)?;
-    let mut cells = Cells::new(layout, network.wires);
+    let active = active_gates(layout)?;
+    let mut cells = Cells::new(layout, rewritten.wires);
     let arithmetic_rows = place_equations(layout, &equations, &identity, &active, &mut cells)?;
     ensure(
         layout.public_bindings.len() == source.publics as usize,
@@ -92,8 +97,8 @@ pub fn check(source: &Circuit, network: &Network, layout: &Layout) -> Result<Che
         "rows must be usedRows rounded up to a power of two, at least minRows",
     )?;
     ensure(
-        layout.requires_copy == cells.occurrences.values().any(|cells| cells.len() > 1),
-        "requiresCopy must be set exactly when some wire occupies several cells",
+        layout.requires_permutation == cells.occurrences.values().any(|cells| cells.len() > 1),
+        "requiresPermutation must be set exactly when some wire occupies several cells",
     )?;
     Ok(Checked {
         map: cells.map,
@@ -103,15 +108,15 @@ pub fn check(source: &Circuit, network: &Network, layout: &Layout) -> Result<Che
 }
 
 /// Wire, public and equation counts against the source, and layout size limits.
-fn check_dimensions(source: &Circuit, network: &Network, layout: &Layout) -> Result<()> {
-    let wires = u32::try_from(network.helpers.len())
+fn check_dimensions(source: &Circuit, rewritten: &RewrittenCircuit, layout: &Layout) -> Result<()> {
+    let wires = u32::try_from(rewritten.auxiliaries.len())
         .ok()
-        .and_then(|helpers| source.wires.checked_add(helpers));
+        .and_then(|auxiliaries| source.wires.checked_add(auxiliaries));
     ensure(
-        network.original_wires == source.wires
-            && network.publics == source.publics
-            && Some(network.wires) == wires,
-        "network wire or public counts differ from the source",
+        rewritten.original_wires == source.wires
+            && rewritten.publics == source.publics
+            && Some(rewritten.wires) == wires,
+        "rewritten wire or public counts differ from the source",
     )?;
     ensure(
         (MIN_WIDTH..=MAX_WIDTH).contains(&layout.width),
@@ -130,8 +135,8 @@ fn check_dimensions(source: &Circuit, network: &Network, layout: &Layout) -> Res
         format_args!("layout exceeds {MAX_CELLS} cells"),
     )?;
     ensure(
-        network.converted.len() == source.equations.len(),
-        "one converted equation per source equation",
+        rewritten.equations.len() == source.equations.len(),
+        "one rewritten equation per source equation",
     )
 }
 
@@ -156,52 +161,52 @@ fn check_canonical(equation: &Equation, wires: u32) -> Result<()> {
     Ok(())
 }
 
-/// Check helper ids and normalization; return each wire's expansion over
-/// source wires and the defining equation `0 · 0 = terms - helper` of each helper.
-fn expand_helpers(
+/// Check auxiliary ids and normalization; return each wire's expansion over
+/// source wires and the defining equation `0 · 0 = terms - auxiliary` of each auxiliary wire.
+fn expand_auxiliaries(
     source: &Circuit,
-    network: &Network,
+    rewritten: &RewrittenCircuit,
     identity: &[Linear],
 ) -> Result<(Vec<Linear>, Vec<Equation>)> {
     let mut expanded = identity[..source.wires as usize].to_vec();
     let mut equations = vec![];
-    for (index, helper) in network.helpers.iter().enumerate() {
+    for (index, auxiliary) in rewritten.auxiliaries.iter().enumerate() {
         ensure(
-            helper
+            auxiliary
                 .id
                 .checked_sub(source.wires)
                 .map(|offset| offset as usize)
                 == Some(index),
-            format_args!("helper {index}: ids must follow the source wires in order"),
+            format_args!("auxiliary wire {index}: ids must follow the source wires in order"),
         )?;
         ensure(
-            helper.terms.len() >= 2,
-            format_args!("helper {index}: needs at least two terms"),
+            auxiliary.terms.len() >= 2,
+            format_args!("auxiliary wire {index}: needs at least two terms"),
         )?;
-        // Terms are canonical and reference only earlier wires, so helpers are acyclic.
-        check_canonical(&[helper.terms.clone(), vec![], vec![]], helper.id)
-            .map_err(|e| format!("helper {index}: {e}"))?;
+        // Terms are canonical and reference only earlier wires, so auxiliary wires are acyclic.
+        check_canonical(&[auxiliary.terms.clone(), vec![], vec![]], auxiliary.id)
+            .map_err(|e| format!("auxiliary wire {index}: {e}"))?;
         ensure(
-            helper.terms.iter().all(|(wire, _)| *wire > 0),
-            format_args!("helper {index}: terms must not use wire 0"),
+            auxiliary.terms.iter().all(|(wire, _)| *wire > 0),
+            format_args!("auxiliary wire {index}: terms must not use wire 0"),
         )?;
         ensure(
-            helper.terms[0].1 .0 == 1,
-            format_args!("helper {index}: first coefficient must be 1"),
+            auxiliary.terms[0].1 .0 == 1,
+            format_args!("auxiliary wire {index}: first coefficient must be 1"),
         )?;
         let mut values = BTreeMap::new();
-        for (wire, k) in &helper.terms {
+        for (wire, k) in &auxiliary.terms {
             for (source_wire, c) in &expanded[*wire as usize] {
                 accumulate(&mut values, *source_wire, mul(k.0, *c));
             }
         }
         ensure_within_limit(
-            values.len() <= MAX_HELPER_EXPANSION,
-            format_args!("helper {index}: expansion exceeds the size limit"),
+            values.len() <= MAX_AUXILIARY_EXPANSION,
+            format_args!("auxiliary wire {index}: expansion exceeds the size limit"),
         )?;
         expanded.push(values);
-        let mut terms = helper.terms.clone();
-        terms.push((helper.id, FieldElement(P - 1)));
+        let mut terms = auxiliary.terms.clone();
+        terms.push((auxiliary.id, FieldElement(P - 1)));
         equations.push([vec![], vec![], terms]);
     }
     Ok((expanded, equations))
@@ -246,10 +251,10 @@ fn residual(equation: &Equation, expanded: &[Linear]) -> Result<Quadratic> {
     Ok(result)
 }
 
-/// Check shape groups, selectors and slots; return every activation of a slot.
-fn active_slots(layout: &Layout) -> Result<BTreeSet<Activation>> {
-    for (id, group) in layout.groups.iter().enumerate() {
-        check_group(id, group, layout.width)?;
+/// Check gate type groups, selectors and gates; return every activation of a gate.
+fn active_gates(layout: &Layout) -> Result<BTreeSet<Activation>> {
+    for (id, group) in layout.gate_types.iter().enumerate() {
+        check_gate_type(id, group, layout.width)?;
     }
     for (id, selector) in layout.selectors.iter().enumerate() {
         ensure(
@@ -273,71 +278,74 @@ fn active_slots(layout: &Layout) -> Result<BTreeSet<Activation>> {
         )?;
     }
     let mut active = BTreeSet::new();
-    let mut slot_keys = BTreeSet::new();
-    for (id, slot) in layout.slots.iter().enumerate() {
+    let mut gate_keys = BTreeSet::new();
+    for (id, gate) in layout.gates.iter().enumerate() {
         ensure(
-            slot.shape < layout.groups.len(),
-            format_args!("slot {id}: unknown shape"),
+            gate.gate_type < layout.gate_types.len(),
+            format_args!("gate {id}: unknown gate type"),
         )?;
         ensure(
-            slot.selector < layout.selectors.len(),
-            format_args!("slot {id}: unknown selector"),
+            gate.selector < layout.selectors.len(),
+            format_args!("gate {id}: unknown selector"),
         )?;
         ensure(
-            slot.rows == layout.selectors[slot.selector].rows,
-            format_args!("slot {id}: rows differ from its selector's rows"),
+            gate.rows == layout.selectors[gate.selector].rows,
+            format_args!("gate {id}: rows differ from its selector's rows"),
         )?;
         ensure(
-            slot.columns.len() == layout.groups[slot.shape].width,
-            format_args!("slot {id}: column count differs from its shape width"),
+            gate.columns.len() == layout.gate_types[gate.gate_type].width,
+            format_args!("gate {id}: column count differs from its gate type width"),
         )?;
         ensure(
-            slot.columns.iter().all(|column| *column < layout.width),
-            format_args!("slot {id}: column out of range"),
+            gate.columns.iter().all(|column| *column < layout.width),
+            format_args!("gate {id}: column out of range"),
         )?;
         ensure(
-            slot.columns.iter().collect::<BTreeSet<_>>().len() == slot.columns.len(),
-            format_args!("slot {id}: repeated column"),
+            gate.columns.iter().collect::<BTreeSet<_>>().len() == gate.columns.len(),
+            format_args!("gate {id}: repeated column"),
         )?;
         ensure(
-            slot_keys.insert((slot.shape, slot.columns.clone())),
-            format_args!("slot {id}: duplicate of an earlier slot"),
+            gate_keys.insert((gate.gate_type, gate.columns.clone())),
+            format_args!("gate {id}: duplicate of an earlier gate"),
         )?;
-        for row in &slot.rows {
-            active.insert((slot.shape, slot.columns.clone(), *row));
+        for row in &gate.rows {
+            active.insert((gate.gate_type, gate.columns.clone(), *row));
         }
     }
     for id in 0..layout.selectors.len() {
         ensure(
-            layout.slots.iter().any(|slot| slot.selector == id),
-            format_args!("selector {id}: no slot uses it"),
+            layout.gates.iter().any(|gate| gate.selector == id),
+            format_args!("selector {id}: no gate uses it"),
         )?;
     }
     Ok(active)
 }
 
-/// Group ids match their positions; every term refers to the constant (position -1) or
-/// a position of the shape, in increasing order, with a coefficient in `1..P`.
-fn check_group(id: usize, group: &Group, width: usize) -> Result<()> {
-    ensure(group.id == id, format_args!("shape {id}: id out of order"))?;
+/// GateType ids match their positions; every term refers to the constant (position -1) or
+/// a position of the gate type, in increasing order, with a coefficient in `1..P`.
+fn check_gate_type(id: usize, group: &GateType, width: usize) -> Result<()> {
+    ensure(
+        group.id == id,
+        format_args!("gate type {id}: id out of order"),
+    )?;
     ensure(
         group.width <= width,
-        format_args!("shape {id}: wider than the layout"),
+        format_args!("gate type {id}: wider than the layout"),
     )?;
     for lc in &group.terms {
         let mut last = None;
         for (position, k) in lc {
             ensure(
                 *position == -1 || usize::try_from(*position).is_ok_and(|p| p < group.width),
-                format_args!("shape {id}: position out of range"),
+                format_args!("gate type {id}: position out of range"),
             )?;
             ensure(
                 k.0 > 0 && k.0 < P,
-                format_args!("shape {id}: coefficient must be in 1..P"),
+                format_args!("gate type {id}: coefficient must be in 1..P"),
             )?;
             ensure(
                 last.is_none_or(|previous| *position > previous),
-                format_args!("shape {id}: positions must be in increasing order"),
+                format_args!("gate type {id}: positions must be in increasing order"),
             )?;
             last = Some(*position);
         }
@@ -398,18 +406,22 @@ fn place_equations(
 ) -> Result<usize> {
     ensure(
         layout.placements.len() == equations.len(),
-        "one placement per helper and converted equation",
+        "one placement per auxiliary wire and rewritten equation",
     )?;
     let mut seen = BTreeSet::new();
     let mut used = BTreeSet::new();
     let mut arithmetic_rows = 0;
     for placement in &layout.placements {
         check_placement(layout, placement, equations, identity, &mut seen)?;
-        let key = (placement.shape, placement.columns.clone(), placement.row);
+        let key = (
+            placement.gate_type,
+            placement.columns.clone(),
+            placement.row,
+        );
         ensure(
             active.contains(&key),
             format_args!(
-                "equation {} is placed on a row where its slot is not active",
+                "equation {} is placed on a row where its gate is not active",
                 placement.index
             ),
         )?;
@@ -420,18 +432,18 @@ fn place_equations(
         arithmetic_rows = arithmetic_rows.max(placement.row + 1);
     }
     // The counts match and no index repeats, so every equation is placed;
-    // now every active slot row must hold one.
+    // now every active gate row must hold one.
     ensure(
         *active == used,
-        "placements must match the active slot rows exactly",
+        "placements must match the active gate rows exactly",
     )?;
-    for id in 0..layout.groups.len() {
+    for id in 0..layout.gate_types.len() {
         ensure(
             layout
                 .placements
                 .iter()
-                .any(|placement| placement.shape == id),
-            format_args!("shape {id}: no equation uses it"),
+                .any(|placement| placement.gate_type == id),
+            format_args!("gate type {id}: no equation uses it"),
         )?;
     }
     ensure(
@@ -441,8 +453,8 @@ fn place_equations(
     Ok(arithmetic_rows)
 }
 
-/// One placement: a new equation index, a known shape and row, consistent
-/// sizes, and a shape that gives back the placed equation.
+/// One placement: a new equation index, a known gate type and row, consistent
+/// sizes, and a gate type that gives back the placed equation.
 fn check_placement(
     layout: &Layout,
     placement: &Placement,
@@ -460,17 +472,17 @@ fn check_placement(
         format_args!("equation {index} is placed twice"),
     )?;
     ensure(
-        placement.shape < layout.groups.len(),
-        format_args!("equation {index}: unknown shape"),
+        placement.gate_type < layout.gate_types.len(),
+        format_args!("equation {index}: unknown gate type"),
     )?;
     ensure(
         placement.row < layout.arithmetic_rows,
         format_args!("equation {index}: row beyond arithmeticRows"),
     )?;
-    let group = &layout.groups[placement.shape];
+    let group = &layout.gate_types[placement.gate_type];
     ensure(
         placement.wires.len() == group.width && placement.columns.len() == group.width,
-        format_args!("equation {index}: wire or column count differs from its shape width"),
+        format_args!("equation {index}: wire or column count differs from its gate type width"),
     )?;
     ensure(
         placement.columns.iter().collect::<BTreeSet<_>>().len() == group.width,
@@ -487,6 +499,6 @@ fn check_placement(
     });
     ensure(
         residual(&instantiated, identity)? == residual(&equations[index], identity)?,
-        format_args!("equation {index}: its shape and wires give a different equation"),
+        format_args!("equation {index}: its gate type and wires give a different equation"),
     )
 }

@@ -86,7 +86,7 @@ impl From<&str> for Error {
 }
 
 /// Standard library errors keep their message only. Errors from other crates
-/// are converted where they occur, so that they stay out of the public API.
+/// are rewritten where they occur, so that they stay out of the public API.
 macro_rules! from_display {
     ($($t:ty),* $(,)?) => {
         $(impl From<$t> for Error {

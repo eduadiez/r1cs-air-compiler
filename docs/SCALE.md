@@ -22,7 +22,7 @@ a packed layout.
 `available` reuse, folding, `columns` strategy, 1024 rows) gives an AIR with:
 
 - 1024 rows;
-- 105 stage-one columns, 65 of them in the copy argument;
+- 105 stage-one columns, 65 of them in the permutation argument;
 - 33 stage-two columns, 249 fixed columns and 355 constraints.
 
 | Output | Size |
@@ -42,7 +42,7 @@ a packed layout.
 | `air witness` | 0.8 s | 100 MB |
 
 `plan` and `compile` (which plans first) spend most of their time joining
-equations into bundles for the `columns` strategy.
+equations into row groups for the `columns` strategy.
 
 With pil2-proofman at commit `eda04742b64abe0e5322a8231f0155438ffb62fe`
 ([backend check](../tools/backend-check/README.md)), each whole command took
@@ -85,11 +85,11 @@ To reproduce a row:
 1. Write a Circom file with `component main = Sha256(n);` that includes
    `vendor/circomlib/sha256/sha256.circom`.
 2. Compile it with the flags in `docs/provenance.json` (`fixtureToolchain`).
-3. Run `air compile` with this layout, setting `width` and `chunk` (half the
+3. Run `air compile` with this layout, setting `width` and `auxiliaryTerms` (half the
    width):
 
 ```json
-{"options":{"width":64,"chunk":32,"reuse":"available","fold":true},"strategy":"local","minRows":64}
+{"options":{"width":64,"auxiliaryTerms":32,"reuseAuxiliaries":"available","foldConstants":true},"strategy":"local","minRows":64}
 ```
 
 ## Prover time
@@ -111,9 +111,9 @@ The circuits are built like the SHA-256 ones above:
 
 `local` is the fastest `local` layout among widths 32, 64 and 96; `columns` is
 the layout that `tools/backend-check/choose-layout.sh` picked, given as
-(`minRows`, `bundleWidth`):
+(`minRows`, `rowGroupWidth`):
 
-| Circuit | `local` | `columns` (`minRows`, `bundleWidth`) | Change |
+| Circuit | `local` | `columns` (`minRows`, `rowGroupWidth`) | Change |
 | --- | --- | --- | --- |
 | SHA-256, 256 bits (fixture) | 24 | 19 (512, 64) | −21% |
 | SHA-256, 1024 bits | 85 | 35 (1024, 128) | −59% |
@@ -127,12 +127,12 @@ the layout that `tools/backend-check/choose-layout.sh` picked, given as
 
 Notes on the table:
 
-- In the Poseidon and MiMC7 chains most wires stay inside one bundle, so most
-  columns hold no copies and stay out of the copy argument. In the SHA-256
+- In the Poseidon and MiMC7 chains most wires stay inside one row group, so most
+  columns hold no copies and stay out of the permutation argument. In the SHA-256
   circuits about half the cells are copies, because each bit of the state is
   used in several rounds.
 - Each `LessThan(32)` comparison fits in one row, so neither strategy needs a
-  copy argument there; `columns` is still faster because it needs fewer slots
+  permutation argument there; `columns` is still faster because it needs fewer gates
   and rows.
 - At these sizes the proof-of-work search takes longer than the rest of the
   proof.
@@ -144,22 +144,22 @@ weighted count of columns and constraint operations. In the cost model of
 `choose-layout.sh`, one committed column (stage one, stage two or quotient)
 costs about as much as 8 fixed columns or 46 constraint operations.
 
-- A column in the copy argument also brings about 1.5 stage-two columns and a
-  fixed column of labels. When the compiler decides which bundles to join, it
-  counts one trace column as 22 slot constraints (`SLOTS_PER_COLUMN` in
+- A column in the permutation argument also brings about 1.5 stage-two columns and a
+  fixed column of labels. When the compiler decides which row groups to join, it
+  counts one trace column as 22 gate constraints (`GATES_PER_COLUMN` in
   `src/layout.rs`).
 - The row-filling strategies (`mixed`, `local`, `components`) keep each wire
-  in few cells, but leave thousands of slots (an equation shape placed on
+  in few cells, but leave thousands of gates (an equation gate type placed on
   specific columns, see `SPEC.md`) and selector columns, which are expensive
   to evaluate.
-- `columns` joins equations that share wires into bundles that repeat with the
-  same structure and places the bundles of each kind in runs that share their
-  slots. Slots and selectors stay near the number of bundle kinds, at the cost
+- `columns` joins equations that share wires into row groups that repeat with the
+  same structure and places the row groups of each kind in stacks that share their
+  gates. Gates and selectors stay near the number of row group kinds, at the cost
   of a wider trace.
 
-The best `minRows` and `bundleWidth` depend on the circuit: in the table above
-`minRows` ranges from 128 to 2048. Wider bundles share more cells but leave
-more of the trace empty: bundles of 128 wires instead of 64 proved the Poseidon
+The best `minRows` and `rowGroupWidth` depend on the circuit: in the table above
+`minRows` ranges from 128 to 2048. Wider row groups share more cells but leave
+more of the trace empty: row groups of 128 wires instead of 64 proved the Poseidon
 chain 29% faster, but the 271 577-constraint SHA-256 circuit 7% slower.
 `choose-layout.sh` estimates the best layout for a circuit by running only the
 prover's setup on each candidate; check its best few with `prove-time.sh`.
@@ -174,7 +174,7 @@ exponentially, while the extra queries make the proof and its verification
 grow only linearly.
 
 Measured on the 4096-bit circuit with `columns` at 4096 rows (an earlier
-version of the strategy, before copy-free columns; the effect of `powBits`
+version of the strategy, before columns without copies were left out of the permutation argument; the effect of `powBits`
 does not depend on the layout), using
 `prove-time.sh` with a `starkstructs.json` such as `{"Kernel": {"powBits": 20}}`
 (median of 5 proofs, milliseconds):

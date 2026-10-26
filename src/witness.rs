@@ -1,5 +1,5 @@
 //! Turns a Circom witness into the stage-one trace of a packed artifact:
-//! computes helper values, checks every equation, then copies each wire's value
+//! computes auxiliary wire values, checks every equation, then copies each wire's value
 //! into its cells.
 use crate::{
     certificate::PackedCertificate,
@@ -24,19 +24,25 @@ pub struct Witness {
 /// must have checked the artifact first.
 pub fn project(source: &[u8], certificate: &PackedCertificate, wtns: &[u8]) -> Result<Witness> {
     let circuit = r1cs::read(source)?;
-    let checked = placement_check::check(&circuit, &certificate.network, &certificate.layout)?;
+    let checked = placement_check::check(
+        &circuit,
+        &certificate.rewritten_circuit,
+        &certificate.layout,
+    )?;
     let mut values = r1cs::read_witness(wtns, circuit.wires)?;
-    for helper in &certificate.network.helpers {
+    for auxiliary in &certificate.rewritten_circuit.auxiliaries {
         ensure(
-            helper.id as usize == values.len(),
-            "helper ids must follow the source wires in order",
+            auxiliary.id as usize == values.len(),
+            "auxiliary ids must follow the source wires in order",
         )?;
-        values.push(evaluate(&helper.terms, &values));
+        values.push(evaluate(&auxiliary.terms, &values));
     }
     for (index, equation) in checked.equations.iter().enumerate() {
         ensure(
             satisfied(equation, &values),
-            format_args!("witness does not satisfy equation {index} (helper equations come first)"),
+            format_args!(
+                "witness does not satisfy equation {index} (auxiliary equations come first)"
+            ),
         )?;
     }
     let trace = checked

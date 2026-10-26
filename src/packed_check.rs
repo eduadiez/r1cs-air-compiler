@@ -7,7 +7,7 @@
 //! 2. PILout field, names and geometry;
 //! 3. every fixed column, rebuilt from the layout;
 //! 4. symbol table;
-//! 5. slot and public-binding constraints, compared as exact polynomials;
+//! 5. gate and public-binding constraints, compared as exact polynomials;
 //! 6. copy-argument constraints and all hints, compared operation by operation.
 use crate::{
     certificate::{Layout, PackedCertificate},
@@ -38,14 +38,14 @@ pub struct PackedCheckReport {
     pub relation: String,
     /// Number of equations in the source circuit.
     pub source_equations: usize,
-    /// Number of helper wires.
-    pub helpers: usize,
+    /// Number of auxiliary wires.
+    pub auxiliaries: usize,
     /// Number of trace rows.
     pub rows: usize,
     /// Number of stage-one columns.
     pub width: usize,
-    /// Whether the PILout contains a copy argument.
-    pub requires_copy: bool,
+    /// Whether the PILout contains a permutation argument.
+    pub requires_permutation: bool,
     /// Always false: the check is not a formal proof.
     pub formally_verified: bool,
 }
@@ -64,9 +64,13 @@ pub fn check(
     };
     pilout_check::check_binding(&binding, PACKED_RELATION, source, pilout_bytes)?;
     let circuit = r1cs::read(source)?;
-    let checked = placement_check::check(&circuit, &certificate.network, &certificate.layout)?;
+    let checked = placement_check::check(
+        &circuit,
+        &certificate.rewritten_circuit,
+        &certificate.layout,
+    )?;
     let layout = &certificate.layout;
-    let copy = CopyArgument::new(&checked.occurrences);
+    let copy = PermutationArgument::new(&checked.occurrences);
 
     let pilout = pilout_check::decode(pilout_bytes)?;
     let air = pilout_check::check_envelope(
@@ -79,8 +83,8 @@ pub fn check(
     )?;
 
     let mut fixed = FixedColumns::new(air, layout.rows);
-    let copy_columns = if layout.requires_copy {
-        fixed.add_copy_columns(layout, &checked.occurrences, &copy)?
+    let permutation_columns = if layout.requires_permutation {
+        fixed.add_permutation_columns(layout, &checked.occurrences, &copy)?
     } else {
         0
     };
@@ -98,14 +102,14 @@ pub fn check(
         expected_symbols(layout, &fixed.names, circuit.publics, &copy),
     )?;
 
-    let main = main_polynomials(layout, copy_columns, &publics)?;
+    let main = main_polynomials(layout, permutation_columns, &publics)?;
     let roots = pilout_check::constraint_roots(air, &constraint_labels(layout, &publics, &copy))?;
     check_main_constraints(air, layout, circuit.publics, &roots[..main.len()], &main)?;
 
     let mut graph = ExpressionGraph::default();
     let expression_ids = graph.import(air, layout, &copy, circuit.publics, fixed.names.len())?;
-    let expected_hints = if layout.requires_copy {
-        check_copy_constraints(&mut graph, &expression_ids, &copy, &roots[main.len()..])?
+    let expected_hints = if layout.requires_permutation {
+        check_permutation_constraints(&mut graph, &expression_ids, &copy, &roots[main.len()..])?
     } else {
         vec![zero_hint(&mut graph)]
     };
@@ -126,10 +130,10 @@ pub fn check(
         accepted: true,
         relation: certificate.relation.clone(),
         source_equations: circuit.equations.len(),
-        helpers: certificate.network.helpers.len(),
+        auxiliaries: certificate.rewritten_circuit.auxiliaries.len(),
         rows: layout.rows,
         width: layout.width,
-        requires_copy: layout.requires_copy,
+        requires_permutation: layout.requires_permutation,
         formally_verified: false,
     })
 }
@@ -138,28 +142,28 @@ pub fn check(
 fn constraint_labels(
     layout: &Layout,
     publics: &PublicSelectors,
-    copy: &CopyArgument,
+    copy: &PermutationArgument,
 ) -> Vec<String> {
     let mut labels = vec![];
-    if !layout.requires_copy {
+    if !layout.requires_permutation {
         labels.push(label::ZERO_COLUMN);
     }
-    labels.extend(layout.slots.iter().map(|_| label::PACKED_EQUATION));
+    labels.extend(layout.gates.iter().map(|_| label::PACKED_GATE));
     labels.extend(publics.columns.iter().map(|_| label::PACKED_PUBLIC));
-    if layout.requires_copy {
-        labels.extend((0..copy.ratios()).map(|_| label::COPY_RATIO));
-        labels.extend([label::COPY_RECURRENCE, label::COPY_CLOSURE]);
+    if layout.requires_permutation {
+        labels.extend((0..copy.ratios()).map(|_| label::PERMUTATION_RATIO));
+        labels.extend([label::PERMUTATION_RECURRENCE, label::PERMUTATION_CLOSURE]);
     }
     labels.into_iter().map(String::from).collect()
 }
 
-/// The columns in the copy argument (SPEC.md, "Copy argument"): those holding
+/// The columns in the permutation argument (SPEC.md, "Permutation argument"): those holding
 /// a cell of a wire with several cells, in increasing order. Empty without a
-/// copy argument.
-struct CopyArgument {
+/// permutation argument.
+struct PermutationArgument {
     columns: Vec<usize>,
 }
-impl CopyArgument {
+impl PermutationArgument {
     fn new(occurrences: &BTreeMap<u32, Vec<(usize, usize)>>) -> Self {
         let columns: BTreeSet<usize> = occurrences
             .values()
@@ -167,11 +171,11 @@ impl CopyArgument {
             .flatten()
             .map(|(_, column)| *column)
             .collect();
-        CopyArgument {
+        PermutationArgument {
             columns: columns.into_iter().collect(),
         }
     }
-    /// Number of copy ratio columns, from the formula in SPEC.md rather than
+    /// Number of permutation ratio columns, from the formula in SPEC.md rather than
     /// the compiler's loop.
     fn ratios(&self) -> u32 {
         (self.columns.len().saturating_sub(1) / (MAX_DEGREE - 1)) as u32
@@ -233,13 +237,13 @@ impl<'a> FixedColumns<'a> {
         Ok(id as u32)
     }
     /// The copy-argument columns: `ID` (the row domain `ω^r`), one permuted
-    /// label column `S{col}` per copy column in increasing order, and `FIRST`.
+    /// label column `S{col}` per permutation column in increasing order, and `FIRST`.
     /// Returns the number of columns added.
-    fn add_copy_columns(
+    fn add_permutation_columns(
         &mut self,
         layout: &Layout,
         occurrences: &BTreeMap<u32, Vec<(usize, usize)>>,
-        copy: &CopyArgument,
+        copy: &PermutationArgument,
     ) -> Result<usize> {
         let (n, width) = (layout.rows, layout.width);
         let omega = pow(GENERATOR, (P - 1) / n as u64);
@@ -250,7 +254,7 @@ impl<'a> FixedColumns<'a> {
             .collect();
         ensure(
             labels.iter().collect::<BTreeSet<_>>().len() == labels.len(),
-            "copy labels must be distinct",
+            "permutation labels must be distinct",
         )?;
         // The cells of each wire form one cycle: each holds the label of the
         // previous cell. Unused cells keep their own label.
@@ -280,7 +284,7 @@ impl<'a> FixedColumns<'a> {
 /// row is selected by `PH · PL`, and its column has a `PA` column that is 1 on
 /// all its public rows.
 struct PublicSelectors {
-    /// Group size: `ceil(sqrt(q))` for `q` distinct rows holding public cells.
+    /// GateType size: `ceil(sqrt(q))` for `q` distinct rows holding public cells.
     side: usize,
     /// Position `i` of each public row among all public rows.
     row_index: BTreeMap<usize, usize>,
@@ -370,9 +374,9 @@ fn expected_symbols(
     layout: &Layout,
     fixed_names: &[String],
     publics: u32,
-    copy: &CopyArgument,
+    copy: &PermutationArgument,
 ) -> BTreeMap<String, ExpectedSymbol> {
-    let product = if layout.requires_copy {
+    let product = if layout.requires_permutation {
         PRODUCT_COLUMN_NAME
     } else {
         ZERO_COLUMN_NAME
@@ -419,25 +423,25 @@ fn expected_symbols(
     symbols
 }
 
-/// Expected slot and public-binding constraint polynomials, in PILout order.
-/// Without a copy argument, the `stage2_zero` constraint comes first.
+/// Expected gate and public-binding constraint polynomials, in PILout order.
+/// Without a permutation argument, the `stage2_zero` constraint comes first.
 fn main_polynomials(
     layout: &Layout,
-    copy_columns: usize,
+    permutation_columns: usize,
     publics: &PublicSelectors,
 ) -> Result<Vec<Polynomial>> {
-    let mut expected = if layout.requires_copy {
+    let mut expected = if layout.requires_permutation {
         vec![]
     } else {
         vec![variable(Var::product())]
     };
-    for slot in &layout.slots {
-        let terms = &layout.groups[slot.shape].terms;
-        let a = shape_polynomial(&terms[0], &slot.columns)?;
-        let b = shape_polynomial(&terms[1], &slot.columns)?;
-        let c = shape_polynomial(&terms[2], &slot.columns)?;
+    for gate in &layout.gates {
+        let terms = &layout.gate_types[gate.gate_type].terms;
+        let a = gate_polynomial(&terms[0], &gate.columns)?;
+        let b = gate_polynomial(&terms[1], &gate.columns)?;
+        let c = gate_polynomial(&terms[2], &gate.columns)?;
         let residual = difference(&product(&a, &b)?, &c);
-        let selector = variable(Var::Fixed((copy_columns + slot.selector) as u32));
+        let selector = variable(Var::Fixed((permutation_columns + gate.selector) as u32));
         expected.push(product(&selector, &residual)?);
     }
     for column in &publics.columns {
@@ -462,8 +466,8 @@ fn main_polynomials(
     Ok(expected)
 }
 
-/// Shape terms with shape position `i` read from stage-one column `columns[i]`.
-fn shape_polynomial(terms: &[(i32, FieldElement)], columns: &[usize]) -> Result<Polynomial> {
+/// CanonicalGate terms with gate type position `i` read from stage-one column `columns[i]`.
+fn gate_polynomial(terms: &[(i32, FieldElement)], columns: &[usize]) -> Result<Polynomial> {
     let mut result = constant(0);
     for (position, k) in terms {
         let x = if *position < 0 {
@@ -476,7 +480,7 @@ fn shape_polynomial(terms: &[(i32, FieldElement)], columns: &[usize]) -> Result<
     Ok(result)
 }
 
-/// Compare each slot and public constraint with its expected polynomial.
+/// Compare each gate and public constraint with its expected polynomial.
 fn check_main_constraints(
     air: &pb::Air,
     layout: &Layout,
@@ -490,7 +494,7 @@ fn check_main_constraints(
     for (index, (root, expected)) in roots.iter().zip(expected).enumerate() {
         ensure(
             interpreter.values.get(*root) == Some(expected),
-            format_args!("constraint {index} differs from the expected slot or public constraint"),
+            format_args!("constraint {index} differs from the expected gate or public constraint"),
         )?;
     }
     Ok(())
@@ -543,7 +547,7 @@ struct OperandContext<'a> {
     /// Graph id of each AIR expression.
     expression_ids: &'a [usize],
     layout: &'a Layout,
-    copy: &'a CopyArgument,
+    copy: &'a PermutationArgument,
     publics: u32,
     fixed_columns: usize,
 }
@@ -589,7 +593,7 @@ impl ExpressionGraph {
         &mut self,
         air: &pb::Air,
         layout: &Layout,
-        copy: &CopyArgument,
+        copy: &PermutationArgument,
         publics: u32,
         fixed_columns: usize,
     ) -> Result<Vec<usize>> {
@@ -627,7 +631,7 @@ impl ExpressionGraph {
                 let stage_two = x.stage == STAGE_TWO
                     && x.col_idx < context.copy.stage_two_width()
                     && (x.row_offset == 0
-                        || (layout.requires_copy
+                        || (layout.requires_permutation
                             && x.col_idx == PRODUCT_COLUMN
                             && x.row_offset == -1));
                 ensure(stage_one || stage_two, "witness column out of range")?;
@@ -643,7 +647,7 @@ impl ExpressionGraph {
                 ensure(
                     x.idx < context.fixed_columns as u32
                         && (x.row_offset == 0
-                            || (layout.requires_copy
+                            || (layout.requires_permutation
                                 && x.idx == context.copy.first_column()
                                 && x.row_offset == 1)),
                     "fixed column out of range or with a row offset",
@@ -691,7 +695,7 @@ fn reference_field(graph: &mut ExpressionGraph) -> usize {
 }
 
 /// The hint of the `stage2_zero` column, the only stage-two column without a
-/// copy argument.
+/// permutation argument.
 fn zero_hint(graph: &mut ExpressionGraph) -> ExpectedHint {
     let reference = reference_field(graph);
     let alpha = graph.leaf(Leaf::Challenge(ALPHA));
@@ -711,16 +715,16 @@ fn zero_hint(graph: &mut ExpressionGraph) -> ExpectedHint {
 }
 
 /// Rebuild the ratio constraints, the running-product recurrence and the
-/// closure constraint (SPEC.md, "Copy argument"), compare them with the actual
+/// closure constraint (SPEC.md, "Permutation argument"), compare them with the actual
 /// constraints, and return the hints they require.
-fn check_copy_constraints(
+fn check_permutation_constraints(
     graph: &mut ExpressionGraph,
     expression_ids: &[usize],
-    copy: &CopyArgument,
+    copy: &PermutationArgument,
     roots: &[usize],
 ) -> Result<Vec<ExpectedHint>> {
     let ratios = copy.ratios() as usize;
-    let (numerators, denominators) = copy_factors(graph, &copy.columns);
+    let (numerators, denominators) = permutation_factors(graph, &copy.columns);
     let mut hints = vec![];
     let (numerator, denominator) = check_ratios(
         graph,
@@ -754,9 +758,9 @@ fn check_copy_constraints(
     Ok(hints)
 }
 
-/// For each copy column, the numerator factor with the permuted label column
+/// For each permutation column, the numerator factor with the permuted label column
 /// and the denominator factor with the cell's own label.
-fn copy_factors(graph: &mut ExpressionGraph, columns: &[usize]) -> (Vec<usize>, Vec<usize>) {
+fn permutation_factors(graph: &mut ExpressionGraph, columns: &[usize]) -> (Vec<usize>, Vec<usize>) {
     let alpha = graph.leaf(Leaf::Challenge(ALPHA));
     let gamma = graph.leaf(Leaf::Challenge(GAMMA));
     let id = graph.leaf(Leaf::fixed(0));
@@ -804,7 +808,7 @@ fn check_ratios(
         let residual = graph.sub(lhs, numerator);
         ensure(
             expression_ids.get(*root) == Some(&residual),
-            format_args!("copy ratio constraint {i} differs from the expected one"),
+            format_args!("permutation ratio constraint {i} differs from the expected one"),
         )?;
         hints.push((
             RATIO_HINT,
@@ -830,7 +834,7 @@ fn check_ratios(
 fn check_running_product(
     graph: &mut ExpressionGraph,
     expression_ids: &[usize],
-    copy: &CopyArgument,
+    copy: &PermutationArgument,
     roots: &[usize],
     numerator: usize,
     denominator: usize,
@@ -849,11 +853,11 @@ fn check_running_product(
     let closure = graph.mul(last, z_minus_one);
     ensure(
         expression_ids.get(roots[0]) == Some(&recurrence),
-        "copy recurrence differs from the expected one",
+        "permutation recurrence differs from the expected one",
     )?;
     ensure(
         expression_ids.get(roots[1]) == Some(&closure),
-        "copy closure differs from the expected one",
+        "permutation closure differs from the expected one",
     )
 }
 

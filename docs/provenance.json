@@ -94,7 +94,7 @@
   },
   "fixtures": {
     "fixtures/adder/expected.json": {
-      "sha256": "e90f58a45bb77843c5f06b9e93578a5c21b8fcd6e1aa0c7eff6e79c68f7ec9a0"
+      "sha256": "82e08114849d98676a24d552dc4bb9bdde7bde41a0ac53cce78df1ec25a52bf1"
     },
     "fixtures/adder/input.json": {
       "sha256": "5e5c507dcf80530e860babbc56fad73fbdabb074d0c057b5886e55389ad5127f"
@@ -109,10 +109,10 @@
       "sha256": "bfce3239a8033edffd2d2f8932f4fc6f3e3649e6bb1cea274a476077d2c70bbc"
     },
     "fixtures/adder/layout.json": {
-      "sha256": "206333175b61929e14ce031803046f427cb9510b0d39c26b27001aa7a7d512d9"
+      "sha256": "1496a0c2ffee7f0f614f35c798c063900b6d4d4cc94fd8c3f417a62788a75fc4"
     },
     "fixtures/mux/expected.json": {
-      "sha256": "f5b60086e6393bfb8bb1218453b909447c7d3089a937d107a8315ec27c70a163"
+      "sha256": "5a3182e23daa3a12c2e048b72ac41159ae8804c930c5a1fa219b83dea1fc11cf"
     },
     "fixtures/mux/input.json": {
       "sha256": "fa851d090163a212842b128901fa32d274f6eff34f2a7ce4d6ae063104a177a4"
@@ -127,10 +127,10 @@
       "sha256": "5927d8a8f48cd30f360e62a99668157a5a1d586fad6efb3456d4f6c8f74ed587"
     },
     "fixtures/mux/layout.json": {
-      "sha256": "25714d9272feb169ce269ef564d33279a1900c2e07246d3700e2219f9be80712"
+      "sha256": "f7f5ae243f9dd61af3236c55d2c12b8e9f9fa2835759fe5db4feaa7f6b70680e"
     },
     "fixtures/range/expected.json": {
-      "sha256": "9cf3cfed6a2b7586cd052c0f05aab20b9d6670c61db9a2c74393c2fdbe2545ba"
+      "sha256": "1d6b0b8f8b191f11f9f50de2b415dd4ed28d4452a4ad591cbbbd5a8e41aad180"
     },
     "fixtures/range/input.json": {
       "sha256": "9f65a19a644115e197a3838c034c4f42a84ed1d1dd017b59dbde72fa43fd48d2"
@@ -145,10 +145,10 @@
       "sha256": "28653662bd09601a2ba99fbb014322dcfba56d2c3fd6b694a5960fbec8cf4029"
     },
     "fixtures/range/layout.json": {
-      "sha256": "432bc40030a7049e34ea510ed253bafadf9da092fe48c3565f980c7cfe825666"
+      "sha256": "cf6a80947cedd4854f7ff0a1fd367d8dc3372cb63a93ecfcb83432169aef77a0"
     },
     "fixtures/sha256/expected.json": {
-      "sha256": "c30f9115d0b5b62328fbc03acf7d5ec5a648759d3ed92f94c40af8aa4d414112"
+      "sha256": "112bee1fde6cbc57bf9d1e0511f08f59aafeb8e54619e19e545a91b67064ec5f"
     },
     "fixtures/sha256/input.json": {
       "sha256": "07b31128c4ad004eb3552c19c7273dfd8f5f3935c8aaeab39768b5e12f1f770c"
@@ -163,10 +163,10 @@
       "sha256": "b60c6d15a150a5eb62e06a3351fe22812223a1606f61b81460338be25e585d71"
     },
     "fixtures/sha256/layout.json": {
-      "sha256": "acdd9fcbdda8c7720a9c1927734f8a08c74d09cad0c29be32a333a4537e0cdb9"
+      "sha256": "f9cf28a5fa7c8f79f06587155d00de25c0677af6e57c838a4fec3f86f5f4b178"
     },
     "fixtures/xor/expected.json": {
-      "sha256": "2f3d9eab277a4d674ffd39a212a636d46bff15b302bd4bb27a82c77f14bdd227"
+      "sha256": "0eeaf725ea76b91e442a6532064485e363e43c6d3f448b78707ef232635c06e0"
     },
     "fixtures/xor/input.json": {
       "sha256": "613f4cb430084bc42313be0e834a97c04bccf50793a00c809e9391535128f399"
@@ -181,7 +181,7 @@
       "sha256": "d12202beab690023130a4f38ac053b7ea08af578f8c62a12be444d1cfc2d7826"
     },
     "fixtures/xor/layout.json": {
-      "sha256": "80db2af08ed5613d1171144589c7a69de7047dc99fcf3eaacbc97449474b9a01"
+      "sha256": "90355418957955ebb165d2cde69c75fd246d15a48571fa024b75e16507ddfbd2"
     }
   }
 }
