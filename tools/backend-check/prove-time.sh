@@ -9,10 +9,15 @@
 # artifact to another, so layouts are compared by the time without it
 # ("withoutGrinding"), which is the proof time minus the FRI query phase.
 #
-# Usage: tools/backend-check/prove-time.sh WORK_DIR SOURCE.r1cs INPUT.wtns LAYOUT.json [RUNS]
+# STARK_STRUCTS, if given, is a starkstructs.json file passed to the prover's
+# setup, which sets security parameters such as the proof-of-work bits for the
+# AIR named Kernel, for example {"Kernel": {"powBits": 20}}. The setup then
+# derives the number of FRI queries; both are printed.
+#
+# Usage: tools/backend-check/prove-time.sh WORK_DIR SOURCE.r1cs INPUT.wtns LAYOUT.json [RUNS [STARK_STRUCTS]]
 set -eu
-if [ "$#" -lt 4 ] || [ "$#" -gt 5 ]; then
-    echo "usage: $0 WORK_DIR SOURCE.r1cs INPUT.wtns LAYOUT.json [RUNS]" >&2
+if [ "$#" -lt 4 ] || [ "$#" -gt 6 ]; then
+    echo "usage: $0 WORK_DIR SOURCE.r1cs INPUT.wtns LAYOUT.json [RUNS [STARK_STRUCTS]]" >&2
     exit 2
 fi
 unset CARGO_TARGET_DIR
@@ -22,6 +27,7 @@ source=$2
 input=$3
 layout=$4
 runs=${5:-3}
+structs=${6:-}
 release="$work/pil2-proofman/target/release"
 for binary in "$release/proofman-setup" "$release/proofman-cli" "$release/libr1cs_air_witness.so"; do
     if [ ! -e "$binary" ]; then
@@ -34,7 +40,12 @@ air="$root/target/release/air"
 out=$(mktemp -d "$work/prove-time.XXXXXX")
 "$air" compile "$source" "$out/artifact" --layout "$layout" >/dev/null
 "$air" witness "$source" "$out/artifact" "$input" "$out/witness" >/dev/null
-"$release/proofman-setup" setup -a "$out/artifact/kernel.pilout" -b "$out/build" >"$out/setup.log" 2>&1
+if [ -n "$structs" ]; then
+    "$release/proofman-setup" setup -a "$out/artifact/kernel.pilout" -b "$out/build" \
+        -s "$structs" >"$out/setup.log" 2>&1
+else
+    "$release/proofman-setup" setup -a "$out/artifact/kernel.pilout" -b "$out/build" >"$out/setup.log" 2>&1
+fi
 run=1
 while [ "$run" -le "$runs" ]; do
     mkdir "$out/proof$run"
@@ -44,7 +55,7 @@ while [ "$run" -le "$runs" ]; do
     run=$((run + 1))
 done
 python3 -I - "$out" "$runs" <<'EOF'
-import json, re, statistics, sys
+import glob, json, re, statistics, sys
 
 out, runs = sys.argv[1], int(sys.argv[2])
 phases = {
@@ -66,11 +77,15 @@ for run in range(1, runs + 1):
 median = {name: round(statistics.median(values)) for name, values in times.items()}
 median["withoutGrinding"] = median["proof"] - median["friQueries"]
 layout = json.load(open(f"{out}/artifact/certificate.json"))["layout"]
+(info,) = glob.glob(f"{out}/build/provingKey/*/*/airs/*/air/*.starkinfo.json")
+stark = json.load(open(info))["starkStruct"]
 print(json.dumps({
     "rows": layout["rows"],
     "width": layout["width"],
     "slots": len(layout["slots"]),
     "selectors": len(layout["selectors"]),
+    "powBits": stark["powBits"],
+    "queries": stark["nQueries"],
     "milliseconds": median,
     "logs": out,
 }))

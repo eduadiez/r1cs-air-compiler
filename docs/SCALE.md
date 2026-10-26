@@ -122,6 +122,33 @@ The same layouts also give a smaller PILout: `Sha256(8192)` with width 64,
 chunks of 32 and `columns` compiles to an 18 MB PILout at 8192 rows and 35 MB
 at 32768 rows, against 127 MB with `local`.
 
+### Proof-of-work bits
+
+The prover's setup chooses the number of proof-of-work bits (`powBits`, 24 by
+default with its default hash) and then the number of FRI queries that reaches
+its target security level: each bit fewer costs about one more query. The
+search takes `2^powBits` hashes on average, so lowering it saves time
+exponentially, while the extra queries make the proof and its verification
+grow linearly. With the 4096-bit circuit, `columns` at 4096 rows, and
+`tools/backend-check/prove-time.sh` with a `starkstructs.json` such as
+`{"Kernel": {"powBits": 20}}` (median of 5 proofs, milliseconds):
+
+| `powBits` | FRI queries | FRI query phase (with the search) | Whole proof |
+| --- | --- | --- | --- |
+| 24 | 211 | 315 | 435 |
+| 20 | 219 | 17 | 99 |
+| 16 | 228 | 16 | 101 |
+| 12 | 236 | 17 | 120 |
+| 8 | 244 | 24 | 142 |
+
+Below about 20 bits the search no longer matters and only the extra queries
+remain. A larger number of proof-of-work bits pays off when proofs are verified
+inside another proof (recursion or aggregation), where every query makes the
+verifying circuit larger; for proofs verified directly, 16–20 bits reach the
+same target security level in a fraction of the time. With `powBits` 0 this
+version of the prover aborted. The setting belongs to the prover's deployment,
+not to the compiler.
+
 ## Reproducing
 
 ```sh
