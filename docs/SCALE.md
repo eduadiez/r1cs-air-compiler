@@ -17,15 +17,15 @@ memory, so circuits of this size need a packed layout.
 ## Packed layout
 
 With `fixtures/sha256/layout.json` (width 64, chunks of 32, `available` reuse,
-folding, `columns` strategy, 1024 rows) the AIR has 1024 rows, 85 stage-one
-and 43 stage-two columns, 273 fixed columns and 363 constraints.
+folding, `columns` strategy, 1024 rows) the AIR has 1024 rows, 100 stage-one
+and 50 stage-two columns, 288 fixed columns and 361 constraints.
 
 | Output | Size |
 | --- | --- |
-| `kernel.pilout` | 1.5 MB |
+| `kernel.pilout` | 1.6 MB |
 | `certificate.json` | 6.9 MB |
-| `map.bin` | 340 KiB |
-| `trace.bin` | 680 KiB |
+| `map.bin` | 400 KiB |
+| `trace.bin` | 800 KiB |
 
 Most of the certificate is the converted constraints and the cell of each
 wire.

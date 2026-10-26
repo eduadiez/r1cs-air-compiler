@@ -452,69 +452,94 @@ fn bundles<'a>(
         let mut patterns: Vec<_> = patterns.into_iter().collect();
         patterns
             .sort_by_key(|((_, _, shared), pairs)| std::cmp::Reverse(pairs.len() * shared.len()));
-        // Instances and members of each key, kept up to date as pairs join.
+        // Joins of this round: a bundle takes partners one pattern at a time,
+        // and each partner joins at most one bundle. Instances of a key that
+        // take the same patterns end up with the same key again, so the cost
+        // is tracked per group: a key followed by the patterns taken so far.
+        let mut group: Vec<usize> = keys.clone();
         let mut count = vec![0usize; ids.len()];
         let mut members = vec![0usize; ids.len()];
         for (bundle, key) in bundles.iter().zip(&keys) {
             count[*key] += 1;
             members[*key] = bundle.key.len();
         }
-        let mut joined = vec![None; bundles.len()];
-        let mut joins = 0;
-        for ((a_key, b_key, shared), pairs) in &patterns {
+        let mut next_groups = BTreeMap::new();
+        let mut width: Vec<usize> = bundles.iter().map(|bundle| bundle.wires.len()).collect();
+        let mut partners: Vec<Vec<usize>> = vec![vec![]; bundles.len()];
+        let mut absorbed = vec![false; bundles.len()];
+        for (pattern, ((_, b_key, shared), pairs)) in patterns.iter().enumerate() {
             let mut taken = BTreeSet::new();
             let chosen: Vec<_> = pairs
                 .iter()
-                .filter(|(a, b)| {
-                    joined[*a].is_none()
-                        && joined[*b].is_none()
-                        && taken.insert(*a)
-                        && taken.insert(*b)
+                .copied()
+                .filter(|&(a, b)| {
+                    !absorbed[a]
+                        && !absorbed[b]
+                        && partners[b].is_empty()
+                        && width[a] + bundles[b].wires.len() - shared.len() <= max_width
+                        && taken.insert(a)
+                        && taken.insert(b)
                 })
                 .collect();
-            let (a_key, b_key) = (*a_key, *b_key);
-            let mut after = count.clone();
-            after[a_key] -= chosen.len();
-            after[b_key] -= chosen.len();
-            // The cost of the runs of both keys, counted once if they are equal.
-            let cost = |counts: &[usize]| {
-                let b_cost = if a_key == b_key {
-                    0.0
-                } else {
-                    run_cost(counts[b_key], members[b_key], rows)
-                };
-                run_cost(counts[a_key], members[a_key], rows) + b_cost
-            };
-            let saved_columns = (chosen.len() * shared.len()) as f64 / rows as f64;
-            let change = cost(&after)
-                + run_cost(chosen.len(), members[a_key] + members[b_key], rows)
-                - cost(&count)
-                - saved_columns * SLOTS_PER_COLUMN;
-            if chosen.is_empty() || change >= 0.0 {
+            if chosen.is_empty() {
                 continue;
             }
-            count = after;
-            for (a, b) in chosen {
-                joined[*a] = Some(*b);
-                joined[*b] = Some(*a);
-                joins += 1;
+            // Group counts after the joins: each host moves to its group
+            // followed by this pattern, and each partner leaves its key.
+            let mut after: BTreeMap<usize, usize> = BTreeMap::new();
+            let mut moved: BTreeMap<usize, usize> = BTreeMap::new();
+            for &(a, _) in &chosen {
+                *after.entry(group[a]).or_insert(count[group[a]]) -= 1;
+                *moved.entry(group[a]).or_default() += 1;
+                *after.entry(*b_key).or_insert(count[*b_key]) -= 1;
+            }
+            let before: f64 = after
+                .keys()
+                .map(|g| run_cost(count[*g], members[*g], rows))
+                .sum();
+            let remaining: f64 = after
+                .iter()
+                .map(|(g, n)| run_cost(*n, members[*g], rows))
+                .sum();
+            let joined: f64 = moved
+                .iter()
+                .map(|(g, n)| run_cost(*n, members[*g] + members[*b_key], rows))
+                .sum();
+            let saved_columns = (chosen.len() * shared.len()) as f64 / rows as f64;
+            if remaining + joined - before - saved_columns * SLOTS_PER_COLUMN >= 0.0 {
+                continue;
+            }
+            for (g, n) in after {
+                count[g] = n;
+            }
+            for &(a, b) in &chosen {
+                let from = group[a];
+                let to = *next_groups.entry((from, pattern)).or_insert_with(|| {
+                    count.push(0);
+                    members.push(members[from] + members[*b_key]);
+                    count.len() - 1
+                });
+                count[to] += 1;
+                group[a] = to;
+                width[a] += bundles[b].wires.len() - shared.len();
+                partners[a].push(b);
+                absorbed[b] = true;
             }
         }
-        if joins == 0 {
+        if partners.iter().all(Vec::is_empty) {
             break;
         }
         let mut pending: Vec<Option<Bundle>> = bundles.into_iter().map(Some).collect();
         let mut next = vec![];
         for index in 0..pending.len() {
-            let Some(bundle) = pending[index].take() else {
+            if absorbed[index] {
                 continue;
-            };
-            next.push(match joined[index] {
-                Some(partner) => {
-                    bundle.join(pending[partner].take().expect("partner not yet joined"))
-                }
-                None => bundle,
-            });
+            }
+            let mut bundle = pending[index].take().expect("each bundle is taken once");
+            for partner in &partners[index] {
+                bundle = bundle.join(pending[*partner].take().expect("partner joins once"));
+            }
+            next.push(bundle);
         }
         bundles = next;
     }
