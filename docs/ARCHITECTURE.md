@@ -25,7 +25,7 @@ All modules are in `src/`.
 | `compiler`, `dag` | compiler | Reference PILout, with optional expression simplification and reuse (`dag`) |
 | `emit` | compiler | PILout building blocks shared by both compilers: symbols, hints, encoding |
 | `rewrittenCircuit` | compiler | Auxiliary wire wires, and the gate type of each equation |
-| `layout` | compiler | Placement of equations in cells, by strategy |
+| `layout` | compiler | Placement of equations in cells: row groups and stacks |
 | `packed` | compiler | Packed PILout: gate constraints, public bindings and the permutation argument, in that order |
 | `polynomial` | checker | Exact polynomials and the expression evaluator |
 | `pilout_check` | checker | Checks shared by both checkers: decoding, common PILout fields, symbols and hint layout |

@@ -11,7 +11,7 @@ use super::{
 use crate::{
     api, checker, compiler,
     field::{inverse, mul},
-    layout::{LayoutConfig, Strategy as Placement},
+    layout::LayoutConfig,
     packed, packed_check, proto as pb, r1cs,
     rewrite::{Reuse, RewriteOptions},
     sha256_hex, P,
@@ -122,35 +122,18 @@ fn satisfies(circuit: &Circuit, values: &[u64]) -> bool {
 }
 
 fn layout_config() -> impl Strategy<Value = LayoutConfig> {
-    (
-        3usize..=12,
-        any::<bool>(),
-        0usize..3,
-        0usize..4,
-        any::<bool>(),
-    )
-        .prop_flat_map(|(width, fold, reuse, strategy, wide)| {
-            (Just((width, fold, reuse, strategy, wide)), 2..width)
-        })
-        .prop_map(
-            |((width, fold, reuse, strategy, wide), chunk)| LayoutConfig {
-                options: RewriteOptions {
-                    width,
-                    auxiliary_terms: chunk,
-                    reuse_auxiliaries: [Reuse::None, Reuse::Prefix, Reuse::Available][reuse],
-                    fold_constants: fold,
-                },
-                strategy: [
-                    Placement::Mixed,
-                    Placement::Local,
-                    Placement::Components,
-                    Placement::Columns,
-                ][strategy],
-                min_rows: 64,
-                // Only the columns strategy accepts a row group width.
-                row_group_width: (wide && strategy == 3).then_some(2 * width),
+    (3usize..=12, any::<bool>(), 0usize..3, any::<bool>())
+        .prop_flat_map(|(width, fold, reuse, wide)| (Just((width, fold, reuse, wide)), 2..width))
+        .prop_map(|((width, fold, reuse, wide), chunk)| LayoutConfig {
+            options: RewriteOptions {
+                width,
+                auxiliary_terms: chunk,
+                reuse_auxiliaries: [Reuse::None, Reuse::Prefix, Reuse::Available][reuse],
+                fold_constants: fold,
             },
-        )
+            min_rows: 64,
+            row_group_width: wide.then_some(2 * width),
+        })
 }
 
 /// A change that a dishonest prover might make to an honest stage-one trace.

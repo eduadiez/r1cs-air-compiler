@@ -320,7 +320,7 @@ The layout must satisfy:
 - `requiresPermutation` is true exactly when some wire occupies several cells.
 
 Settings that do not affect the relation (`auxiliaryTerms`, `reuseAuxiliaries`,
-`foldConstants`, the placement strategy and `rowGroupWidth`) are not recorded.
+`foldConstants` and `rowGroupWidth`) are not recorded.
 
 ## Correctness argument
 

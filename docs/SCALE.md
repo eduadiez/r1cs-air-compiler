@@ -18,8 +18,8 @@ and one AIR constraint per equation: here 29 324 columns and more than
 `src/contract.rs`) bound the checker's memory, so a circuit of this size needs
 a packed layout.
 
-**Packed layout.** `fixtures/sha256/layout.json` (width 64, chunks of 32,
-`available` reuse, folding, `columns` strategy, 1024 rows) gives an AIR with:
+**Packed layout.** `fixtures/sha256/layout.json` (width 64, `auxiliaryTerms` 32,
+`available` reuse, folding, 1024 rows) gives an AIR with:
 
 - 1024 rows;
 - 105 stage-one columns, 65 of them in the permutation argument;
@@ -28,7 +28,7 @@ a packed layout.
 | Output | Size |
 | --- | --- |
 | `kernel.pilout` | 1.3 MB |
-| `certificate.json` | 6.9 MB (mostly the converted constraints and each wire's cell) |
+| `certificate.json` | 6.9 MB (mostly the rewritten equations and each wire's cell) |
 | `map.bin` | 420 KiB |
 | `trace.bin` | 840 KiB |
 
@@ -42,54 +42,48 @@ a packed layout.
 | `air witness` | 0.8 s | 100 MB |
 
 `plan` and `compile` (which plans first) spend most of their time joining
-equations into row groups for the `columns` strategy.
+equations into row groups.
 
 With pil2-proofman at commit `eda04742b64abe0e5322a8231f0155438ffb62fe`
 ([backend check](../tools/backend-check/README.md)), each whole command took
 about 0.5 s for the setup, 0.9 s to verify every constraint on the witness and
 1.0 s to generate and verify a STARK proof (measured with a slightly earlier
-`columns` layout of the fixture). Most of that is starting the prover and
+layout of the fixture). Most of that is starting the prover and
 loading the proving key.
 
 ## Larger circuits
 
 `Sha256(n)` hashes `n` bits in `⌊(n + 64) / 512⌋ + 1` blocks. Each row below
-was compiled with the `local` strategy (not the fixture's `columns`), chunks of
-half the width and `minRows` 64. Every compiled artifact passed the packed
-checker.
+was compiled with the fixture's settings (width 64, `auxiliaryTerms` 32,
+`available` reuse, folding) and the given `minRows`. Every compiled artifact
+passed the packed checker.
 
-| Message bits | Constraints | Width | Rows | PILout | Peak memory of `air compile` |
-| --- | --- | --- | --- | --- | --- |
-| 1024 | 89 609 | 64 | 4096 | 11 MB | 0.4 GB |
-| 1024 | 89 609 | 256 | 1024 | 8.1 MB | 0.5 GB |
-| 2048 | 150 265 | 64 | 8192 | 25 MB | 0.7 GB |
-| 2048 | 150 265 | 256 | 2048 | 17 MB | 0.8 GB |
-| 4096 | 271 577 | 64 | 16384 | 60 MB | 1.3 GB |
-| 4096 | 271 577 | 256 | 4096 | 37 MB | 1.3 GB |
-| 8192 | 514 201 | 64 | 32768 | 127 MB | 2.4 GB |
-| 8192 | 514 201 | 128 | — | rejected: `PILout exceeds the size limit` | 2.3 GB |
-| 8192 | 514 201 | 256 | 8192 | 84 MB | 2.5 GB |
-| 8192 | 514 201 | 512 | — | rejected: `evaluated expressions exceed the term limit` | 1.6 GB |
+| Message bits | Constraints | Rows | Width | PILout | Time of `air compile` | Peak memory |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1024 | 89 609 | 1024 | 238 | 2.7 MB | 2.2 s | 0.4 GB |
+| 1024 | 89 609 | 4096 | 75 | 5.1 MB | 2.3 s | 0.4 GB |
+| 2048 | 150 265 | 1024 | 368 | 4.0 MB | 4.4 s | 0.7 GB |
+| 2048 | 150 265 | 4096 | 126 | 5.9 MB | 3.7 s | 0.7 GB |
+| 4096 | 271 577 | 2048 | 327 | 6.9 MB | 7.1 s | 1.3 GB |
+| 4096 | 271 577 | 8192 | 122 | 11 MB | 6.9 s | 1.3 GB |
+| 8192 | 514 201 | 4096 | 295 | 13 MB | 14 s | 2.4 GB |
+| 8192 | 514 201 | 8192 | 174 | 16 MB | 14 s | 2.4 GB |
+| 8192 | 514 201 | 32768 | 64 | 35 MB | 15 s | 2.4 GB |
 
-Around half a million constraints the first limit reached is
-`MAX_PILOUT_BYTES` (128 MB). Most of the PILout is fixed columns, so its size
-grows with rows × fixed columns. The limit is checked on the finished PILout,
-so a rejected compilation costs almost as much as a successful one.
-
-The `columns` strategy gives much smaller PILout files: `Sha256(8192)` with
-width 64 and chunks of 32 compiled to 16 MB at 8192 rows and 35 MB at 32768
-rows, against 127 MB with `local`.
+Time and memory grow with the number of constraints. The PILout stays far
+below `MAX_PILOUT_BYTES` (128 MB): most of it is fixed columns, so it grows
+with the row count. Fewer rows give a wider trace: at 1024 rows the
+8192-bit circuit needs 1037 columns, more than 1024, and is rejected.
 
 To reproduce a row:
 
 1. Write a Circom file with `component main = Sha256(n);` that includes
    `vendor/circomlib/sha256/sha256.circom`.
 2. Compile it with the flags in `docs/provenance.json` (`fixtureToolchain`).
-3. Run `air compile` with this layout, setting `width` and `auxiliaryTerms` (half the
-   width):
+3. Run `air compile` with this layout, setting `minRows`:
 
 ```json
-{"options":{"width":64,"auxiliaryTerms":32,"reuseAuxiliaries":"available","foldConstants":true},"strategy":"local","minRows":64}
+{"options":{"width":64,"auxiliaryTerms":32,"reuseAuxiliaries":"available","foldConstants":true},"minRows":4096}
 ```
 
 ## Prover time
@@ -109,21 +103,20 @@ The circuits are built like the SHA-256 ones above:
 - 16 Poseidon Merkle paths of depth 24 with `MultiMux1` (93 312 constraints);
 - 64 `Multiplexer(8, 64)` (36 864 constraints).
 
-`local` is the fastest `local` layout among widths 32, 64 and 96; `columns` is
-the layout that `tools/backend-check/choose-layout.sh` picked, given as
-(`minRows`, `rowGroupWidth`):
+Each layout is the one `tools/backend-check/choose-layout.sh` picked, with
+`options.width` 64 and `auxiliaryTerms` 32:
 
-| Circuit | `local` | `columns` (`minRows`, `rowGroupWidth`) | Change |
+| Circuit | `minRows` | `rowGroupWidth` | Proof time |
 | --- | --- | --- | --- |
-| SHA-256, 256 bits (fixture) | 24 | 19 (512, 64) | −21% |
-| SHA-256, 1024 bits | 85 | 35 (1024, 128) | −59% |
-| SHA-256, 4096 bits | 254 | 70 (2048, 128) | −72% |
-| Poseidon chain | 98 | 22 (512, 128) | −78% |
-| MiMC7 chain | 113 | 13 (1024, 64) | −88% |
-| `LessThan(32)` batch | 19 | 10 (512, 64) | −47% |
-| Pedersen hashes | 39 | 10 (128, 64) | −74% |
-| Poseidon Merkle paths | 85 | 17 (512, 128) | −80% |
-| Multiplexers | 31 | 19 (1024, 64) | −39% |
+| SHA-256, 256 bits (fixture) | 512 | 64 | 19 |
+| SHA-256, 1024 bits | 1024 | 128 | 35 |
+| SHA-256, 4096 bits | 2048 | 128 | 70 |
+| Poseidon chain | 512 | 128 | 22 |
+| MiMC7 chain | 1024 | 64 | 13 |
+| `LessThan(32)` batch | 512 | 64 | 10 |
+| Pedersen hashes | 128 | 64 | 10 |
+| Poseidon Merkle paths | 512 | 128 | 17 |
+| Multiplexers | 1024 | 64 | 19 |
 
 Notes on the table:
 
@@ -131,9 +124,8 @@ Notes on the table:
   columns hold no copies and stay out of the permutation argument. In the SHA-256
   circuits about half the cells are copies, because each bit of the state is
   used in several rounds.
-- Each `LessThan(32)` comparison fits in one row, so neither strategy needs a
-  permutation argument there; `columns` is still faster because it needs fewer gates
-  and rows.
+- Each `LessThan(32)` comparison fits in one row group, so that layout needs
+  no permutation argument.
 - At these sizes the proof-of-work search takes longer than the rest of the
   proof.
 
@@ -148,14 +140,10 @@ costs about as much as 8 fixed columns or 46 constraint operations.
   fixed column of labels. When the compiler decides which row groups to join, it
   counts one trace column as 22 gate constraints (`GATES_PER_COLUMN` in
   `src/layout.rs`).
-- The row-filling strategies (`mixed`, `local`, `components`) keep each wire
-  in few cells, but leave thousands of gates (an equation gate type placed on
-  specific columns, see `SPEC.md`) and selector columns, which are expensive
-  to evaluate.
-- `columns` joins equations that share wires into row groups that repeat with the
-  same structure and places the row groups of each kind in stacks that share their
-  gates. Gates and selectors stay near the number of row group kinds, at the cost
-  of a wider trace.
+- Every gate (a gate type placed on specific columns, see `SPEC.md`) adds a
+  constraint, and every distinct set of active rows a selector column. Stacking
+  equal row groups keeps both near the number of row group kinds, at the cost
+  of a wider trace than one that keeps each wire in few cells.
 
 The best `minRows` and `rowGroupWidth` depend on the circuit: in the table above
 `minRows` ranges from 128 to 2048. Wider row groups share more cells but leave
@@ -173,9 +161,9 @@ search takes `2^powBits` hashes on average, so fewer bits save time
 exponentially, while the extra queries make the proof and its verification
 grow only linearly.
 
-Measured on the 4096-bit circuit with `columns` at 4096 rows (an earlier
-version of the strategy, before columns without copies were left out of the permutation argument; the effect of `powBits`
-does not depend on the layout), using
+Measured on the 4096-bit circuit at 4096 rows (with an earlier version of the
+layout, in which every column was in the permutation argument; the effect of
+`powBits` does not depend on the layout), using
 `prove-time.sh` with a `starkstructs.json` such as `{"Kernel": {"powBits": 20}}`
 (median of 5 proofs, milliseconds):
 

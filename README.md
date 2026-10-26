@@ -57,20 +57,17 @@ every argument, output file, layout setting and report field.
 
 ## Choosing a layout
 
-A packed layout is set by a JSON file. For proving speed, start from the
-`columns` strategy, as `fixtures/sha256/layout.json` does:
+A packed layout is set by a JSON file, such as `fixtures/sha256/layout.json`:
 
 ```json
-{"options":{"width":64,"auxiliaryTerms":32,"reuseAuxiliaries":"available","foldConstants":true},"strategy":"columns","minRows":1024}
+{"options":{"width":64,"auxiliaryTerms":32,"reuseAuxiliaries":"available","foldConstants":true},"minRows":1024}
 ```
 
-`columns` groups equations that share wires into row groups and stacks equal
-row groups in the same columns, so they share their constraints. On nine
-circomlib circuits it took 21–88% less proving time than the best row-filling
-layout ([measurements](docs/SCALE.md#prover-time)). With `columns` the trace
-has exactly `minRows` rows, so a smaller `minRows` gives a wider trace. The best
-`minRows`, and the best optional `rowGroupWidth` (the most wires in one row group),
-depend on the circuit.
+The compiler groups equations that share wires into row groups and stacks equal
+row groups in the same columns, so they share their constraints. The trace has
+exactly `minRows` rows, so a smaller `minRows` gives a wider trace. The best
+`minRows`, and the best optional `rowGroupWidth` (the most wires in one row
+group), depend on the circuit ([measurements](docs/SCALE.md#prover-time)).
 
 With pil2-proofman built by the [backend check](tools/backend-check/README.md),
 two scripts help choose:
@@ -94,7 +91,7 @@ and WTNS files, a layout file and the SHA-256 hashes of every expected output
 | Fixture | Circuit |
 | --- | --- |
 | `xor` | `305419896 XOR 4275878552 = 3974687968` on 32-bit words |
-| `range` | `lo <= x <= hi` for 32-bit values with public bounds; its packed layout needs no permutation argument |
+| `range` | `lo <= x <= hi` for 32-bit values with public bounds |
 | `mux` | Selects a row of a public table |
 | `adder` | Adds three 32-bit words and compares the sum with a public value |
 | `sha256` | circomlib's SHA-256 of a 256-bit message (29 380 constraints), with the hash bits as public outputs; packed outputs only, as it is too large for the reference layout |
@@ -138,9 +135,9 @@ Every compile function runs the checker before it returns. See
   simplified by identities that hold for every field value (such as `x · 1 = x`)
   and repeated subexpressions reused.
 - **Packed layout** (`--layout FILE`): long linear combinations are split with
-  auxiliary wires (new wires defined as a sum of other wires), and equations of
-  the same gate type share constraints. Strategies `mixed`, `local` and
-  `components` fill rows; `columns` stacks row groups in columns.
+  auxiliary wires (new wires defined as a sum of other wires), equations that
+  share wires are joined into row groups, and equal row groups are stacked in
+  the same columns so that they share constraints.
 - **Permutation argument:** when a packed layout puts a wire in more than one cell, a
   permutation argument forces those cells to be equal. It covers only the
   columns that hold such cells, and is left out when every wire has one cell.
@@ -172,7 +169,7 @@ Limits:
   correctness argument.
 - [Testing](docs/TESTING.md): the test suite, mutation testing and the optional
   check against a real prover.
-- [Scale](docs/SCALE.md): sizes, run times and prover times of the strategies.
+- [Scale](docs/SCALE.md): sizes, run times and prover times.
 - [Changelog](CHANGELOG.md): changes and the versioning policy.
 - [Provenance](docs/provenance.json): hashes of the schema, the vendored
   circomlib files and the fixtures.

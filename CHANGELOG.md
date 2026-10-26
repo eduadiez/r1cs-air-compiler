@@ -22,10 +22,10 @@ First version.
   and JSON reports. A failure report's `kind` is `usage`, `io`, `invalid` or
   `limit`. `certificate.json` and `plan.json` are compact JSON followed by a
   newline.
-- Layout strategies `mixed`, `local`, `components` and `columns`. `columns`
-  joins equations that share wires into row groups and stacks equal row groups in
-  the same columns, which gives far fewer gate constraints and selectors; the
-  optional `rowGroupWidth` setting bounds the size of its row groups.
+- Packed layouts join equations that share wires into row groups and stack
+  equal row groups in the same columns, which gives few gate constraints and
+  selectors; the optional `rowGroupWidth` setting bounds the size of the row
+  groups.
 - Every constraint has degree at most 3, so a prover with a blowup factor of 2
   needs no intermediate columns of its own. Each permutation ratio takes at most two
   denominator factors, and two numerator factors besides the previous ratio
@@ -40,5 +40,5 @@ First version.
 - `Error::kind` tells an invalid input (`ErrorKind::Invalid`) from one that
   exceeds a size limit (`ErrorKind::Limit`).
 - The types that only the library builds (artifacts, reports, `Witness`) and
-  the setting enums (`Strategy`, `Reuse`) are `#[non_exhaustive]`, so later
+  the setting enum `Reuse` is `#[non_exhaustive]`, so later
   versions can add fields and variants.

@@ -50,22 +50,21 @@ The JSON files are compact JSON followed by a newline.
 `--layout` takes a JSON file such as `fixtures/xor/layout.json`:
 
 ```json
-{"options":{"width":8,"auxiliaryTerms":4,"reuseAuxiliaries":"prefix","foldConstants":true},"strategy":"local","minRows":64}
+{"options":{"width":8,"auxiliaryTerms":4,"reuseAuxiliaries":"prefix","foldConstants":true},"minRows":64,"rowGroupWidth":16}
 ```
 
 | Field | Values | Meaning |
 | --- | --- | --- |
-| `options.width` | 3 to 1024 | The most distinct wires one equation may use; with the row strategies, also the columns per row |
+| `options.width` | 3 to 1024 | The most distinct wires one equation may use |
 | `options.auxiliaryTerms` | 2 to `width - 1` | Terms replaced by each new auxiliary wire |
 | `options.reuseAuxiliaries` | `none`, `prefix`, `available` | When an existing auxiliary wire may stand in for terms of a later equation (see below) |
 | `options.foldConstants` | `true`, `false` | If `A` or `B` in `A · B = C` is a constant `k`, rewrite the equation as the linear `0 = C - k · (other factor)` first |
-| `strategy` | `mixed`, `local`, `components`, `columns` | How equations are placed (see below) |
-| `minRows` | power of two, 64 to 65536 | With `columns`, the row count; otherwise the least row count |
-| `rowGroupWidth` | `options.width` to 1024 | Optional, `columns` only: the most wires in one row group. Defaults to `options.width` |
+| `minRows` | power of two, 64 to 65536 | The row count of the trace |
+| `rowGroupWidth` | `options.width` to 1024 | Optional: the most wires in one row group (see below). Defaults to `options.width` |
 
 An auxiliary wire is a new wire constrained to equal a linear combination of other
 wires; auxiliary wires keep each equation within `options.width` wires. Unknown fields
-are rejected, and so is `rowGroupWidth` with a strategy other than `columns`.
+are rejected.
 
 `reuseAuxiliaries`:
 
@@ -75,30 +74,25 @@ are rejected, and so is `rowGroupWidth` with a strategy other than `columns`.
 - `available`: like `prefix`, and also search every side of the equation for
   the longest existing auxiliary wire that appears there.
 
-`strategy`:
+Placement:
 
-- `mixed`: put each equation in the fullest row that still has room.
-- `local`: prefer a row that already holds some of the equation's wires.
-- `components`: first place each group of wire-connected equations that fits
-  in one row together, then continue as `local`.
-- `columns`: join equations that share wires into row groups (at most
-  `rowGroupWidth` wires each), then stack the row groups of each kind one per row
-  in the same columns, so they share one constraint per gate. The trace has
-  exactly `minRows` rows and as many columns as needed, at most 1024; if more
-  are needed the command fails with kind `limit`, and a larger `minRows` may
-  help. The columns are packed in two ways and the cheaper trace is kept (a
-  column in the permutation argument counts 2.6 times); one way keeps cells that may
-  need copies in their own columns, so the other columns stay out of the permutation
-  argument.
+- Equations that share wires are joined into row groups of at most
+  `rowGroupWidth` wires, when that lowers the estimated proving cost.
+- The row groups of each kind (the same equations in the same positions) are
+  stacked one per row in the same columns, so they share one constraint per
+  gate.
+- The trace has exactly `minRows` rows and as many columns as the stacks need,
+  at most 1024. If more are needed the command fails with kind `limit`; a
+  larger `minRows` gives a narrower trace.
+- The columns are packed in two ways and the cheaper trace is kept (a column
+  in the permutation argument counts 2.6 times). One way keeps cells that may
+  need copies in their own columns, so the other columns stay out of the
+  permutation argument.
 
-With the row strategies (`mixed`, `local`, `components`), the trace has
-`options.width` columns and the used rows rounded up to a power of two, but at
-least `minRows`. Any layout may have at most 65536 rows and 4 000 000 cells.
-
-`columns` gives wires more cells than the row strategies, but far fewer gate
-constraints and selector columns, which usually makes proving faster.
-[Scale](SCALE.md#prover-time) compares the strategies, and
-`tools/backend-check/choose-layout.sh` estimates the best layout for a circuit.
+A layout may have at most 65536 rows and 4 000 000 cells. The best `minRows`
+and `rowGroupWidth` depend on the circuit;
+`tools/backend-check/choose-layout.sh` estimates them, and
+[Scale](SCALE.md#prover-time) gives measured examples.
 
 ## Reports
 

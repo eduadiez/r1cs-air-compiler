@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     contract::{label, REFERENCE_RELATION},
-    layout::{LayoutConfig, Strategy},
+    layout::LayoutConfig,
     packed, packed_check, proto as pb, r1cs,
     rewrite::{Reuse, RewriteOptions},
     sha256_hex, witness, PackedArtifact, P,
@@ -14,9 +14,16 @@ use crate::{
 use prost::Message;
 
 /// Wires 0..5: wire 1 is a public output, wire 2 a public input, wires 3 and 4
-/// private. Equations: w1 · w2 = w3 and w1 · w3 = w4.
+/// private. Equations: w1 · w2 = w3 and w1 · w3 = 2·w4, of different gate types
+/// so that width 4 joins them into one row and needs no permutation argument.
 fn source() -> Vec<u8> {
-    r1cs_bytes([5, 1, 1, 2], &[[1, 2, 3], [1, 3, 4]])
+    r1cs_with_terms(
+        [5, 1, 1, 2],
+        &[
+            [vec![(1, 1)], vec![(2, 1)], vec![(3, 1)]],
+            [vec![(1, 1)], vec![(3, 1)], vec![(4, 2)]],
+        ],
+    )
 }
 
 pub fn config(width: usize) -> LayoutConfig {
@@ -27,7 +34,6 @@ pub fn config(width: usize) -> LayoutConfig {
             reuse_auxiliaries: Reuse::Available,
             fold_constants: true,
         },
-        strategy: Strategy::Components,
         row_group_width: None,
         min_rows: 64,
     }
@@ -110,7 +116,7 @@ fn rejects_ratio(expected: &str, change: impl FnOnce(&mut pb::PilOut)) {
 }
 
 #[test]
-fn layouts_with_and_without_copy_argument_are_accepted() {
+fn layouts_with_and_without_permutation_argument_are_accepted() {
     for width in [3, 4] {
         let a = artifact(width);
         assert_eq!(a.certificate.layout.requires_permutation, width == 3);
@@ -166,25 +172,24 @@ fn unused_public_wire_gets_its_own_row() {
 }
 
 #[test]
-fn columns_layouts_give_each_run_of_a_shape_one_slot() {
+fn each_segment_of_a_stack_gets_one_gate() {
     // 100 equations of one gate type form one stack: at 64 rows it takes two
     // segments side by side, each with its own gate; at 128 rows, one segment.
     let source = connected_source(100);
-    for (min_rows, runs) in [(64, 2), (128, 1)] {
+    for (min_rows, segments) in [(64, 2), (128, 1)] {
         let mut settings = config(3);
-        settings.strategy = Strategy::Columns;
         settings.min_rows = min_rows;
         let a = packed::compile(&source, &settings).unwrap();
         let layout = &a.certificate.layout;
         assert_eq!(layout.rows, min_rows);
-        assert_eq!(layout.width, 3 * runs);
-        assert_eq!(layout.gates.len(), runs);
+        assert_eq!(layout.width, 3 * segments);
+        assert_eq!(layout.gates.len(), segments);
         packed_check::check(&source, &a.pilout, &a.certificate).unwrap();
     }
 }
 
 #[test]
-fn columns_layouts_put_equations_that_share_wires_in_one_row() {
+fn equations_that_share_wires_share_a_row() {
     // 128 pairs `a · b = c` and `2c · d = e`: joined, each pair needs 5 cells
     // instead of 6, in two segments of 64 rows with two gates each.
     let pairs = 128;
@@ -198,8 +203,7 @@ fn columns_layouts_put_equations_that_share_wires_in_one_row() {
         })
         .collect();
     let source = r1cs_with_terms([5 * pairs + 1, 0, 0, 5 * pairs], &equations);
-    let mut settings = config(8);
-    settings.strategy = Strategy::Columns;
+    let settings = config(8);
     let a = packed::compile(&source, &settings).unwrap();
     let layout = &a.certificate.layout;
     assert_eq!((layout.rows, layout.width, layout.gates.len()), (64, 10, 4));
@@ -209,7 +213,6 @@ fn columns_layouts_put_equations_that_share_wires_in_one_row() {
 #[test]
 fn row_group_width_is_checked() {
     let mut settings = config(8);
-    settings.strategy = Strategy::Columns;
     for row_group_width in [8, 16, 1024] {
         settings.row_group_width = Some(row_group_width);
         let a = packed::compile(&source(), &settings).unwrap();
@@ -225,13 +228,12 @@ fn row_group_width_is_checked() {
 }
 
 #[test]
-fn columns_layouts_wider_than_the_limit_are_rejected() {
+fn layouts_wider_than_the_limit_are_rejected() {
     // 64 · 1025 single-wire equations of one gate type need 1025 columns at 64 rows.
     let n = 64 * 1025;
     let equations: Vec<_> = (1..=n).map(|wire| [wire, wire, wire]).collect();
     let source = r1cs_bytes([n + 1, 0, 0, n], &equations);
-    let mut settings = config(3);
-    settings.strategy = Strategy::Columns;
+    let settings = config(3);
     assert_limit(
         packed::compile(&source, &settings),
         "the gate types need 1025 columns in 64 rows, more than 1024; raise minRows",
@@ -239,7 +241,7 @@ fn columns_layouts_wider_than_the_limit_are_rejected() {
 }
 
 #[test]
-fn only_copy_columns_have_permuted_labels() {
+fn only_permutation_columns_have_permuted_labels() {
     let mut some_left_out = false;
     for (source, width) in [(source(), 3), (ring_source(40), 4), (ring_source(40), 9)] {
         let a = packed::compile(&source, &config(width)).unwrap();
@@ -265,7 +267,7 @@ fn only_copy_columns_have_permuted_labels() {
 }
 
 #[test]
-fn copy_arguments_without_ratio_columns_are_checked() {
+fn permutation_arguments_without_ratio_columns_are_checked() {
     // Two equations share wire 1, which takes cells in one column only.
     let source = connected_source(2);
     let a = packed::compile(&source, &config(3)).unwrap();
@@ -295,17 +297,10 @@ fn copy_arguments_without_ratio_columns_are_checked() {
 #[test]
 fn row_counts_and_row_group_widths_are_limited() {
     let mut settings = config(3);
-    settings.strategy = Strategy::Columns;
     settings.min_rows = 1 << 63;
     assert_limit(
         packed::compile(&source(), &settings),
         "minRows exceeds 65536",
-    );
-    let mut settings = config(3);
-    settings.row_group_width = Some(6);
-    assert_rejected(
-        packed::compile(&source(), &settings),
-        "rowGroupWidth applies only to the columns strategy",
     );
 }
 
@@ -382,7 +377,7 @@ fn changed_constraints_are_rejected() {
 }
 
 #[test]
-fn changed_challenge_in_the_copy_argument_is_rejected() {
+fn changed_challenge_in_the_permutation_argument_is_rejected() {
     // Turn the last α operand into γ, or the last γ into α; every operand
     // stays valid.
     for (from, to) in [(0, 1), (1, 0)] {
@@ -610,7 +605,8 @@ fn operands_are_checked_against_the_layout() {
         a.certificate.pilout_sha256 = sha256_hex(&bytes);
         assert!(packed_check::check(&source(), &bytes, &a.certificate).is_ok());
     };
-    // Width 3 has a permutation argument: ID, S0..S2 and FIRST (index 4), then selectors.
+    // Width 3 has a permutation argument over columns 0 and 1: ID, S0, S1 and
+    // FIRST (index 3), then selectors. Stage two holds only the running product.
     let fixed_count = pb::PilOut::decode(artifact(3).pilout.as_slice())
         .unwrap()
         .air_groups[0]
@@ -619,9 +615,7 @@ fn operands_are_checked_against_the_layout() {
         .len() as u32;
     accepts(3, witness_column(1, 2, 0));
     accepts(3, witness_column(2, 0, -1));
-    // Width 3 has one ratio column, stage-two column 1.
-    accepts(3, witness_column(2, 1, 0));
-    accepts(3, fixed_operand(4, 1));
+    accepts(3, fixed_operand(3, 1));
     accepts(3, fixed_operand(fixed_count - 1, 0));
     accepts(3, Operand::PublicValue(o::PublicValue { idx: 1 }));
     accepts(3, challenge_operand(2, 1));
@@ -630,13 +624,13 @@ fn operands_are_checked_against_the_layout() {
     let cases = [
         (witness_column(1, 3, 0), witness),
         (witness_column(1, 0, -1), witness),
-        (witness_column(2, 2, 0), witness),
+        (witness_column(2, 1, 0), witness),
         (witness_column(2, 1, -1), witness),
         (witness_column(2, 0, 1), witness),
         (witness_column(3, 0, 0), witness),
         (fixed_operand(fixed_count, 0), fixed),
-        (fixed_operand(3, 1), fixed),
-        (fixed_operand(4, -1), fixed),
+        (fixed_operand(2, 1), fixed),
+        (fixed_operand(3, -1), fixed),
         (
             Operand::PublicValue(o::PublicValue { idx: 2 }),
             "public value out of range",
@@ -718,9 +712,9 @@ fn certificate_fields_are_checked() {
 #[test]
 fn witnesses_are_checked_and_projected() {
     let a = artifact(3);
-    let values = [1, 3, 5, 15, 45];
+    let values = [1, 2, 5, 10, 10];
     let projected = witness::project(&source(), &a.certificate, &wtns_bytes(&values)).unwrap();
-    assert_eq!(projected.publics, [3, 5]);
+    assert_eq!(projected.publics, [2, 5]);
     assert_eq!(projected.trace.len(), a.map.len());
     for (wire, value) in a.map.iter().zip(projected.trace) {
         let expected = if *wire == 0 {
@@ -731,11 +725,11 @@ fn witnesses_are_checked_and_projected() {
         assert_eq!(value, expected);
     }
     assert_rejected(
-        witness::project(&source(), &a.certificate, &wtns_bytes(&[1, 3, 5, 15, 46])),
+        witness::project(&source(), &a.certificate, &wtns_bytes(&[1, 2, 5, 10, 11])),
         "witness does not satisfy equation 1",
     );
     assert_rejected(
-        witness::project(&source(), &a.certificate, &wtns_bytes(&[1, 3, P, 15, 45])),
+        witness::project(&source(), &a.certificate, &wtns_bytes(&[1, 2, P, 10, 10])),
         "WTNS value of wire 2 not below P",
     );
 }

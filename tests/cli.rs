@@ -329,7 +329,7 @@ fn reports_have_the_documented_fields() {
     for key in [
         "rows",
         "width",
-        "auxiliary wires",
+        "auxiliaries",
         "requiresPermutation",
         "checkedEquations",
     ] {
@@ -361,7 +361,7 @@ fn errors_name_the_failing_input() {
     assert!(!cli.path("out").exists());
     fs::write(
         cli.path("bad-layout.json"),
-        r#"{"options":{"width":2,"auxiliaryTerms":4,"reuseAuxiliaries":"prefix","foldConstants":true},"strategy":"local","minRows":64}"#,
+        r#"{"options":{"width":2,"auxiliaryTerms":4,"reuseAuxiliaries":"prefix","foldConstants":true},"minRows":64}"#,
     )
     .unwrap();
     cli.fails(

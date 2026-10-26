@@ -49,7 +49,7 @@ fn main() -> Result<()> {
 | `LayoutPlan` | Methods `rows`, `width`, `auxiliary_count`, `requires_permutation`, `checked_equations`, `map` |
 | `ReferenceCheckReport`, `PackedCheckReport` | The fields of the CLI's `check` report, in snake case |
 | `Witness` | `trace` (stage one, row by row) and `publics`, as `Vec<u64>` |
-| `LayoutConfig`, `RewriteOptions`, `Strategy`, `Reuse` | The packed layout settings |
+| `LayoutConfig`, `RewriteOptions`, `Reuse` | The packed layout settings |
 | `Error`, `ErrorKind`, `Result<T>` | See [Errors](#errors) |
 
 The certificates serialize to the certificate JSON of
@@ -58,7 +58,7 @@ and `PACKED_RELATION` are the values of a certificate's `relation` field, and
 `GOLDILOCKS_PRIME` is the field modulus.
 
 Every public type except `Error` implements `Debug`, `Clone` and `PartialEq`.
-`Strategy`, `Reuse`, `ErrorKind`, the artifacts, the check reports and
+`Reuse`, `ErrorKind`, the artifacts, the check reports and
 `Witness` are `#[non_exhaustive]`: later versions may add variants and fields,
 so a `match` on these enums needs a wildcard arm. `LayoutConfig` and
 `RewriteOptions` have public fields and are built by the caller.

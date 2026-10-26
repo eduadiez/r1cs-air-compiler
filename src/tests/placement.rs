@@ -3,7 +3,7 @@ use super::{assert_limit, assert_rejected, packed::config, r1cs_bytes};
 use crate::{
     certificate::{Auxiliary, Gate, GateType, Layout, Placement, RewrittenCircuit, Selector},
     field::{add, mul, FieldElement},
-    layout::{self, LayoutConfig, Strategy},
+    layout::{self, LayoutConfig},
     packed, placement_check, r1cs, rewrite, P,
 };
 
@@ -238,7 +238,7 @@ fn gate_types_must_give_back_the_placed_equation() {
 }
 
 #[test]
-fn selectors_and_slots_are_checked() {
+fn selectors_and_gates_are_checked() {
     rejects("selector 0: id out of order", |_, l| l.selectors[0].id = 9);
     rejects("selector 0: no active rows", |_, l| {
         l.selectors[0].rows.clear()
@@ -279,7 +279,7 @@ fn selectors_and_slots_are_checked() {
 }
 
 #[test]
-fn every_active_slot_row_needs_a_placement() {
+fn every_active_gate_row_needs_a_placement() {
     rejects(
         "placements must match the active gate rows exactly",
         |_, l| {
@@ -336,8 +336,13 @@ fn placements_are_checked() {
         &format!("equation {first}: its gate type and wires give a different equation"),
         |_, l| {
             let gate_type = l.placements[0].gate_type;
-            let k = l.gate_types[gate_type].terms[2][0].1 .0;
-            l.gate_types[gate_type].terms[2][0].1 = FieldElement(if k == 1 { 2 } else { 1 });
+            let side = l.gate_types[gate_type]
+                .terms
+                .iter_mut()
+                .find(|side| !side.is_empty())
+                .expect("a gate type with terms");
+            let k = side[0].1 .0;
+            side[0].1 = FieldElement(if k == 1 { 2 } else { 1 });
         },
     );
     rejects(
@@ -380,7 +385,7 @@ fn public_bindings_are_checked() {
     rejects(order, |_, l| l.public_bindings[0].public = 1);
     rejects(order, |_, l| l.public_bindings[0].wire = 2);
     rejects("cell (64, ", |_, l| l.public_bindings[0].row = 64);
-    rejects(", 8) out of range", |_, l| {
+    rejects(", 16) out of range", |_, l| {
         l.public_bindings[0].col = l.width
     });
 }
@@ -484,7 +489,7 @@ fn only_nonconstant_source_and_auxiliary_wires_occupy_cells() {
 
 /// Source `w1 · w2 = w3` with one auxiliary wire, wire 4 defined by `terms`, and factor
 /// A rewritten as `a`.
-fn auxiliary_network(
+fn auxiliary_circuit(
     terms: Vec<(u32, FieldElement)>,
     a: Vec<(u32, FieldElement)>,
 ) -> (r1cs::Circuit, RewrittenCircuit, Layout) {
@@ -496,8 +501,7 @@ fn auxiliary_network(
         auxiliaries: vec![Auxiliary { id: 4, terms }],
         equations: vec![[a, vec![(2, FieldElement(1))], vec![(3, FieldElement(1))]]],
     };
-    let mut settings = config(3);
-    settings.strategy = Strategy::Mixed;
+    let settings = config(3);
     let plan = layout::pack(&net, &settings).unwrap();
     (circuit, net, plan)
 }
@@ -505,7 +509,7 @@ fn auxiliary_network(
 #[test]
 fn auxiliaries_must_be_normalized_even_when_the_relation_holds() {
     let check = |terms, a| {
-        let (circuit, net, plan) = auxiliary_network(terms, a);
+        let (circuit, net, plan) = auxiliary_circuit(terms, a);
         placement_check::check(&circuit, &net, &plan)
     };
     let inverse_of_two = P.div_ceil(2); // (P + 1) / 2

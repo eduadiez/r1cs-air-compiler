@@ -50,7 +50,7 @@ pub use checker::ReferenceCheckReport;
 pub use contract::{PACKED_RELATION, REFERENCE_RELATION};
 pub use error::{Error, ErrorKind, Result};
 pub use field::GOLDILOCKS_PRIME;
-pub use layout::{LayoutConfig, Strategy};
+pub use layout::LayoutConfig;
 pub use packed_check::PackedCheckReport;
 pub use rewrite::{Reuse, RewriteOptions};
 pub use witness::Witness;

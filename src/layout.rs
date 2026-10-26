@@ -1,7 +1,6 @@
-//! Places equations into the cells of the trace. The row strategies fill rows
-//! of `width` cells, breaking ties by the order in which rows last changed;
-//! the columns strategy joins equations into row groups and packs the row groups of
-//! each kind, as stacks, into columns. Placement is deterministic.
+//! Places equations into the cells of the trace: equations that share wires are
+//! joined into row groups, and the row groups of each kind are packed, as
+//! stacks, into columns. Placement is deterministic.
 use crate::{
     certificate::{Binding, Gate, GateType, Layout, Placement, RewrittenCircuit, Selector},
     contract::{MAX_CELLS, MAX_ROWS, MAX_WIDTH, MIN_ROWS, MIN_WIDTH},
@@ -10,134 +9,31 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// How equations are assigned to rows. Only the circuit's structure is used.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[non_exhaustive]
-pub enum Strategy {
-    /// Put each equation in the fullest row that still has room for it.
-    Mixed,
-    /// Prefer a row that already holds some of the equation's wires.
-    Local,
-    /// First place each group of wire-connected equations that fits in one row
-    /// together, then continue as `Local`.
-    Components,
-    /// Join equations that share wires into row groups, then place the row groups of
-    /// each kind as a stack, one row group per row in the same columns, so that a
-    /// stack needs few gates and selectors. The trace has exactly `minRows` rows
-    /// and as many columns as the stacks need, at most `MAX_WIDTH`;
-    /// `options.width` only bounds each equation, and `rowGroupWidth` each
-    /// row group. Wires get more cells than with the row strategies.
-    Columns,
-}
 /// Settings for building a packed layout.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LayoutConfig {
     /// How source equations are rewritten with auxiliary wires.
     pub options: rewrite::RewriteOptions,
-    /// How equations are assigned to rows.
-    pub strategy: Strategy,
-    /// Minimum row count; a power of two, at least 64.
+    /// Row count of the trace; a power of two, at least 64.
     pub min_rows: usize,
-    /// Most wires of a row group of equations with `Strategy::Columns`, from
-    /// `options.width` (the default) to `MAX_WIDTH`. Wider row groups let more
-    /// equations share cells but may leave more of the trace empty; which is
-    /// faster to prove depends on the circuit.
+    /// Most wires of a row group of equations, from `options.width` (the
+    /// default) to `MAX_WIDTH`. Wider row groups let more equations share cells
+    /// but may leave more of the trace empty; which is faster to prove depends
+    /// on the circuit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row_group_width: Option<usize>,
 }
-struct Row {
-    /// Wire in each column; 0 marks a free cell.
-    cells: Vec<u32>,
-    /// Column of each wire in this row.
-    by_wire: BTreeMap<u32, usize>,
-    free: usize,
-    /// Value of the placer's clock when the row last changed.
-    stamp: u64,
-}
-struct Placer {
-    width: usize,
-    rows: Vec<Row>,
-    /// `buckets[f]` holds `(stamp, row)` for every row with `f` free cells, so
-    /// its first entry is the row that changed least recently.
-    buckets: Vec<BTreeSet<(u64, usize)>>,
-    /// Counter incremented on every row change.
-    clock: u64,
-    /// Rows holding each wire, in placement order.
-    locations: Vec<Vec<usize>>,
-    /// First `(row, column)` of each wire.
-    first: Vec<Option<(usize, usize)>>,
-}
-impl Placer {
-    fn new(width: usize, wires: u32) -> Self {
-        Self {
-            width,
-            rows: vec![],
-            buckets: vec![BTreeSet::new(); width + 1],
-            clock: 0,
-            locations: vec![vec![]; wires as usize],
-            first: vec![None; wires as usize],
-        }
-    }
-    /// Append an empty row.
-    fn fresh(&mut self) -> usize {
-        let row = self.rows.len();
-        self.clock += 1;
-        self.rows.push(Row {
-            cells: vec![0; self.width],
-            by_wire: BTreeMap::new(),
-            free: self.width,
-            stamp: self.clock,
-        });
-        self.buckets[self.width].insert((self.clock, row));
-        row
-    }
-    /// The row with the fewest free cells that still has `n` free, or a new row.
-    fn best_fit(&mut self, n: usize) -> usize {
-        for free in n..=self.width {
-            if let Some((_, row)) = self.buckets[free].first() {
-                return *row;
-            }
-        }
-        self.fresh()
-    }
-    /// Put `wires` in `row`, reusing a wire's cell if the row already holds it
-    /// and otherwise taking the leftmost free cells. Returns each wire's column.
-    fn assign(&mut self, row: usize, wires: &[u32]) -> Vec<usize> {
-        let state = &mut self.rows[row];
-        self.buckets[state.free].remove(&(state.stamp, row));
-        let mut cursor = 0;
-        let mut columns = vec![];
-        for wire in wires {
-            if let Some(column) = state.by_wire.get(wire) {
-                columns.push(*column);
-                continue;
-            }
-            while state.cells[cursor] != 0 {
-                cursor += 1;
-            }
-            state.cells[cursor] = *wire;
-            state.by_wire.insert(*wire, cursor);
-            state.free -= 1;
-            columns.push(cursor);
-            self.locations[*wire as usize].push(row);
-            self.first[*wire as usize].get_or_insert((row, cursor));
-            cursor += 1;
-        }
-        self.clock += 1;
-        state.stamp = self.clock;
-        self.buckets[state.free].insert((state.stamp, row));
-        columns
-    }
-}
 /// Place every equation of `rewritten` and bind the public values.
 ///
-/// Equations are grouped by canonical gate type. `Strategy::Columns` places them
-/// in stacks of row groups (see [`place_in_stacks`]); the other strategies fill rows
-/// of `options.width` cells (see [`place_in_rows`]).
+/// Equations that share wires are joined into row groups, and the row groups
+/// of each kind are placed as a stack, one row group per row in the same
+/// columns, so that a stack needs few gates and selectors (see
+/// [`place_in_stacks`]). The trace has exactly `minRows` rows and as many
+/// columns as the stacks need, at most `MAX_WIDTH`; `options.width` only bounds
+/// each equation, and `rowGroupWidth` each row group.
 pub fn pack(rewritten: &RewrittenCircuit, config: &LayoutConfig) -> Result<Layout> {
-    let (width, strategy, min_rows) = (config.options.width, config.strategy, config.min_rows);
+    let (width, min_rows) = (config.options.width, config.min_rows);
     ensure(
         min_rows >= MIN_ROWS && min_rows.is_power_of_two(),
         format_args!("minRows must be a power of two, at least {MIN_ROWS}"),
@@ -146,21 +42,13 @@ pub fn pack(rewritten: &RewrittenCircuit, config: &LayoutConfig) -> Result<Layou
         min_rows <= MAX_ROWS,
         format_args!("minRows exceeds {MAX_ROWS}"),
     )?;
-    ensure(
-        strategy == Strategy::Columns || config.row_group_width.is_none(),
-        "rowGroupWidth applies only to the columns strategy",
-    )?;
     let (gate_types, entries) = gate_entries(rewritten, width)?;
-    let placed = if strategy == Strategy::Columns {
-        let row_group_width = config.row_group_width.unwrap_or(width);
-        ensure(
-            (width..=MAX_WIDTH).contains(&row_group_width),
-            format_args!("rowGroupWidth must be in options.width..={MAX_WIDTH}"),
-        )?;
-        place_in_stacks(&entries, rewritten, min_rows, row_group_width)?
-    } else {
-        place_in_rows(&entries, rewritten, width, strategy)
-    };
+    let row_group_width = config.row_group_width.unwrap_or(width);
+    ensure(
+        (width..=MAX_WIDTH).contains(&row_group_width),
+        format_args!("rowGroupWidth must be in options.width..={MAX_WIDTH}"),
+    )?;
+    let placed = place_in_stacks(&entries, rewritten, min_rows, row_group_width)?;
     let arithmetic_rows = placed
         .placements
         .iter()
@@ -191,67 +79,14 @@ pub fn pack(rewritten: &RewrittenCircuit, config: &LayoutConfig) -> Result<Layou
 /// Equations and public values placed in a trace of `width` columns.
 struct Placed {
     width: usize,
-    /// Columns in the permutation argument (SPEC.md, "Permutation argument"). Only the
-    /// columns strategy counts them, to compare its packings; the row
-    /// strategies set it to `width`.
+    /// Columns in the permutation argument (SPEC.md, "Permutation argument"),
+    /// counted to compare the two packings.
     permutation_columns: usize,
     placements: Vec<Placement>,
     public_bindings: Vec<Binding>,
     /// Rows up to the last one holding an equation or a public cell, at least 1.
     used_rows: usize,
     requires_permutation: bool,
-}
-
-/// Fill rows of `width` cells. With `Strategy::Components`, each connected
-/// group of wires that fits in one row is placed first, together with all its
-/// equations. Remaining equations with several wires go widest first: `Local`
-/// and `Components` prefer a row already holding their wires, `Mixed` takes
-/// the fullest row with room. Single-wire equations join the row where their
-/// wire first appears; public wires that appear in no equation get a cell of
-/// their own.
-fn place_in_rows(
-    entries: &[Entry],
-    rewritten: &RewrittenCircuit,
-    width: usize,
-    strategy: Strategy,
-) -> Placed {
-    let mut placer = Placer::new(width, rewritten.wires);
-    let mut placements = vec![];
-    let mut handled = BTreeSet::new();
-    if strategy == Strategy::Components {
-        place_components(
-            &mut placer,
-            entries,
-            rewritten.wires,
-            &mut placements,
-            &mut handled,
-        );
-    }
-    place_multi_wire(&mut placer, entries, &handled, strategy, &mut placements);
-    for entry in entries
-        .iter()
-        .filter(|entry| !handled.contains(&entry.index) && entry.wires.len() == 1)
-    {
-        let row = placer.first[entry.wires[0] as usize]
-            .map_or_else(|| placer.best_fit(1), |(row, _)| row);
-        placements.push(entry.place(&mut placer, row));
-    }
-    // Constant equations occupy no cells; they need only some row to exist.
-    for entry in entries.iter().filter(|entry| entry.wires.is_empty()) {
-        if placer.rows.is_empty() {
-            placer.fresh();
-        }
-        placements.push(entry.at(0, vec![]));
-    }
-    let public_bindings = bind_publics(&mut placer, rewritten.publics);
-    Placed {
-        width,
-        permutation_columns: width,
-        placements,
-        public_bindings,
-        used_rows: placer.rows.len().max(1),
-        requires_permutation: placer.locations.iter().any(|r| r.len() > 1),
-    }
 }
 
 /// A free rectangle of the trace: `width` columns from `column` and `height`
@@ -577,7 +412,7 @@ const GATES_PER_COLUMN: f64 = 22.0;
 const GATES_PER_SELECTOR: f64 = 0.5;
 
 /// Relative cost of a column outside and inside the permutation argument, used to
-/// choose between the two packings of the columns strategy. A permutation column
+/// choose between the two packings. A permutation column
 /// also brings about 1.5 committed stage-two columns and a fixed column of
 /// labels, so it costs about 2.6 times a column without copies.
 const COLUMN_COST: usize = 5;
@@ -587,9 +422,9 @@ const PERMUTATION_COLUMN_COST: usize = 13;
 /// each: one gate per member for every segment of at most `rows` row groups, plus
 /// `GATES_PER_SELECTOR` when the last segment is shorter than `rows`.
 fn stack_cost(count: usize, members: usize, rows: usize) -> f64 {
-    let runs = count.div_ceil(rows);
+    let segments = count.div_ceil(rows);
     let partial = usize::from(count % rows != 0);
-    (runs * members) as f64 + partial as f64 * GATES_PER_SELECTOR
+    (segments * members) as f64 + partial as f64 * GATES_PER_SELECTOR
 }
 
 /// The positions of the wires two row groups share, as pairs of positions in the
@@ -866,25 +701,25 @@ fn place_in_stacks(
             .or_default()
             .push(row_group);
     }
-    let mut runs: Vec<_> = by_key.into_values().collect();
-    runs.sort_by_key(|run| {
+    let mut stacks: Vec<_> = by_key.into_values().collect();
+    stacks.sort_by_key(|stack| {
         (
-            std::cmp::Reverse(run[0].wires.len()),
-            std::cmp::Reverse(run.len()),
-            run[0].members[0].index,
+            std::cmp::Reverse(stack[0].wires.len()),
+            std::cmp::Reverse(stack.len()),
+            stack[0].members[0].index,
         )
     });
     // Pack with both methods and keep the cheaper trace that fits.
-    let rectangles = arrange(entries, rewritten, &runs, Guillotine::new(rows));
-    let levels = arrange(entries, rewritten, &runs, Skyline::new(rows));
-    let narrowest = rectangles.width.min(levels.width);
+    let guillotine = arrange(entries, rewritten, &stacks, Guillotine::new(rows));
+    let skyline = arrange(entries, rewritten, &stacks, Skyline::new(rows));
+    let narrowest = guillotine.width.min(skyline.width);
     ensure_within_limit(
         narrowest <= MAX_WIDTH,
         format_args!(
             "the gate types need {narrowest} columns in {rows} rows, more than {MAX_WIDTH}; raise minRows"
         ),
     )?;
-    let placed = [rectangles, levels]
+    let placed = [guillotine, skyline]
         .into_iter()
         .filter(|placed| placed.width <= MAX_WIDTH)
         .min_by_key(|placed| {
@@ -898,13 +733,13 @@ fn place_in_stacks(
     })
 }
 
-/// Place `runs` with `packing`, then the public wires that appear in no
+/// Place `stacks` with `packing`, then the public wires that appear in no
 /// equation, one cell each; each public value binds to the first cell its
 /// wire was given. The width is the packing's, possibly beyond `MAX_WIDTH`.
 fn arrange(
     entries: &[Entry],
     rewritten: &RewrittenCircuit,
-    runs: &[Vec<RowGroup>],
+    stacks: &[Vec<RowGroup>],
     mut packing: impl Packing,
 ) -> Placed {
     let mut occupied = Occupied {
@@ -913,22 +748,27 @@ fn arrange(
     };
     // Cells per wire: one in each row group that holds it.
     let mut cells_per_wire = vec![0usize; rewritten.wires as usize];
-    for wire in runs.iter().flatten().flat_map(|row_group| &row_group.wires) {
+    for wire in stacks
+        .iter()
+        .flatten()
+        .flat_map(|row_group| &row_group.wires)
+    {
         cells_per_wire[*wire as usize] += 1;
     }
     let mut placements = vec![];
     let mut cells = vec![];
-    for run in runs {
+    for stack in stacks {
         // A position may have copies if, in some row group of the stack, its wire
         // is in more than one row group.
-        let copies: Vec<bool> = (0..run[0].wires.len())
+        let copies: Vec<bool> = (0..stack[0].wires.len())
             .map(|p| {
-                run.iter()
+                stack
+                    .iter()
                     .any(|row_group| cells_per_wire[row_group.wires[p] as usize] > 1)
             })
             .collect();
-        let mut row_groups = run.iter();
-        for segment in packing.take(&copies, run.len()) {
+        let mut row_groups = stack.iter();
+        for segment in packing.take(&copies, stack.len()) {
             for (row, row_group) in
                 (segment.top..segment.top + segment.count).zip(row_groups.by_ref())
             {
@@ -987,18 +827,13 @@ fn arrange(
     }
 }
 
-/// An equation not placed yet: its index, gate type group and wires.
+/// An equation not placed yet: its index, gate type and wires.
 struct Entry {
     index: usize,
     gate_type: usize,
     wires: Vec<u32>,
 }
 impl Entry {
-    /// Put the entry's wires in `row` and return the placement.
-    fn place(&self, placer: &mut Placer, row: usize) -> Placement {
-        let columns = placer.assign(row, &self.wires);
-        self.at(row, columns)
-    }
     /// The placement of this entry at `row` and `columns`.
     fn at(&self, row: usize, columns: Vec<usize>) -> Placement {
         Placement {
@@ -1035,143 +870,6 @@ fn gate_entries(rewritten: &RewrittenCircuit, width: usize) -> Result<(Vec<GateT
         });
     }
     Ok((gate_types, entries))
-}
-
-/// Representative of `w`'s set in the union-find forest `parent`, with path halving.
-fn root(parent: &mut [u32], mut w: u32) -> u32 {
-    while parent[w as usize] != w {
-        parent[w as usize] = parent[parent[w as usize] as usize];
-        w = parent[w as usize];
-    }
-    w
-}
-
-/// Place each group of wire-connected equations whose wires fit in one row,
-/// largest first, and add those equations to `handled`.
-fn place_components(
-    placer: &mut Placer,
-    entries: &[Entry],
-    wires: u32,
-    placements: &mut Vec<Placement>,
-    handled: &mut BTreeSet<usize>,
-) {
-    let mut parent: Vec<_> = (0..wires).collect();
-    let seen: BTreeSet<_> = entries
-        .iter()
-        .flat_map(|entry| entry.wires.iter().copied())
-        .collect();
-    for entry in entries {
-        for wire in entry.wires.iter().skip(1) {
-            let left = root(&mut parent, *wire);
-            let right = root(&mut parent, entry.wires[0]);
-            parent[left as usize] = right;
-        }
-    }
-    let mut components: BTreeMap<u32, (Vec<u32>, Vec<usize>)> = BTreeMap::new();
-    for wire in seen {
-        let representative = root(&mut parent, wire);
-        components.entry(representative).or_default().0.push(wire);
-    }
-    for entry in entries {
-        if let Some(wire) = entry.wires.first() {
-            let representative = root(&mut parent, *wire);
-            components
-                .get_mut(&representative)
-                .expect("component")
-                .1
-                .push(entry.index);
-        }
-    }
-    let mut components: Vec<_> = components.into_values().collect();
-    components.sort_by_key(|(wire, _)| (std::cmp::Reverse(wire.len()), wire[0]));
-    for (wires, indices) in components {
-        if wires.len() > placer.width {
-            continue;
-        }
-        let row = placer.best_fit(wires.len());
-        placer.assign(row, &wires);
-        for index in indices {
-            placements.push(entries[index].place(placer, row));
-            handled.insert(index);
-        }
-    }
-}
-
-/// Place the remaining multi-wire equations, widest first.
-fn place_multi_wire(
-    placer: &mut Placer,
-    entries: &[Entry],
-    handled: &BTreeSet<usize>,
-    strategy: Strategy,
-    placements: &mut Vec<Placement>,
-) {
-    let mut rest: Vec<_> = entries
-        .iter()
-        .filter(|entry| !handled.contains(&entry.index) && entry.wires.len() > 1)
-        .collect();
-    rest.sort_by_key(|entry| {
-        (
-            std::cmp::Reverse(entry.wires.len()),
-            entry.gate_type,
-            entry.index,
-        )
-    });
-    for entry in rest {
-        let chosen = if strategy == Strategy::Mixed {
-            None
-        } else {
-            local_row(placer, &entry.wires)
-        };
-        let row = chosen.unwrap_or_else(|| placer.best_fit(entry.wires.len()));
-        placements.push(entry.place(placer, row));
-    }
-}
-
-/// Number of rows `local_row` considers.
-const LOCAL_CANDIDATES: usize = 32;
-
-/// Among the first `LOCAL_CANDIDATES` rows found that hold some of `wires`,
-/// the one with room that shares the most wires; ties go to the row left with
-/// the fewest free cells.
-fn local_row(placer: &Placer, wires: &[u32]) -> Option<usize> {
-    let mut seen = BTreeSet::new();
-    wires
-        .iter()
-        .flat_map(|wire| &placer.locations[*wire as usize])
-        .filter(|row| seen.insert(**row))
-        .take(LOCAL_CANDIDATES)
-        .filter_map(|&row| {
-            let state = &placer.rows[row];
-            let shared = wires
-                .iter()
-                .filter(|wire| state.by_wire.contains_key(wire))
-                .count();
-            let missing = wires.len() - shared;
-            (missing <= state.free).then(|| (std::cmp::Reverse(shared), state.free - missing, row))
-        })
-        .min_by_key(|(shared, left_free, _)| (*shared, *left_free))
-        .map(|(_, _, row)| row)
-}
-
-/// Bind each public value to the first cell of its wire, first giving a cell
-/// to public wires that have none.
-fn bind_publics(placer: &mut Placer, publics: u32) -> Vec<Binding> {
-    let mut bindings = vec![];
-    for public in 0..publics {
-        let wire = public + 1;
-        if placer.first[wire as usize].is_none() {
-            let row = placer.best_fit(1);
-            placer.assign(row, &[wire]);
-        }
-        let (row, col) = placer.first[wire as usize].expect("public assigned");
-        bindings.push(Binding {
-            wire,
-            public,
-            row,
-            col,
-        });
-    }
-    bindings
 }
 
 /// One gate per distinct `(gate type, columns)` pair, active on the rows that use

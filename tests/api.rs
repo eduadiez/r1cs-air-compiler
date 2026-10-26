@@ -1,5 +1,5 @@
 //! Tests of the public library API.
-use r1cs_air_compiler::{self as air, LayoutConfig, Reuse, RewriteOptions, Strategy};
+use r1cs_air_compiler::{self as air, LayoutConfig, Reuse, RewriteOptions};
 use std::error::Error as _;
 
 const SOURCE: &[u8] = include_bytes!("../fixtures/xor/kernel.r1cs");
@@ -13,7 +13,6 @@ fn config() -> LayoutConfig {
             reuse_auxiliaries: Reuse::Prefix,
             fold_constants: true,
         },
-        strategy: Strategy::Local,
         min_rows: 64,
         row_group_width: None,
     }

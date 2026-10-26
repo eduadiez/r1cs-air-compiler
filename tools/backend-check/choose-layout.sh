@@ -5,11 +5,9 @@
 # (constraint operations, committed and fixed columns, extended rows) into an
 # estimate. Prints one JSON line per candidate, best first.
 #
-# Candidates, all with chunks of half the width:
-# - local at widths 32, 64 and 96, minRows 64;
-# - columns at width WIDTH, with rowGroupWidth WIDTH and 2 * WIDTH, at minRows
-#   64, 128, ... 65536; each sweep stops when the estimate has risen twice in
-#   a row or a candidate no longer fits.
+# Candidates, all with width WIDTH and auxiliaryTerms half of it: rowGroupWidth
+# WIDTH and 2 * WIDTH, at minRows 64, 128, ... 65536; each sweep stops when the
+# estimate has risen twice in a row or a candidate no longer fits.
 # Needs a WORK_DIR in which run.sh has already built pil2-proofman.
 #
 # The estimate ranks layouts; it is not a measured time. Time the best few
@@ -83,10 +81,6 @@ options() {
     echo "{\"width\":$1,\"auxiliaryTerms\":$(($1 / 2)),\"reuseAuxiliaries\":\"available\",\"foldConstants\":true}"
 }
 
-for row_width in 32 64 96; do
-    candidate "local-$row_width" \
-        "{\"options\":$(options "$row_width"),\"strategy\":\"local\",\"minRows\":64}" || true
-done >"$out/local.jsonl"
 # Larger minRows give narrower traces. Too few rows make the trace wider than
 # the limit; past the first minRows that fits, stop once the estimate has
 # risen twice in a row or a candidate no longer fits. Each row group width
@@ -97,7 +91,7 @@ for row_group in "$width" $((2 * width)); do
     previous=""
     while [ "$rows" -le 65536 ] && [ "$rises" -lt 2 ]; do
         if line=$(candidate "columns-$row_group-$rows" \
-            "{\"options\":$(options "$width"),\"strategy\":\"columns\",\"minRows\":$rows,\"rowGroupWidth\":$row_group}"); then
+            "{\"options\":$(options "$width"),\"minRows\":$rows,\"rowGroupWidth\":$row_group}"); then
             echo "$line"
             estimate=$(printf '%s' "$line" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["estimateMs"])')
             if [ -n "$previous" ] && [ "$estimate" -gt "$previous" ]; then
@@ -112,10 +106,10 @@ for row_group in "$width" $((2 * width)); do
         rows=$((rows * 2))
     done
 done >"$out/columns.jsonl"
-cat "$out/local.jsonl" "$out/columns.jsonl" | python3 -I -c '
+python3 -I -c '
 import json, sys
 candidates = sorted((json.loads(line) for line in sys.stdin), key=lambda c: c["estimateMs"])
 for c in candidates:
     print(json.dumps(c))
-'
+' <"$out/columns.jsonl"
 echo "work files in $out" >&2

@@ -69,14 +69,11 @@ shows the effect.
 
 ## `choose-layout.sh`
 
-`choose-layout.sh WORK_DIR SOURCE [WIDTH]` compiles these candidates, all with
-`available` reuse, folding and chunks of half the width:
-
-- `local` at widths 32, 64 and 96, `minRows` 64;
-- `columns` at width `WIDTH` (default 64), with `rowGroupWidth` `WIDTH` and
-  `2 × WIDTH`, at `minRows` 64, 128, … up to 65536. Each sweep skips sizes
-  that do not fit and stops when the estimate has risen twice in a row or a
-  candidate no longer fits.
+`choose-layout.sh WORK_DIR SOURCE [WIDTH]` compiles candidate layouts with
+`options.width` `WIDTH` (default 64), `auxiliaryTerms` half of it, `available`
+reuse and folding: `rowGroupWidth` `WIDTH` and `2 × WIDTH`, each at `minRows`
+64, 128, … up to 65536. Each sweep skips sizes that do not fit and stops when
+the estimate has risen twice in a row or a candidate no longer fits.
 
 It runs only the prover's setup on each candidate and estimates the proof time
 (without the proof-of-work search) from the counts the setup reports:
