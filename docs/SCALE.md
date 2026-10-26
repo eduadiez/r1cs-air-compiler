@@ -129,10 +129,12 @@ circuit by running the prover's setup on each candidate, without proving.
 
 ### Other circuits
 
-The same comparison on three more circomlib circuits, built like the SHA-256
+The same comparison on six more circomlib circuits, built like the SHA-256
 ones: a chain of 400 `Poseidon(2)` hashes (96 000 constraints), a chain of 300
-`MiMC7(91)` (109 200 constraints) and 2 500 `LessThan(32)` comparisons
-(82 500 constraints). For each circuit, the table compares the fastest
+`MiMC7(91)` (109 200 constraints), 2 500 `LessThan(32)` comparisons
+(82 500 constraints), 40 `Pedersen(250)` hashes (17 680 constraints), 16
+Poseidon Merkle paths of depth 24 with `MultiMux1` (93 312 constraints) and
+64 `Multiplexer(8, 64)` (36 864 constraints). For each circuit, the table compares the fastest
 `local` layout among widths 32, 64 and 96 with the `columns` layout that
 `choose-layout.sh` picked (median of 7 proofs, milliseconds, without the
 proof-of-work search):
@@ -145,6 +147,9 @@ proof-of-work search):
 | Poseidon chain | 98 | 23 (512, 128) | −77% |
 | MiMC7 chain | 113 | 13 (1024, 64) | −88% |
 | `LessThan(32)` batch | 19 | 10 (512, 64) | −47% |
+| Pedersen hashes | 39 | 10 (128, 64) | −74% |
+| Poseidon Merkle paths | 85 | 20 (512, 128) | −76% |
+| Multiplexers | 31 | 19 (1024, 64) | −39% |
 
 In the Poseidon and MiMC7 chains most wires end up inside one bundle, so most
 columns hold no copies and stay out of the copy argument; in the SHA-256
