@@ -5,7 +5,7 @@ independent checkers. Focus on clarity and maintainability; do not add
 optimizations unless the owner asks for them.
 
 The checkers must not use the compiler's modules (a test enforces this).
-Preserve the source relations, public order, the copy argument and the
+Preserve the source relations, public order, the permutation argument and the
 supported hints; changes to these contracts need explicit tests and an update
 to SPEC.md.
 
