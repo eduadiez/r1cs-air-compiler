@@ -1,7 +1,7 @@
 //! Places equations into the cells of the trace. The row strategies fill rows
 //! of `width` cells, breaking ties by the order in which rows last changed;
-//! the columns strategy joins equations into bundles and packs runs of equal
-//! bundles into columns. Placement is deterministic.
+//! the columns strategy joins equations into bundles and packs the bundles of
+//! each kind, as runs, into columns. Placement is deterministic.
 use crate::{
     certificate::{Binding, Group, Layout, Network, Placement, Selector, Slot},
     contract::{MAX_CELLS, MAX_ROWS, MAX_WIDTH, MIN_ROWS, MIN_WIDTH},
@@ -22,13 +22,12 @@ pub enum Strategy {
     /// First place each group of wire-connected equations that fits in one row
     /// together, then continue as `Local`.
     Components,
-    /// Join equations that share wires into bundles, then put the bundles of
-    /// each kind in runs, one bundle per row, in the same columns, so that the
-    /// equations share few slots and selectors. The trace has exactly
-    /// `minRows` rows and as many columns as the runs need, at most
-    /// `MAX_WIDTH`; `options.width` only bounds each equation, and
-    /// `bundleWidth` each bundle. Wires get more cells than with the row
-    /// strategies.
+    /// Join equations that share wires into bundles, then place the bundles of
+    /// each kind as a run, one bundle per row in the same columns, so that a
+    /// run needs few slots and selectors. The trace has exactly `minRows` rows
+    /// and as many columns as the runs need, at most `MAX_WIDTH`;
+    /// `options.width` only bounds each equation, and `bundleWidth` each
+    /// bundle. Wires get more cells than with the row strategies.
     Columns,
 }
 /// Settings for building a packed layout.
@@ -198,7 +197,7 @@ struct Placed {
     copy_columns: usize,
     placements: Vec<Placement>,
     public_bindings: Vec<Binding>,
-    /// Rows holding an equation or a public cell, at least 1.
+    /// Rows up to the last one holding an equation or a public cell, at least 1.
     used_rows: usize,
     requires_copy: bool,
 }
@@ -306,14 +305,13 @@ impl Packing for Rectangles {
     fn used_rows(&self) -> usize {
         self.used_rows
     }
-    /// Take `count` rows of `width` columns, in pieces. They go in the
-    /// narrowest free rectangle at least `width` wide, preferring one with
-    /// room for all of them, then the one earliest in the list of free
-    /// rectangles (whose order changes as rectangles are used and added); a
-    /// rectangle too short takes what
-    /// fits and the rest goes elsewhere. Using a rectangle leaves the columns
-    /// to the right of the piece and the rows below it free. Without a fitting
-    /// rectangle, a new band is added.
+    /// Take `count` rows of `copies.len()` columns, in pieces; which positions
+    /// may have copies is ignored. Each piece goes in the narrowest free
+    /// rectangle that is wide enough, preferring one tall enough for all the
+    /// remaining rows, then the earliest in the free list; a rectangle too
+    /// short takes what fits and the rest goes elsewhere. The columns to the
+    /// right of the piece and the rows below it stay free. Without a wide
+    /// enough rectangle, a new band is added on the right.
     fn take(&mut self, copies: &[bool], mut count: usize) -> Vec<Piece> {
         let width = copies.len();
         let mut pieces = vec![];
@@ -434,13 +432,14 @@ impl Packing for Levels {
         self.used_rows
     }
     /// Take `count` rows of one column per entry of `copies`, in pieces, with
-    /// copy positions and the others in separate columns. A piece starts at
-    /// the highest level among its columns, and the rows above it in its other
-    /// columns stay empty. For each possible start (the level of an open
-    /// column, or 0), each kind takes its fullest columns at or below it; the
-    /// start chosen has room for all the rows if any, then leaves the fewest
-    /// cells empty above the piece, counting `rows / NEW_COLUMN_PENALTY` more for each new
-    /// column so that existing columns are filled first, then is the highest.
+    /// copy positions and the others in separate columns. A piece starts at a
+    /// row `top` that is at or past the level of each of its columns; the
+    /// cells between a column's level and `top` stay empty. Each candidate
+    /// `top` (the level of an open column, or 0) gives each kind its fullest
+    /// columns with a level up to `top`. The chosen `top` has room for all the
+    /// remaining rows if any has, then leaves the fewest cells empty (counting
+    /// `rows / NEW_COLUMN_PENALTY` more for each new column), then is the
+    /// largest.
     fn take(&mut self, copies: &[bool], mut count: usize) -> Vec<Piece> {
         let wanted = |kind: bool| copies.iter().filter(|c| **c == kind).count();
         let (with_copies, without) = (wanted(true), wanted(false));
@@ -579,9 +578,9 @@ const SLOTS_PER_SELECTOR: f64 = 0.5;
 const COLUMN_COST: usize = 5;
 const COPY_COLUMN_COST: usize = 13;
 
-/// Weighted cost of `count` bundles of a key with `members` equations: one
-/// slot per member and run of at most `rows` bundles, and a selector for a
-/// run that does not fill its band.
+/// Cost, in slots, of `count` bundles of one key with `members` equations
+/// each: one slot per member for every piece of at most `rows` bundles, plus
+/// `SLOTS_PER_SELECTOR` when the last piece is shorter than `rows`.
 fn run_cost(count: usize, members: usize, rows: usize) -> f64 {
     let runs = count.div_ceil(rows);
     let partial = usize::from(count % rows != 0);
@@ -716,17 +715,19 @@ struct Joins {
     absorbed: Vec<bool>,
 }
 
-/// Choose the joins of one round. A bundle takes partners one pattern at a
-/// time, and each partner joins at most one bundle. Within a pattern, pairs
-/// are taken greedily in order; a pair whose second bundle cannot be taken
-/// still keeps its first bundle out of the rest of that pattern. The cost of a pattern is
-/// estimated per group of bundles: a key followed by the patterns taken so
-/// far, assuming the bundles of a group end up with the same key (they usually
-/// do; when a later partner also shares wires with an earlier one, the keys
-/// differ and the estimate is off, but the joined width is still within
-/// `max_width`). A pattern's joins are made only if they lower the weighted
-/// cost of the runs of the groups involved (see [`run_cost`]) by more than the
-/// columns the shared cells save.
+/// Choose the joins of one round. Patterns are visited in order, and within
+/// a pattern pairs `(a, b)` are taken greedily: neither bundle may be absorbed
+/// already, `b` may have no partners, the joined width must fit in
+/// `max_width`, and each bundle is used at most once per pattern (if `b` was
+/// used, `a` still counts as used). So a bundle takes at most one partner per
+/// pattern, and each partner joins one bundle.
+///
+/// Costs are tracked per group: a key followed by the patterns taken so far.
+/// This assumes the bundles of a group end up with the same key; they usually
+/// do, and when they do not (a later partner shares wires with an earlier
+/// one) only the estimate is off, not the width. A pattern's joins are made
+/// only if the change in [`run_cost`] of the groups involved is less than the
+/// cells saved, in columns, times `SLOTS_PER_COLUMN`.
 fn choose_joins(
     bundles: &[Bundle],
     keys: &[usize],
@@ -832,10 +833,11 @@ fn apply_joins<'a>(bundles: Vec<Bundle<'a>>, joins: &Joins) -> Vec<Bundle<'a>> {
 
 /// Place the equations in bundles (see [`bundles`]), one bundle per row in
 /// as many columns as the bundle has wires. The bundles of one key form a
-/// run, placed top down in one or more pieces of the trace; each member of a
-/// piece shares one slot. Runs go widest first, then longest first, and are
-/// packed both as [`Rectangles`] and as [`Levels`], keeping the cheaper one
-/// that fits in `MAX_WIDTH` columns (see `COLUMN_COST`).
+/// run, placed top down in one or more pieces of the trace; in each piece,
+/// the `i`-th members of all bundles share one slot. Runs go widest first,
+/// then longest first, and are packed both as [`Rectangles`] and as
+/// [`Levels`], keeping the cheaper one that fits in `MAX_WIDTH` columns (see
+/// `COLUMN_COST`). The width is at least `MIN_WIDTH`.
 fn place_in_bands(
     entries: &[Entry],
     network: &Network,
@@ -903,8 +905,8 @@ fn arrange(
     let mut placements = vec![];
     let mut cells = vec![];
     for run in runs {
-        // A position may have copies if its wire is in another bundle in
-        // any bundle of the run.
+        // A position may have copies if, in some bundle of the run, its wire
+        // is in more than one bundle.
         let copies: Vec<bool> = (0..run[0].wires.len())
             .map(|p| {
                 run.iter()
@@ -1112,8 +1114,9 @@ fn place_multi_wire(
 /// Number of rows `local_row` considers.
 const LOCAL_CANDIDATES: usize = 32;
 
-/// Among the first `LOCAL_CANDIDATES` rows found that hold some of `wires`, the one that has
-/// room and shares the most wires; ties go to the row left with fewest free cells.
+/// Among the first `LOCAL_CANDIDATES` rows found that hold some of `wires`,
+/// the one with room that shares the most wires; ties go to the row left with
+/// the fewest free cells.
 fn local_row(placer: &Placer, wires: &[u32]) -> Option<usize> {
     let mut seen = BTreeSet::new();
     wires

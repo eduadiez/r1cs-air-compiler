@@ -316,7 +316,7 @@ fn active_slots(layout: &Layout) -> Result<BTreeSet<Activation>> {
     Ok(active)
 }
 
-/// Group ids are positions; every term refers to the constant (position -1) or
+/// Group ids match their positions; every term refers to the constant (position -1) or
 /// a position of the shape, in increasing order, with a coefficient in `1..P`.
 fn check_group(id: usize, group: &Group, width: usize) -> Result<()> {
     ensure(group.id == id, format_args!("shape {id}: id out of order"))?;
@@ -388,7 +388,7 @@ impl Cells {
 
 /// Check that every equation is placed exactly once and that the placed
 /// `(shape, columns, row)` triples are exactly the active ones. Fills `cells`
-/// and returns the number of rows holding equations.
+/// and returns the last row holding an equation, plus one.
 fn place_equations(
     layout: &Layout,
     equations: &[Equation],
@@ -419,7 +419,8 @@ fn place_equations(
         }
         arithmetic_rows = arithmetic_rows.max(placement.row + 1);
     }
-    // Every equation is placed: the counts match and no index repeats.
+    // The counts match and no index repeats, so every equation is placed;
+    // now every active slot row must hold one.
     ensure(
         *active == used,
         "placements must match the active slot rows exactly",

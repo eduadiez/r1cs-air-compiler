@@ -70,7 +70,8 @@ pub const GAMMA: u32 = 1;
 pub const CHALLENGE_NAMES: [&str; 2] = ["alpha", "gamma"];
 /// Highest degree of any constraint. Degree 3 is what a STARK prover with a
 /// blowup factor of 2 handles without adding columns of its own, so each copy
-/// ratio takes two numerator and two denominator factors.
+/// ratio takes two denominator factors and two numerator factors plus the
+/// previous ratio (three numerator factors for the first).
 pub const MAX_DEGREE: usize = 3;
 
 /// Smallest row count (and smallest `minRows`).

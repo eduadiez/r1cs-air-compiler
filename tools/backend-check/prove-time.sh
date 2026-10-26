@@ -1,18 +1,18 @@
 #!/bin/sh
-# Measure how long pil2-proofman takes to prove one packed artifact: compile
-# SOURCE with LAYOUT, project INPUT, run the prover's setup, then generate and
-# verify RUNS proofs (default 3) and print the median time of each prover phase.
+# Time pil2-proofman on one packed artifact: compile SOURCE with LAYOUT,
+# project the witness INPUT, run the prover's setup, generate and verify RUNS
+# proofs (default 3), and print the median time of each prover phase as JSON.
 # Needs a WORK_DIR in which run.sh has already built pil2-proofman.
 #
-# The proof time includes a proof-of-work search whose length depends on the
-# transcript: it is the same on every run of one artifact but varies from one
-# artifact to another, so layouts are compared by the time without it
-# ("withoutGrinding"), which is the proof time minus the FRI query phase.
+# Compare layouts by "withoutGrinding", the proof time minus the FRI query
+# phase. That phase includes a proof-of-work search whose length depends on the
+# transcript: the same on every run of one artifact, but different between
+# artifacts.
 #
-# STARK_STRUCTS, if given, is a starkstructs.json file passed to the prover's
-# setup, which sets security parameters such as the proof-of-work bits for the
-# AIR named Kernel, for example {"Kernel": {"powBits": 20}}. The setup then
-# derives the number of FRI queries; both are printed.
+# STARK_STRUCTS, if given, is a starkstructs.json file for the setup, for
+# example {"Kernel": {"powBits": 20}} to set the proof-of-work bits of the AIR
+# (named Kernel). The setup then derives the number of FRI queries; both are
+# printed.
 #
 # Usage: tools/backend-check/prove-time.sh WORK_DIR SOURCE.r1cs INPUT.wtns LAYOUT.json [RUNS [STARK_STRUCTS]]
 set -eu

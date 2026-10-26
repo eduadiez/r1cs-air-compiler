@@ -1,19 +1,23 @@
 #!/bin/sh
-# Estimate which layout configuration of SOURCE pil2-proofman proves fastest,
-# without proving. Each candidate is compiled and run through the prover's
-# setup, which reports how many constraint operations and committed and fixed
-# columns the proof will handle on how many rows; a cost model fitted to
-# prove-time.sh measurements turns those counts into an estimate. Candidates:
-# the columns strategy at every power-of-two minRows that fits, with bundles
-# of WIDTH and of twice WIDTH wires, and the local strategy at widths 32, 64
-# and 96, all with chunks of half the width.
+# Estimate which layout of SOURCE pil2-proofman proves fastest, without
+# proving. Each candidate is compiled and run through the prover's setup only;
+# a cost model fitted to prove-time.sh runs turns the setup's counts
+# (constraint operations, committed and fixed columns, extended rows) into an
+# estimate. Prints one JSON line per candidate, best first.
+#
+# Candidates, all with chunks of half the width:
+# - local at widths 32, 64 and 96, minRows 64;
+# - columns at width WIDTH, with bundleWidth WIDTH and 2 * WIDTH, at minRows
+#   64, 128, ... 65536; each sweep stops when the estimate has risen twice in
+#   a row or a candidate no longer fits.
 # Needs a WORK_DIR in which run.sh has already built pil2-proofman.
 #
-# The estimate ranks layouts; it is not a measured time. Check the best few
+# The estimate ranks layouts; it is not a measured time. Time the best few
 # with prove-time.sh before relying on them.
 #
 # Usage: tools/backend-check/choose-layout.sh WORK_DIR SOURCE.r1cs [WIDTH]
-# WIDTH (default 64) bounds the wires of an equation for the columns strategy.
+# WIDTH (default 64) is options.width of the columns candidates: the most
+# distinct wires one equation may use.
 set -eu
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
     echo "usage: $0 WORK_DIR SOURCE.r1cs [WIDTH]" >&2

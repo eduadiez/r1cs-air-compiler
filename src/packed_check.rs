@@ -779,8 +779,8 @@ fn copy_factors(graph: &mut ExpressionGraph, columns: &[usize]) -> (Vec<usize>, 
 /// Compare each ratio constraint with its rebuilt form and add its hint. The
 /// first ratio takes up to `MAX_DEGREE` numerator and `MAX_DEGREE - 1`
 /// denominator factors; each later one takes the previous ratio and up to
-/// `MAX_DEGREE - 1` of each. Returns the
-/// numerator and denominator left for the running product.
+/// `MAX_DEGREE - 1` of each. Returns the numerator and denominator left for
+/// the running product.
 fn check_ratios(
     graph: &mut ExpressionGraph,
     expression_ids: &[usize],

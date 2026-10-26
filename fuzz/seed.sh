@@ -1,7 +1,7 @@
 #!/bin/sh
-# Fill the fuzz corpora with valid inputs: the R1CS files of every fixture that
-# fits the reference layout, and the xor fixture's reference and packed PILout
-# and packed certificate.
+# Write valid starting inputs to fuzz/corpus/: the R1CS file of every fixture
+# with reference outputs (a "reference" hash in expected.json), and the xor
+# fixture's reference PILout, packed PILout and packed certificate.
 #
 # Usage: fuzz/seed.sh
 set -eu

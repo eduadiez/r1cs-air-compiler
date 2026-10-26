@@ -1,41 +1,38 @@
 # Scale
 
-The `sha256` fixture is circomlib's `Sha256(256)`: 29 380 constraints, 29 325
-wires, 256 private inputs and 256 public outputs (the bits of the hash). Its
-message is the bytes `0, 1, …, 31`, and the public values of its witness are
-the SHA-256 of those bytes.
+Sizes, run times and prover times for large circuits. All times were measured
+on one machine (Intel Core Ultra 9 185H, Linux, Rust 1.96.1, release build);
+read them as orders of magnitude and relative differences, not guarantees.
 
-## Reference layout
+## The sha256 fixture
 
-The reference layout needs one column per wire and one AIR constraint per
-equation. For this circuit that is 29 324 columns and more expressions than
-`MAX_EXPRESSIONS` allows, so `air compile --rows 64` fails with
-`too many expressions`, and `--optimize` fails with
-`evaluated expressions exceed the term limit`. The limits bound the checker's
-memory, so circuits of this size need a packed layout.
+The fixture is circomlib's `Sha256(256)`: 29 380 constraints, 29 325 wires,
+256 private inputs (the message bytes `0, 1, …, 31`, as bits) and 256 public
+outputs (the bits of their SHA-256 hash).
 
-## Packed layout
+**Reference layout: too large.** The reference layout uses one column per wire
+and one AIR constraint per equation: here 29 324 columns and more than
+`MAX_EXPRESSIONS` expressions. `air compile --rows 64` fails with
+`too many expressions`, and with `--optimize` it fails with
+`evaluated expressions exceed the term limit`. These limits (in
+`src/contract.rs`) bound the checker's memory, so a circuit of this size needs
+a packed layout.
 
-With `fixtures/sha256/layout.json` (width 64, chunks of 32, `available` reuse,
-folding, `columns` strategy, 1024 rows) the AIR has 1024 rows, 105 stage-one
-columns (65 of them in the copy argument) and 33 stage-two columns, 249 fixed
-columns and 355 constraints.
+**Packed layout.** `fixtures/sha256/layout.json` (width 64, chunks of 32,
+`available` reuse, folding, `columns` strategy, 1024 rows) gives an AIR with:
+
+- 1024 rows;
+- 105 stage-one columns, 65 of them in the copy argument;
+- 33 stage-two columns, 249 fixed columns and 355 constraints.
 
 | Output | Size |
 | --- | --- |
 | `kernel.pilout` | 1.3 MB |
-| `certificate.json` | 6.9 MB |
+| `certificate.json` | 6.9 MB (mostly the converted constraints and each wire's cell) |
 | `map.bin` | 420 KiB |
 | `trace.bin` | 840 KiB |
 
-Most of the certificate is the converted constraints and the cell of each
-wire.
-
-## Run times
-
-Measured with `/usr/bin/time` on an Intel Core Ultra 9 185H under Linux, with
-Rust 1.96.1 in a release build; each value is the median of three runs. They
-show the order of magnitude on one machine, not a guarantee.
+**Run times** (median of three runs, measured with `/usr/bin/time`):
 
 | Command | Time | Peak memory |
 | --- | --- | --- |
@@ -44,43 +41,52 @@ show the order of magnitude on one machine, not a guarantee.
 | `air plan` | 0.8 s | 60 MB |
 | `air witness` | 0.8 s | 100 MB |
 
-Most of the time of `plan` (and of `compile`, which plans first) goes into
-joining equations into bundles for the `columns` strategy.
+`plan` and `compile` (which plans first) spend most of their time joining
+equations into bundles for the `columns` strategy.
 
 With pil2-proofman at commit `eda04742b64abe0e5322a8231f0155438ffb62fe`
-(see [the backend check](../tools/backend-check/README.md)), the prover's
-setup took 0.5 s, verifying every constraint on the witness 0.9 s, and
-generating and verifying a STARK proof 1.0 s, as whole commands; most of that
-is starting the prover and loading the proving key.
+([backend check](../tools/backend-check/README.md)), each whole command took
+about 0.5 s for the setup, 0.9 s to verify every constraint on the witness and
+1.0 s to generate and verify a STARK proof (measured with a slightly earlier
+`columns` layout of the fixture). Most of that is starting the prover and
+loading the proving key.
 
 ## Larger circuits
 
-`Sha256(n)` hashes `n` bits in `⌊(n + 64) / 512⌋ + 1` blocks. With the same
-settings except for the width (chunks of half the width), each of these
-compiled and passed the packed checker except where noted; times and peak
-memory are for `air compile` (one run each, same machine):
+`Sha256(n)` hashes `n` bits in `⌊(n + 64) / 512⌋ + 1` blocks. Each row below
+was compiled with the `local` strategy (not the fixture's `columns`), chunks of
+half the width and `minRows` 64. Every compiled artifact passed the packed
+checker.
 
-| Message bits | Constraints | Width | Rows | PILout | Time | Peak memory |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1024 | 89 609 | 64 | 4096 | 11 MB | 1.9 s | 0.4 GB |
-| 1024 | 89 609 | 256 | 1024 | 8.0 MB | 2.5 s | 0.5 GB |
-| 2048 | 150 265 | 64 | 8192 | 25 MB | 3.4 s | 0.7 GB |
-| 2048 | 150 265 | 256 | 2048 | 17 MB | 4.1 s | 0.8 GB |
-| 4096 | 271 577 | 64 | 16384 | 60 MB | 6.5 s | 1.3 GB |
-| 4096 | 271 577 | 256 | 4096 | 37 MB | 7.3 s | 1.3 GB |
-| 8192 | 514 201 | 64 | 32768 | 127 MB | 13.4 s | 2.4 GB |
-| 8192 | 514 201 | 128 | — | rejected: `PILout exceeds the size limit` | 10.2 s | 2.3 GB |
-| 8192 | 514 201 | 256 | 8192 | 84 MB | 13.8 s | 2.5 GB |
-| 8192 | 514 201 | 512 | — | rejected: `evaluated expressions exceed the term limit` | 11.8 s | 1.6 GB |
+| Message bits | Constraints | Width | Rows | PILout | Peak memory of `air compile` |
+| --- | --- | --- | --- | --- | --- |
+| 1024 | 89 609 | 64 | 4096 | 11 MB | 0.4 GB |
+| 1024 | 89 609 | 256 | 1024 | 8.1 MB | 0.5 GB |
+| 2048 | 150 265 | 64 | 8192 | 25 MB | 0.7 GB |
+| 2048 | 150 265 | 256 | 2048 | 17 MB | 0.8 GB |
+| 4096 | 271 577 | 64 | 16384 | 60 MB | 1.3 GB |
+| 4096 | 271 577 | 256 | 4096 | 37 MB | 1.3 GB |
+| 8192 | 514 201 | 64 | 32768 | 127 MB | 2.4 GB |
+| 8192 | 514 201 | 128 | — | rejected: `PILout exceeds the size limit` | 2.3 GB |
+| 8192 | 514 201 | 256 | 8192 | 84 MB | 2.5 GB |
+| 8192 | 514 201 | 512 | — | rejected: `evaluated expressions exceed the term limit` | 1.6 GB |
 
-Around half a million constraints, the first limit reached is
-`MAX_PILOUT_BYTES` (128 MB): most of the PILout is fixed columns, whose size
-grows with the number of rows times the number of fixed columns. The limit is
-checked on the finished PILout, so a rejected compilation does almost all the
-work of a successful one. To reproduce a row, compile
-`component main = Sha256(n);`, including `vendor/circomlib/sha256/sha256.circom`,
-with the flags in `docs/provenance.json` (`fixtureToolchain`), and run
-`air compile` with the layout below, changing `width` and `chunk`:
+Around half a million constraints the first limit reached is
+`MAX_PILOUT_BYTES` (128 MB). Most of the PILout is fixed columns, so its size
+grows with rows × fixed columns. The limit is checked on the finished PILout,
+so a rejected compilation costs almost as much as a successful one.
+
+The `columns` strategy gives much smaller PILout files: `Sha256(8192)` with
+width 64 and chunks of 32 compiled to 16 MB at 8192 rows and 35 MB at 32768
+rows, against 127 MB with `local`.
+
+To reproduce a row:
+
+1. Write a Circom file with `component main = Sha256(n);` that includes
+   `vendor/circomlib/sha256/sha256.circom`.
+2. Compile it with the flags in `docs/provenance.json` (`fixtureToolchain`).
+3. Run `air compile` with this layout, setting `width` and `chunk` (half the
+   width):
 
 ```json
 {"options":{"width":64,"chunk":32,"reuse":"available","fold":true},"strategy":"local","minRows":64}
@@ -88,94 +94,90 @@ with the flags in `docs/provenance.json` (`fixtureToolchain`), and run
 
 ## Prover time
 
-Proof times with pil2-proofman, measured with
-`tools/backend-check/prove-time.sh` (median of 7 runs, same machine), for
-`Sha256(n)` built and laid out as in "Larger circuits". Times are in
-milliseconds and leave out the proof-of-work search (see the
-[backend check](../tools/backend-check/README.md)), which took 20–400 ms per
-proof regardless of the layout.
+Proof times with pil2-proofman, in milliseconds, measured with
+`tools/backend-check/prove-time.sh` (median of 7 proofs). They leave out the
+proof-of-work search, which took 20–400 ms per proof whatever the layout (see
+[Proof-of-work bits](#proof-of-work-bits)).
 
-| Message bits | Layout (`width`, `chunk`, `strategy`, `minRows`) | Rows × columns | Slots | Selectors | Quotient | Proof without search |
-| --- | --- | --- | --- | --- | --- | --- |
-| 256 (fixture) | 64, 32, `local`, 64 | 1024 × 64 | 911 | 379 | 6 | 21 |
-| 256 (fixture) | 64, 32, `columns`, 1024 | 1024 × 85 | 270 | 147 | 5 | 17 |
-| 1024 | 64, 32, `local`, 64 | 4096 × 64 | 1881 | 986 | 42 | 83 |
-| 1024 | 64, 32, `columns`, 1024 | 1024 × 207 | 642 | 257 | 8 | 38 |
-| 1024 | 64, 32, `columns`, 2048 | 2048 × 128 | 367 | 196 | 12 | 42 |
-| 4096 | 64, 32, `local`, 64 | 16384 × 64 | 2577 | 1435 | 187 | 357 |
-| 4096 | 96, 16, `local`, 64 | 8192 × 96 | 2084 | 999 | 89 | 178 |
-| 4096 | 64, 32, `columns`, 4096 | 4096 × 165 | 525 | 236 | 23 | 82 |
-| 4096 | 64, 32, `columns`, 8192 | 8192 × 108 | 338 | 189 | 30 | 122 |
+The circuits are built like the SHA-256 ones above:
 
-The time of a proof is roughly proportional to the number of rows of the
-extended domain times a weighted count of columns, in which a committed column
-(stage one, stage two and the quotient) weighs most, a fixed column much less,
-and each operation of the constraints less still. Each column in the copy
-argument also adds about 1.5 stage-two columns and a fixed column of labels,
-so it weighs about as much as 22 slot constraints. The row-filling
-strategies keep each wire in few cells, but leave thousands of slots and
-selectors, which are expensive to evaluate. `columns` joins equations that
-share wires into bundles that repeat with the same structure, places the
-bundles of each kind in runs that share their slots, and so keeps slots and
-selectors near the number of bundle kinds, at the cost of a wider trace. In these measurements it took 19–54% less
-time than the best row-filling layout, and the gain grows with the circuit.
+- SHA-256 of 256 (the fixture), 1024 and 4096 bits;
+- a chain of 400 `Poseidon(2)` hashes (96 000 constraints);
+- a chain of 300 `MiMC7(91)` (109 200 constraints);
+- 2 500 `LessThan(32)` comparisons (82 500 constraints);
+- 40 `Pedersen(250)` hashes (17 680 constraints);
+- 16 Poseidon Merkle paths of depth 24 with `MultiMux1` (93 312 constraints);
+- 64 `Multiplexer(8, 64)` (36 864 constraints).
 
-The best `minRows` depends on the circuit: in these runs it ranged from 1024
-to 4096. So does the best `bundleWidth`: bundles of 128 wires instead of 64
-proved a 96 000-constraint Poseidon chain 29% faster, but the 271 577-constraint
-SHA-256 circuit 7% slower, because wider bundles share more cells but leave
-more of the trace empty. `tools/backend-check/choose-layout.sh` estimates it for a given
-circuit by running the prover's setup on each candidate, without proving.
-
-### Other circuits
-
-The same comparison on six more circomlib circuits, built like the SHA-256
-ones: a chain of 400 `Poseidon(2)` hashes (96 000 constraints), a chain of 300
-`MiMC7(91)` (109 200 constraints), 2 500 `LessThan(32)` comparisons
-(82 500 constraints), 40 `Pedersen(250)` hashes (17 680 constraints), 16
-Poseidon Merkle paths of depth 24 with `MultiMux1` (93 312 constraints) and
-64 `Multiplexer(8, 64)` (36 864 constraints). For each circuit, the table compares the fastest
-`local` layout among widths 32, 64 and 96 with the `columns` layout that
-`choose-layout.sh` picked (median of 7 proofs, milliseconds, without the
-proof-of-work search):
+`local` is the fastest `local` layout among widths 32, 64 and 96; `columns` is
+the layout that `tools/backend-check/choose-layout.sh` picked, given as
+(`minRows`, `bundleWidth`):
 
 | Circuit | `local` | `columns` (`minRows`, `bundleWidth`) | Change |
 | --- | --- | --- | --- |
 | SHA-256, 256 bits (fixture) | 24 | 19 (512, 64) | −21% |
 | SHA-256, 1024 bits | 85 | 35 (1024, 128) | −59% |
 | SHA-256, 4096 bits | 254 | 70 (2048, 128) | −72% |
-| Poseidon chain | 98 | 23 (512, 128) | −77% |
+| Poseidon chain | 98 | 22 (512, 128) | −78% |
 | MiMC7 chain | 113 | 13 (1024, 64) | −88% |
 | `LessThan(32)` batch | 19 | 10 (512, 64) | −47% |
 | Pedersen hashes | 39 | 10 (128, 64) | −74% |
-| Poseidon Merkle paths | 85 | 20 (512, 128) | −76% |
+| Poseidon Merkle paths | 85 | 17 (512, 128) | −80% |
 | Multiplexers | 31 | 19 (1024, 64) | −39% |
 
-In the Poseidon and MiMC7 chains most wires end up inside one bundle, so most
-columns hold no copies and stay out of the copy argument; in the SHA-256
-circuits about half the cells are copies, because each bit of the state is
-used in several rounds.
+Notes on the table:
 
-The comparisons need no copy argument with either strategy, since each one
-fits in a row; `columns` still needs fewer slots and rows.
+- In the Poseidon and MiMC7 chains most wires stay inside one bundle, so most
+  columns hold no copies and stay out of the copy argument. In the SHA-256
+  circuits about half the cells are copies, because each bit of the state is
+  used in several rounds.
+- Each `LessThan(32)` comparison fits in one row, so neither strategy needs a
+  copy argument there; `columns` is still faster because it needs fewer slots
+  and rows.
+- At these sizes the proof-of-work search takes longer than the rest of the
+  proof.
 
-Around these sizes the proof-of-work search, set by the prover's security
-parameters rather than by the AIR, takes longer than the rest of the proof.
+### What the time depends on
 
-The same layouts also give a smaller PILout: `Sha256(8192)` with width 64,
-chunks of 32 and `columns` compiles to an 18 MB PILout at 8192 rows and 35 MB
-at 32768 rows, against 127 MB with `local`.
+A proof's time is roughly the number of rows of the extended domain times a
+weighted count of columns and constraint operations. In the cost model of
+`choose-layout.sh`, one committed column (stage one, stage two or quotient)
+costs about as much as 8 fixed columns or 46 constraint operations.
+
+- A column in the copy argument also brings about 1.5 stage-two columns and a
+  fixed column of labels. When the compiler decides which bundles to join, it
+  counts one trace column as 22 slot constraints (`SLOTS_PER_COLUMN` in
+  `src/layout.rs`).
+- The row-filling strategies (`mixed`, `local`, `components`) keep each wire
+  in few cells, but leave thousands of slots (an equation shape placed on
+  specific columns, see `SPEC.md`) and selector columns, which are expensive
+  to evaluate.
+- `columns` joins equations that share wires into bundles that repeat with the
+  same structure and places the bundles of each kind in runs that share their
+  slots. Slots and selectors stay near the number of bundle kinds, at the cost
+  of a wider trace.
+
+The best `minRows` and `bundleWidth` depend on the circuit: in the table above
+`minRows` ranges from 128 to 2048. Wider bundles share more cells but leave
+more of the trace empty: bundles of 128 wires instead of 64 proved the Poseidon
+chain 29% faster, but the 271 577-constraint SHA-256 circuit 7% slower.
+`choose-layout.sh` estimates the best layout for a circuit by running only the
+prover's setup on each candidate; check its best few with `prove-time.sh`.
 
 ### Proof-of-work bits
 
-The prover's setup chooses the number of proof-of-work bits (`powBits`, 24 by
-default with its default hash) and then the number of FRI queries that reaches
+The prover's setup picks the number of proof-of-work bits (`powBits`, 24 by
+default with its default hash) and then the number of FRI queries needed for
 its target security level: each bit fewer costs about one more query. The
-search takes `2^powBits` hashes on average, so lowering it saves time
+search takes `2^powBits` hashes on average, so fewer bits save time
 exponentially, while the extra queries make the proof and its verification
-grow linearly. With the 4096-bit circuit, `columns` at 4096 rows, and
-`tools/backend-check/prove-time.sh` with a `starkstructs.json` such as
-`{"Kernel": {"powBits": 20}}` (median of 5 proofs, milliseconds):
+grow only linearly.
+
+Measured on the 4096-bit circuit with `columns` at 4096 rows (an earlier
+version of the strategy, before copy-free columns; the effect of `powBits`
+does not depend on the layout), using
+`prove-time.sh` with a `starkstructs.json` such as `{"Kernel": {"powBits": 20}}`
+(median of 5 proofs, milliseconds):
 
 | `powBits` | FRI queries | FRI query phase (with the search) | Whole proof |
 | --- | --- | --- | --- |
@@ -185,24 +187,31 @@ grow linearly. With the 4096-bit circuit, `columns` at 4096 rows, and
 | 12 | 236 | 17 | 120 |
 | 8 | 244 | 24 | 142 |
 
-Below about 20 bits the search no longer matters and only the extra queries
-remain. A larger number of proof-of-work bits pays off when proofs are verified
-inside another proof (recursion or aggregation), where every query makes the
-verifying circuit larger; for proofs verified directly, 16–20 bits reach the
-same target security level in a fraction of the time. With `powBits` 0 this
-version of the prover aborted. The setting belongs to the prover's deployment,
-not to the compiler.
+- Below about 20 bits the search no longer matters; only the extra queries
+  remain.
+- More bits pay off when proofs are verified inside another proof (recursion
+  or aggregation), where every query makes the verifying circuit larger. For
+  proofs verified directly, 16–20 bits reach the same security level in a
+  fraction of the time.
+- With `powBits` 0 this prover version aborted.
+
+This setting belongs to the prover's deployment, not to the compiler.
 
 ## Reproducing
+
+The fixture run times:
 
 ```sh
 cargo build --locked --release
 air=target/release/air
 f=fixtures/sha256
+mkdir out  # each output directory must not exist yet
 /usr/bin/time -v $air compile $f/kernel.r1cs out/packed --layout $f/layout.json
 /usr/bin/time -v $air check $f/kernel.r1cs out/packed/kernel.pilout out/packed/certificate.json
 /usr/bin/time -v $air plan $f/kernel.r1cs out/plan --layout $f/layout.json
 /usr/bin/time -v $air witness $f/kernel.r1cs out/packed $f/input.wtns out/witness
 ```
 
-`tools/backend-check/run.sh` runs the prover steps for every fixture.
+The prover steps: `tools/backend-check/run.sh` runs them for every fixture,
+and `prove-time.sh` and `choose-layout.sh` give the prover times above (see
+the [backend check](../tools/backend-check/README.md)).

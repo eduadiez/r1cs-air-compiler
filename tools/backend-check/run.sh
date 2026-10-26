@@ -1,15 +1,17 @@
 #!/bin/sh
-# Optional end-to-end check against the pil2-proofman prover: for every
-# fixture, run the prover's setup on the reference and packed PILout, verify
-# all constraints on the witness, and generate and verify a STARK proof. A
-# fixture whose expected.json has no reference hash is checked in packed mode
-# only.
-# Not part of the build or CI. Linux only. Needs network access, git, a C++
-# toolchain with libgmp, libsodium, libomp, nlohmann-json and nasm, and python3.
+# Optional end-to-end check with the pil2-proofman prover. Fetches and builds
+# pil2-proofman in WORK_DIR, then for the reference and packed artifacts of
+# every fixture: runs the prover's setup, verifies every constraint on the
+# witness, and generates and verifies a STARK proof. A fixture whose
+# expected.json has no "reference" hash is checked in packed mode only.
+#
+# Not part of the build or CI. Linux only. Needs network access, git, python3,
+# Rust, and a C++ toolchain with libgmp, libsodium, libomp, nlohmann-json and
+# nasm. See tools/backend-check/README.md.
 #
 # Usage: tools/backend-check/run.sh WORK_DIR
-# WORK_DIR may hold the pil2-proofman checkout of an earlier run, which is
-# reused; any per-fixture output left by an earlier run is an error.
+# A pil2-proofman checkout left in WORK_DIR by an earlier run is reused; a
+# per-fixture output directory left by one is an error.
 set -eu
 PROOFMAN_REPO=https://github.com/0xPolygonHermez/pil2-proofman
 PROOFMAN_REV=eda04742b64abe0e5322a8231f0155438ffb62fe

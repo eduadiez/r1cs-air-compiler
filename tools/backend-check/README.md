@@ -1,64 +1,96 @@
 # Backend check
 
-An optional check, run by hand, that a real prover accepts this compiler's
-output. It is not part of the build, the tests or CI, and the crate does not
-depend on it.
+Optional scripts, run by hand, that feed this compiler's output to a real
+prover, [pil2-proofman](https://github.com/0xPolygonHermez/pil2-proofman), at a
+fixed commit. They are not part of the build, the tests or CI, and the crate
+does not depend on them.
 
-`run.sh WORK_DIR` fetches [pil2-proofman](https://github.com/0xPolygonHermez/pil2-proofman)
-at a fixed commit into `WORK_DIR`, builds its setup tool, its CLI and the
-witness library in `witness/`, and then, for the reference and packed artifact
-of every fixture (only the packed one for a fixture without reference outputs,
-such as `sha256`):
+| Script | What it does |
+| --- | --- |
+| `run.sh WORK_DIR` | Builds the prover, then sets up, checks and proves every fixture |
+| `prove-time.sh WORK_DIR SOURCE INPUT LAYOUT [RUNS [STARK_STRUCTS]]` | Times the prover on one packed artifact |
+| `choose-layout.sh WORK_DIR SOURCE [WIDTH]` | Estimates which layout proves fastest, without proving |
 
-1. runs the prover's setup on the PILout, which also reads the fixed columns from it;
-2. verifies every constraint, including stage two, on the witness;
+Requirements: Linux, network access, git, python3, Rust, and a C++ toolchain
+with libgmp, libsodium, libomp, nlohmann-json and nasm. Run `run.sh` first:
+the other two scripts reuse the prover it builds in `WORK_DIR`.
+
+## `run.sh`
+
+`run.sh WORK_DIR` fetches pil2-proofman into `WORK_DIR`, builds its setup tool,
+its CLI and the witness library in `witness/`, and builds `air`. Then, for the
+reference and packed artifacts of every fixture (only the packed one when the
+fixture's `expected.json` has no `reference` hash, such as `sha256`), it:
+
+1. runs the prover's setup on the PILout, which also reads the fixed columns;
+2. verifies every constraint, stage two included, on the witness;
 3. generates a STARK proof without aggregation and verifies it.
 
-The stage-one trace comes from `air witness` for packed artifacts, and from
-`reference_trace.py` for reference artifacts: the circuit's assignment repeated
-on every row, and the public values read from the certificate's public wires.
-The witness library computes stage two from the artifact's own `im_col`,
-`gprod_col` and `gsum_col` hints. The prover's standard library does the same,
-but only for AIRs listed in its global `std_prod_users` and `std_sum_users`
-hints, which these artifacts do not contain.
+Where the inputs come from:
 
-The script stops at the first failing step and keeps all logs in `WORK_DIR`. A
-passing run shows that this prover version accepts the artifacts and their
+- **Stage-one trace:** `air witness` for packed artifacts; for reference
+  artifacts, `reference_trace.py` writes the circuit's assignment on every row
+  and reads the public values from the certificate's public wires.
+- **Stage two:** the witness library computes it from the artifact's own
+  `im_col`, `gprod_col` and `gsum_col` hints. The prover's standard library
+  would do this only for AIRs listed in its global `std_prod_users` and
+  `std_sum_users` hints, which these artifacts do not contain.
+
+The script stops at the first failing step and keeps every log in `WORK_DIR`
+(`build.log`, and `NAME-MODE/` per fixture and mode). A later run may reuse the
+pil2-proofman checkout in `WORK_DIR`, but fails if a per-fixture output
+directory already exists; use a fresh `WORK_DIR` or delete them.
+pil2-proofman is built from its own `Cargo.lock`; the script only adds the
+witness library to it.
+
+A passing run shows that this prover version accepts the artifacts and their
 witnesses. It says nothing about the prover's soundness, and nothing about the
 compiler beyond what [the specification](../../SPEC.md) states.
 
-The script runs on Linux only. It may reuse the pil2-proofman checkout in
-`WORK_DIR` from an earlier run, but each run needs fresh per-fixture output
-directories. pil2-proofman is built from its own `Cargo.lock`; the script only
-adds the witness library to it.
+## `prove-time.sh`
 
-`prove-time.sh WORK_DIR SOURCE INPUT LAYOUT [RUNS [STARK_STRUCTS]]` reuses the
-build of an earlier `run.sh` in `WORK_DIR` to time the prover on one packed
-artifact. It compiles `SOURCE` with the layout configuration `LAYOUT`, projects
-the witness `INPUT`, runs the setup and generates and verifies `RUNS` proofs (3
-by default), then prints the median time of each prover phase as JSON. The FRI
-query phase includes a proof-of-work search whose length depends on the
-transcript, so it differs between artifacts by chance; `withoutGrinding`, the
-proof time minus that phase, is the figure to compare layouts by.
+`prove-time.sh WORK_DIR SOURCE INPUT LAYOUT [RUNS [STARK_STRUCTS]]` compiles
+the R1CS file `SOURCE` with the layout file `LAYOUT`, projects the witness
+`INPUT` (a WTNS file), runs the setup, and generates and verifies `RUNS` proofs
+(default 3). It prints one JSON object with the layout's `rows`, `width`,
+`slots` and `selectors`, the prover's `powBits` and `queries`, and the median
+time of each prover phase in `milliseconds`.
 
-`STARK_STRUCTS` is an optional `starkstructs.json` for the setup, which sets
-the prover's parameters for the AIR, named `Kernel`. The one that matters most
-for small proofs is the number of proof-of-work bits, for example
-`{"Kernel": {"powBits": 20}}`: the setup then derives the number of FRI
-queries that keeps its target security level, and the script prints both
-(`powBits`, `queries`). [Scale](../../docs/SCALE.md) shows the effect.
+Compare layouts by `withoutGrinding`: the proof time minus the FRI query
+phase. That phase includes a proof-of-work search ("grinding") whose length
+depends on the transcript, so it varies between artifacts by chance.
 
-`choose-layout.sh WORK_DIR SOURCE [WIDTH]` estimates which layout
-configuration of `SOURCE` proves fastest, without proving. It compiles the
-`columns` strategy at every `minRows` that fits and the `local` strategy at
-widths 32, 64 and 96, runs the setup on each, and estimates the proof time
-from the counts the setup reports (constraint operations, committed and fixed
-columns, extended rows) with a cost model fitted to `prove-time.sh` runs of
-six circuits, whose median error was 10%. It prints the candidates as JSON,
-best first. The estimate ranks layouts; check the best few with
+`STARK_STRUCTS` is an optional `starkstructs.json` for the setup that sets the
+prover's parameters for the AIR, which is named `Kernel`. The one that matters
+most for small proofs is the number of proof-of-work bits, for example
+`{"Kernel": {"powBits": 20}}`; the setup then derives the number of FRI queries
+that keeps its target security level. [Scale](../../docs/SCALE.md#proof-of-work-bits)
+shows the effect.
+
+## `choose-layout.sh`
+
+`choose-layout.sh WORK_DIR SOURCE [WIDTH]` compiles these candidates, all with
+`available` reuse, folding and chunks of half the width:
+
+- `local` at widths 32, 64 and 96, `minRows` 64;
+- `columns` at width `WIDTH` (default 64), with `bundleWidth` `WIDTH` and
+  `2 × WIDTH`, at `minRows` 64, 128, … up to 65536. Each sweep skips sizes
+  that do not fit and stops when the estimate has risen twice in a row or a
+  candidate no longer fits.
+
+It runs only the prover's setup on each candidate and estimates the proof time
+(without the proof-of-work search) from the counts the setup reports:
+constraint operations, committed and fixed columns, and extended rows. The cost
+model was fitted to 90 `prove-time.sh` runs of six circuits, with a median
+error of 10%. It prints one JSON line per candidate, best first, with
+`estimateMs`. The estimate is for ranking; time the best few with
 `prove-time.sh`.
 
-The files under `witness/` build only inside the pil2-proofman workspace, which
-supplies their dependencies (`MIT OR Apache-2.0`); `add_member.py` adds them to
-that workspace. Nothing builds them automatically, so they are only exercised
-when this script runs.
+## Files
+
+- `witness/`: the witness library. It builds only inside the pil2-proofman
+  workspace, which supplies its dependencies (`MIT OR Apache-2.0`);
+  `add_member.py` adds it to that workspace. Nothing else builds it, so it is
+  only exercised when `run.sh` runs.
+- `reference_trace.py`: writes the trace and public values of a reference
+  artifact.

@@ -254,9 +254,9 @@ fn choose_chunk(
 /// An equation with its wires abstracted: equations with the same shape differ
 /// only in which wires they use, so one constraint can check all of them.
 pub struct Shape {
-    /// Serialized `terms`; equal keys mean equal shapes. Shapes are ordered by
-    /// comparing these strings, and that order fixes the shape group ids in
-    /// the output, so it is part of the compiler's deterministic output.
+    /// Serialized `terms`; equal keys mean equal shapes. [`shape`] keeps the
+    /// orientation of `A` and `B` with the smaller key, so the format of this
+    /// string is part of the compiler's deterministic output.
     pub key: String,
     /// The equation's wires; position `i` in `terms` stands for `wires[i]`.
     pub wires: Vec<u32>,

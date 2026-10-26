@@ -97,7 +97,7 @@ pub struct Layout {
     pub rows: usize,
     /// Rows up to the last one holding an equation or a public cell (at least 1).
     pub used_rows: usize,
-    /// Rows holding at least one equation: the last such row plus one.
+    /// The last row holding an equation, plus one.
     pub arithmetic_rows: usize,
     pub groups: Vec<Group>,
     pub placements: Vec<Placement>,

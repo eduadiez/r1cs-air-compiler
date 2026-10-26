@@ -466,7 +466,8 @@ fn only_nonconstant_source_and_helper_wires_occupy_cells() {
     }
 }
 
-/// Source `w1 · w2 = w3`, with one helper `h = w4` standing in for `w1` in factor A.
+/// Source `w1 · w2 = w3` with one helper, wire 4 defined by `terms`, and factor
+/// A rewritten as `a`.
 fn helper_network(
     terms: Vec<(u32, FieldElement)>,
     a: Vec<(u32, FieldElement)>,

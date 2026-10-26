@@ -1,5 +1,5 @@
 //! Goldilocks field arithmetic and the two constants that define copy-argument
-//! labels. Shared by the compiler and the checkers; contains nothing else.
+//! labels, shared by the compiler and the checkers.
 use serde::{Deserialize, Serialize};
 
 /// The Goldilocks prime `2^64 - 2^32 + 1`, the only supported field.

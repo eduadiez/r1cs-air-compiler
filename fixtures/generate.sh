@@ -1,7 +1,8 @@
 #!/bin/sh
-# Regenerate fixture R1CS and WTNS files from their Circom sources, or check
-# that the committed files are reproduced exactly. Requires circom 2.2.3 and
-# Node.js; normal builds and tests do not.
+# Regenerate the kernel.r1cs and input.wtns files of the named fixtures (all
+# by default) from kernel.circom and input.json. With --check, compare them
+# with the committed files byte for byte instead of overwriting them.
+# Requires circom 2.2.3 and Node.js; normal builds and tests do not.
 #
 # Usage: fixtures/generate.sh [--check] [NAME...]
 set -eu

@@ -1,25 +1,27 @@
 # r1cs-air-compiler
 
-A Rust compiler from R1CS (rank-1 constraint system) circuits over the
-Goldilocks field to PILout, the AIR (algebraic intermediate representation)
-format of the pil2 tools (pil2-compiler and the pil2-proofman prover). Every
-compiled artifact is checked by an independent checker, and a Circom witness
-file (`.wtns`) can be turned into the matching trace. Building and running the
-compiler needs neither Circom nor Node.js.
+Compiles R1CS circuits (rank-1 constraint systems) over the Goldilocks field to
+PILout, the AIR format (algebraic intermediate representation) read by the pil2
+tools (pil2-compiler and the pil2-proofman prover). An independent checker
+verifies every compiled artifact, and a Circom witness (`.wtns`) can be turned
+into the matching trace. Neither Circom nor Node.js is needed to build or run
+it.
 
-```text
-R1CS ──→ compiler ──→ PILout + certificate
-  │                        │
-  └──────→ checker ←───────┘
-WTNS ──→ witness projection ──→ trace + public values
-```
+| Command | Reads | Produces |
+| --- | --- | --- |
+| `compile` | R1CS, and a row count or a layout file | PILout and certificate, already checked |
+| `check` | R1CS, PILout, certificate | Accepted, or an error |
+| `plan` | R1CS, layout file | The packed placement only, checked, without PILout |
+| `witness` | R1CS, packed artifact, WTNS | Trace and public values |
+
+A certificate is a JSON file that ties the PILout to its R1CS (by SHA-256) and
+records how wires were placed in the trace; the checker needs it.
 
 ## Build and test
 
-Install Rust and `protoc` (on Debian or Ubuntu: `protobuf-compiler`). The
-protobuf schema and its licenses are in `vendor/pilout`, and Rust dependency
-versions are locked. Requires Rust 1.85 or later; CI tests both 1.85 and the
-current stable release.
+You need Rust 1.85 or later (CI tests 1.85 and the current stable release) and
+`protoc` (on Debian or Ubuntu, the `protobuf-compiler` package). Dependency
+versions are locked.
 
 ```sh
 cargo build --locked
@@ -32,39 +34,45 @@ Add `--offline` once the locked dependencies are in the local Cargo cache.
 
 ## Example
 
-Run from the repository root. Each output directory must not exist yet.
+Run from the repository root. `air` creates each output directory and fails if
+it already exists, so run `rm -rf out` before running the example again.
 
 ```sh
 mkdir -p out
 cargo run --bin air -- --help
+
+# Reference layout: 64 rows, one column per wire.
 cargo run --bin air -- compile fixtures/xor/kernel.r1cs out/reference --rows 64
 cargo run --bin air -- check fixtures/xor/kernel.r1cs out/reference/kernel.pilout out/reference/certificate.json
 
+# Packed layout, then the trace for a witness.
 cargo run --bin air -- compile fixtures/xor/kernel.r1cs out/packed --layout fixtures/xor/layout.json
 cargo run --bin air -- check fixtures/xor/kernel.r1cs out/packed/kernel.pilout out/packed/certificate.json
 cargo run --bin air -- plan fixtures/xor/kernel.r1cs out/plan --layout fixtures/xor/layout.json
 cargo run --bin air -- witness fixtures/xor/kernel.r1cs out/packed fixtures/xor/input.wtns out/witness
 ```
 
-[The CLI reference](docs/CLI.md) describes every argument and the JSON reports.
+Each command prints one JSON report. [The CLI reference](docs/CLI.md) describes
+every argument, output file, layout setting and report field.
 
 ## Choosing a layout
 
-A packed layout is described by a JSON file. For proving speed, start from the
-`columns` strategy, which `fixtures/sha256/layout.json` uses:
+A packed layout is set by a JSON file. For proving speed, start from the
+`columns` strategy, as `fixtures/sha256/layout.json` does:
 
 ```json
 {"options":{"width":64,"chunk":32,"reuse":"available","fold":true},"strategy":"columns","minRows":1024}
 ```
 
-`columns` joins equations that share wires into bundles and places equal
-bundles in runs that share their constraints. In
-[the measurements](docs/SCALE.md#prover-time) it proved nine circomlib circuits
-21–88% faster than the best row-filling layout. The trace has exactly `minRows`
-rows, so `minRows` sets how wide it gets, and the best value depends on the
-circuit; so may the optional `bundleWidth`, the most wires of a bundle.
+`columns` groups equations that share wires into bundles and stacks equal
+bundles in the same columns, so they share their constraints. On nine
+circomlib circuits it took 21–88% less proving time than the best row-filling
+layout ([measurements](docs/SCALE.md#prover-time)). With `columns` the trace
+has exactly `minRows` rows, so a smaller `minRows` gives a wider trace. The best
+`minRows`, and the best optional `bundleWidth` (the most wires in one bundle),
+depend on the circuit.
 
-With the pil2-proofman build of the [backend check](tools/backend-check/README.md),
+With pil2-proofman built by the [backend check](tools/backend-check/README.md),
 two scripts help choose:
 
 ```sh
@@ -75,33 +83,32 @@ tools/backend-check/prove-time.sh WORK_DIR circuit.r1cs input.wtns layout.json
 ```
 
 For small proofs, the prover's proof-of-work setting can matter more than the
-layout; [Scale](docs/SCALE.md#proof-of-work-bits) explains it.
+layout; see [Proof-of-work bits](docs/SCALE.md#proof-of-work-bits).
 
 ## Fixtures
 
-Each directory in `fixtures/` holds a Circom source, its R1CS and WTNS files, a
-layout configuration and the expected SHA-256 hashes of the generated artifacts:
+Each directory in `fixtures/` holds a Circom source (`kernel.circom`), its R1CS
+and WTNS files, a layout file and the SHA-256 hashes of every expected output
+(`expected.json`):
 
-- `xor`: `305419896 XOR 4275878552 = 3974687968` on 32-bit words;
-- `range`: checks `lo <= x <= hi` for 32-bit values with public bounds; its
-  packed layout needs no copy argument;
-- `mux`: selects a row of a public table;
-- `adder`: adds three 32-bit words and compares the sum with a public value;
-- `sha256`: circomlib's SHA-256 of a 256-bit message (29 380 constraints), with
-  the hash bits as public outputs. It is too large for the reference layout, so
-  it has only packed outputs.
+| Fixture | Circuit |
+| --- | --- |
+| `xor` | `305419896 XOR 4275878552 = 3974687968` on 32-bit words |
+| `range` | `lo <= x <= hi` for 32-bit values with public bounds; its packed layout needs no copy argument |
+| `mux` | Selects a row of a public table |
+| `adder` | Adds three 32-bit words and compares the sum with a public value |
+| `sha256` | circomlib's SHA-256 of a 256-bit message (29 380 constraints), with the hash bits as public outputs; packed outputs only, as it is too large for the reference layout |
 
-`range`, `mux`, `adder` and `sha256` use circomlib templates. The CLI test runs
-the `air` executable from outside the repository and compares the reference,
-optimized and packed PILout files, the trace and the public values of every
-fixture with the expected hashes. The `sha256` test is slow in a debug build and
-is ignored by default; run it with `cargo test --release -- --ignored`.
-[Scale](docs/SCALE.md) gives its sizes and run times.
+All fixtures except `xor` use circomlib templates. `tests/cli.rs` compiles every
+fixture and compares the outputs with `expected.json`. The `sha256` tests are
+slow in a debug build and ignored by default; run them with
+`cargo test --release -- --ignored`. [Testing](docs/TESTING.md) describes the
+whole test suite, and [Scale](docs/SCALE.md) the sizes and run times.
 
-The R1CS and WTNS files are committed, so tests need no Circom.
-`fixtures/generate.sh --check` (circom 2.2.3 and Node.js) regenerates them and
-checks that they are identical byte for byte; `fixtures/generate.sh NAME`
-regenerates one fixture.
+The R1CS and WTNS files are committed, so the tests need no Circom.
+`fixtures/generate.sh --check` (needs circom 2.2.3 and Node.js) regenerates
+them and checks that they are identical byte for byte;
+`fixtures/generate.sh NAME` regenerates one fixture.
 
 ## Rust API
 
@@ -116,50 +123,56 @@ fn main() -> Result<()> {
 }
 ```
 
-Each compile function runs the checker before it returns. Try
-`cargo run --example compile`, and see [the API reference](docs/API.md) or
+Every compile function runs the checker before it returns. See
+[the API reference](docs/API.md), `cargo run --example compile` and
 `cargo doc --no-deps`.
 
 ## What is supported
 
-- R1CS version 1 and WTNS version 2 files over Goldilocks, with 8-byte field
-  elements. Custom gates and other fields are rejected.
-- **Reference layout:** one column per nonconstant wire, the whole circuit
-  constrained on every row, and the public values bound on row 0. Every
-  constraint of the circuit becomes a constraint of the AIR, so large circuits
-  exceed the size limits of the checker and need a packed layout; the `sha256`
-  fixture (29 380 constraints) is one of them.
-- **`--optimize`:** the reference layout with expressions simplified by
-  identities that hold for every field value, and repeated subexpressions reused.
-- **`--layout`:** a packed layout. Long linear combinations are split using
-  helper wires, equations are grouped by shape and placed in rows (strategies
-  `mixed`, `local` and `components`) or in runs of bundles (`columns`), and the
-  checker verifies that every source equation and the public order are preserved.
-- **Copy argument:** a packed layout that puts a wire in more than one cell gets
-  a permutation argument forcing those cells to be equal, over the columns that
-  hold such cells. It is left out only when every wire occupies at most one
-  cell.
+- **Input:** R1CS version 1 and WTNS version 2 files over Goldilocks, with
+  8-byte field elements. Custom gates and other fields are rejected.
+- **Reference layout** (`--rows N`): one column per nonconstant wire, every
+  constraint of the circuit on every row, and the public values bound on row 0.
+  Large circuits exceed the checker's size limits and need a packed layout.
+- **Optimized reference** (`--rows N --optimize`): the same, with expressions
+  simplified by identities that hold for every field value (such as `x · 1 = x`)
+  and repeated subexpressions reused.
+- **Packed layout** (`--layout FILE`): long linear combinations are split with
+  helper wires (new wires defined as a sum of other wires), and equations of
+  the same shape share constraints. Strategies `mixed`, `local` and
+  `components` fill rows; `columns` stacks bundles in columns.
+- **Copy argument:** when a packed layout puts a wire in more than one cell, a
+  permutation argument forces those cells to be equal. It covers only the
+  columns that hold such cells, and is left out when every wire has one cell.
 - **Independent checks:** the checkers compare the actual PILout constraints,
   fixed columns, symbols, hints and certificate fields with what the source
-  requires. They never call the compiler's conversion, packing or PILout
-  generation code.
+  requires. They never call the compiler's code;
+  [Architecture](docs/ARCHITECTURE.md) explains the separation.
 
-This is an experimental compiler, not a virtual machine or a prover. It does not
-implement buses or lookups. The checks are carried out by a program, not proved
-formally, and some components are trusted rather than checked: the parser, the
-field arithmetic, the protobuf schema and decoder, SHA-256 and the proving
-backend (see the specification). Inputs are assumed not to be adversarial: there
-is no limit on total time or memory, so run the checker on untrusted artifacts
-only under external resource limits. [The specification](SPEC.md) argues on
-paper that every accepted artifact is sound and complete.
+Limits:
+
+- This is an experimental compiler, not a virtual machine or a prover. It has
+  no buses or lookups.
+- The checks are run by a program, not proved formally.
+  [The specification](SPEC.md) argues on paper that every accepted artifact is
+  sound and complete.
+- Some components are trusted rather than checked: the R1CS and WTNS parser,
+  the field arithmetic, the protobuf schema and decoder, SHA-256, the Rust
+  toolchain and the proving backend.
+- Inputs are assumed not to be adversarial. Sizes are limited, but total time
+  and memory are not, so run the checker on untrusted artifacts only under
+  external resource limits.
 
 ## More documentation
 
+- [CLI](docs/CLI.md): commands, files, layout settings and JSON reports.
+- [API](docs/API.md): the Rust functions, types and errors.
 - [Architecture](docs/ARCHITECTURE.md): modules and how they depend on each other.
+- [Specification](SPEC.md): the relations, the certificates and the
+  correctness argument.
 - [Testing](docs/TESTING.md): the test suite, mutation testing and the optional
   check against a real prover.
-- [Scale](docs/SCALE.md): sizes, run times and prover times of the strategies
-  on the `sha256` fixture and larger circomlib circuits.
+- [Scale](docs/SCALE.md): sizes, run times and prover times of the strategies.
 - [Changelog](CHANGELOG.md): changes and the versioning policy.
 - [Provenance](docs/provenance.json): hashes of the schema, the vendored
   circomlib files and the fixtures.
@@ -170,5 +183,6 @@ paper that every accepted artifact is sound and complete.
 
 The compiler is licensed under either the [Apache License, Version 2.0](LICENSE-APACHE)
 or the [MIT license](LICENSE-MIT), at your option. Third-party files keep their
-own licenses: the PILout schema is `MIT OR Apache-2.0`, and the circomlib
-templates used by the fixtures are GPL-3.0-or-later. See [THIRD_PARTY.md](THIRD_PARTY.md).
+own licenses: the PILout schema in `vendor/pilout` is `MIT OR Apache-2.0`, and
+the circomlib templates in `vendor/circomlib`, used only by the fixtures, are
+GPL-3.0-or-later. See [THIRD_PARTY.md](THIRD_PARTY.md).

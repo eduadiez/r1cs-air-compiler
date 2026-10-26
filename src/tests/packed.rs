@@ -166,8 +166,8 @@ fn unused_public_wire_gets_its_own_row() {
 
 #[test]
 fn columns_layouts_give_each_run_of_a_shape_one_slot() {
-    // 100 equations of one shape: at 64 rows they form two runs, in two bands
-    // side by side; at 128 rows they fit in one.
+    // 100 equations of one shape form one run: at 64 rows it takes two
+    // pieces side by side, each with its own slot; at 128 rows, one piece.
     let source = connected_source(100);
     for (min_rows, runs) in [(64, 2), (128, 1)] {
         let mut settings = config(3);
@@ -185,7 +185,7 @@ fn columns_layouts_give_each_run_of_a_shape_one_slot() {
 #[test]
 fn columns_layouts_put_equations_that_share_wires_in_one_row() {
     // 128 pairs `a · b = c` and `2c · d = e`: joined, each pair needs 5 cells
-    // instead of 6, in two runs of 64 rows with two slots each.
+    // instead of 6, in two pieces of 64 rows with two slots each.
     let pairs = 128;
     let equations: Vec<[Vec<(u32, u64)>; 3]> = (0..pairs)
         .flat_map(|i| {
@@ -225,7 +225,7 @@ fn bundle_width_is_checked() {
 
 #[test]
 fn columns_layouts_wider_than_the_limit_are_rejected() {
-    // 1025 runs of a single-wire shape need 1025 columns at 64 rows.
+    // 64 · 1025 single-wire equations of one shape need 1025 columns at 64 rows.
     let n = 64 * 1025;
     let equations: Vec<_> = (1..=n).map(|wire| [wire, wire, wire]).collect();
     let source = r1cs_bytes([n + 1, 0, 0, n], &equations);
@@ -379,7 +379,8 @@ fn changed_constraints_are_rejected() {
 
 #[test]
 fn changed_challenge_in_the_copy_argument_is_rejected() {
-    // Swap one challenge leaf, keeping all operands valid.
+    // Turn the last α operand into γ, or the last γ into α; every operand
+    // stays valid.
     for (from, to) in [(0, 1), (1, 0)] {
         rejects_ratio("copy recurrence differs from the expected one", |p| {
             use pb::expression::Operation;

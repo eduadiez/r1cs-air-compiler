@@ -1,58 +1,66 @@
 # Architecture
 
-The crate has three parts: parsing the source, building artifacts (the
-compiler), and checking them (the checkers). Witness projection is a separate
-step that runs on an artifact the packed checker has accepted.
+The crate has three parts: the parser, the compiler (which builds artifacts)
+and the checkers (which accept or reject them). Witness projection runs only
+on a packed artifact the packed checker has accepted.
 
-| Module | Responsibility |
-| --- | --- |
-| `api` | Public functions: each compile function builds an artifact, then runs the checker on it |
-| `error` | The `Error` type: a message, its kind (invalid input or size limit) and the error that caused it |
-| `certificate` | Data carried by certificates (helper network, layout, both certificate types) and their accessors; no building or checking |
-| `contract` | Constants shared by the compiler and the checkers: relation, symbol, hint and constraint names, stages and size limits |
-| `field` | Goldilocks arithmetic, the field element type and the two constants that define copy labels |
-| `r1cs` | R1CS and WTNS parser |
-| `compiler`, `dag` | Reference PILout, with optional expression simplification and reuse |
-| `emit` | PILout building blocks shared by the two compilers (symbols, hints, encoding) |
-| `network`, `layout` | Helper wires, equation shapes and placement of equations in rows |
-| `packed` | Packed PILout, including the copy argument |
-| `polynomial` | Exact polynomials and the expression evaluator used by both checkers |
-| `pilout_check` | Checks shared by both checkers: decoding, common PILout fields, symbols and hint layout |
-| `checker` | Reference checker |
-| `placement_check` | Checks that helpers and placement preserve the source equations |
-| `packed_check` | Packed checker: rebuilds the expected PILout contents and compares |
-| `witness` | Checks a Circom witness and copies its values into the trace cells |
-| `src/bin/air` | The `air` command, a thin layer over the public API |
+```text
+api ──→ compiler side: compiler, dag, emit, network, layout, packed
+  └──→ checker side:  checker, packed_check, placement_check, pilout_check, polynomial, witness
+shared by both:       r1cs, field, contract, certificate, error, protobuf schema
+```
+
+## Modules
+
+All modules are in `src/`.
+
+| Module | Side | Responsibility |
+| --- | --- | --- |
+| `api` | entry | Public functions: each compile function builds an artifact, then runs the checker on it |
+| `error` | shared | The `Error` type: a message, its kind (invalid input or size limit) and the error that caused it |
+| `r1cs` | shared | R1CS and WTNS parser |
+| `field` | shared | Goldilocks arithmetic, the field element type and the two constants that define copy labels |
+| `contract` | shared | Constants only: relation, symbol, hint and constraint names, stages and size limits |
+| `certificate` | shared | Certificate data (helper network, layout, both certificate types) and accessors; no building or checking |
+| `compiler`, `dag` | compiler | Reference PILout, with optional expression simplification and reuse (`dag`) |
+| `emit` | compiler | PILout building blocks shared by both compilers: symbols, hints, encoding |
+| `network` | compiler | Helper wires, and the shape of each equation |
+| `layout` | compiler | Placement of equations in cells, by strategy |
+| `packed` | compiler | Packed PILout: slot constraints, public bindings and the copy argument, in that order |
+| `polynomial` | checker | Exact polynomials and the expression evaluator |
+| `pilout_check` | checker | Checks shared by both checkers: decoding, common PILout fields, symbols and hint layout |
+| `checker` | checker | Reference checker |
+| `placement_check` | checker | Checks that the helpers and the placement preserve the source equations and public order |
+| `packed_check` | checker | Packed checker: rebuilds the expected PILout contents and compares |
+| `witness` | checker | Checks a Circom witness and copies its values into the trace cells |
+| `bin/air` | entry | The `air` command, a thin layer over the public API |
 
 ## Compiler and checkers
 
 The compiler proposes an artifact; only the checker decides whether it is
-accepted. The checkers share the field arithmetic, the constants in `contract`,
-the certificate data types, the parser and the protobuf schema with the
-compiler, but never import its modules (`compiler`, `dag`, `emit`, `network`,
-`layout`, `packed`); a test fails if they do. Those shared parts are therefore
-trusted by both sides. Keep the two sides separate even where their code looks
-similar: merging them would let a compiler bug hide from the checker.
+accepted. The checker-side modules never import a compiler-side module, and
+the test `checkers_do_not_use_compiler_modules` in `src/tests/mod.rs` fails if
+they do. The reverse is allowed: `packed` runs `placement_check` on its own
+placement, which is how `plan_layout` checks a plan.
 
-Both compilers use `emit` for symbols, hints and the final encoding. The packed
-compiler adds slot constraints, public bindings and the copy argument, in that
-order.
-
-The checkers compare the actual PILout: constraint polynomials, fixed column
-values, symbols, hints and certificate fields.
+The shared modules are trusted by both sides. Keep the two sides separate even
+where their code looks similar: merging them would let a compiler bug hide
+from the checker.
 
 ## Build
 
-The Rust code for the protobuf schema is generated by `build.rs` into Cargo's
-build directory and is not committed. The schema and its license texts are
-committed in `vendor/pilout`. A build needs only Rust, the locked crates and `protoc`.
+`build.rs` generates the Rust code for the protobuf schema
+(`vendor/pilout/pilout.proto`) into Cargo's build directory; it is not
+committed. A build needs only Rust, the locked crates and `protoc`.
 
-## Interfaces and tests
+## Tests
 
-The public API exports the artifact, certificate, report and error types and
-the layout settings; everything else is private. Tests that need private access
-(corrupted artifacts and certificates, and property tests over random circuits)
-are internal test modules in `src/tests/`. Separate integration tests cover the
-public API (`tests/api.rs`) and the `air` executable (`tests/cli.rs`). Fuzz
-targets live in their own package in `fuzz/`. See [API](API.md), [CLI](CLI.md),
-[testing](TESTING.md) and [the specification](../SPEC.md).
+| Location | What it tests |
+| --- | --- |
+| `src/tests/` | Internal tests that need private access: corrupted artifacts and certificates, and property tests over random circuits |
+| `tests/api.rs` | The public API |
+| `tests/cli.rs` | The `air` executable and the fixtures |
+| `fuzz/` | Fuzz targets, in their own package |
+
+See [Testing](TESTING.md), [API](API.md), [CLI](CLI.md) and
+[the specification](../SPEC.md).

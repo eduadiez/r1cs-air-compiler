@@ -172,7 +172,7 @@ fn library_error(context: String) -> impl FnOnce(air::Error) -> Failure {
     }
 }
 
-/// An I/O failure on `path`, after `action`.
+/// An I/O failure of `action` on `path`.
 fn io_error<'a>(action: &'static str, path: &'a Path) -> impl FnOnce(io::Error) -> Failure + 'a {
     move |e| Failure::new(Kind::Io, format!("{action} '{}': {e}", path.display()))
 }

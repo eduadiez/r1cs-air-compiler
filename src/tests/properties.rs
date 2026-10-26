@@ -245,7 +245,7 @@ fn check_packed_read_back(circuit: &Circuit, map: &[u32], trace: &[u64], publics
     assert_eq!(&values[1..=publics.len()], publics, "public values differ");
 }
 
-/// One change to a PILout that must change what it encodes.
+/// One change to a PILout: a constant, a column reference or a fixed value.
 #[derive(Clone, Debug)]
 enum Change {
     /// Replace the value of the `n`-th constant operand.

@@ -32,6 +32,7 @@ struct CopyColumns {
     columns: Vec<usize>,
     /// `S{c}` for each of those columns `c`.
     permuted: Vec<pb::Operand>,
+    /// `FIRST`, 1 on row 0 only.
     first: pb::Operand,
 }
 /// Column values that are 1 on the rows `on` and 0 elsewhere.
@@ -85,8 +86,8 @@ impl Builder {
     /// rows holding public cells are numbered `i = 0..q` and split into groups
     /// of `s = ceil(sqrt(q))`: `PH{h}` is 1 on rows with `i / s = h` and `PL{l}`
     /// on rows with `i % s = l`, so `PH · PL` selects one row with about
-    /// `2·sqrt(q)` columns. For each column `c` holding public cells, `PA{c}` is 1 on those
-    /// rows, and the constraint is `PA · a[c] = Σ PH · PL · public`.
+    /// `2·sqrt(q)` columns. For each column `c` holding public cells, `PA{c}`
+    /// is 1 on those rows, and the constraint is `PA · a[c] = Σ PH · PL · public`.
     fn bind_publics(&mut self, layout: &Layout) {
         let public_rows: BTreeSet<_> = layout
             .public_bindings
@@ -198,9 +199,10 @@ impl Builder {
             first,
         })
     }
-    /// Copy argument (SPEC.md, "Copy argument"): ratio columns of degree at
-    /// most `MAX_DEGREE`, the running product `z[r] · den[r] = z[r-1] · num[r]` (cyclic,
-    /// so row 0 reads the last row) and `LAST · (z - 1) = 0`.
+    /// Copy argument (SPEC.md, "Copy argument"): the ratio constraints, the
+    /// running product `z[r] · den[r] = z[r-1] · num[r]` (cyclic, so row 0
+    /// reads the last row) and `LAST · (z - 1) = 0`, each of degree at most
+    /// `MAX_DEGREE`.
     fn constrain_copies(&mut self, columns: CopyColumns) {
         // No simplification: the checker compares these constraints operation
         // by operation.
