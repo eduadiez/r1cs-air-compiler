@@ -32,6 +32,15 @@ The script runs on Linux only. It may reuse the pil2-proofman checkout in
 directories. pil2-proofman is built from its own `Cargo.lock`; the script only
 adds the witness library to it.
 
+`prove-time.sh WORK_DIR SOURCE INPUT LAYOUT [RUNS]` reuses the build of an
+earlier `run.sh` in `WORK_DIR` to time the prover on one packed artifact. It
+compiles `SOURCE` with the layout configuration `LAYOUT`, projects the witness
+`INPUT`, runs the setup and generates and verifies `RUNS` proofs (3 by
+default), then prints the median time of each prover phase as JSON. The FRI
+query phase includes a proof-of-work search whose length depends on the
+transcript, so it differs between artifacts by chance; `withoutGrinding`, the
+proof time minus that phase, is the figure to compare layouts by.
+
 The files under `witness/` build only inside the pil2-proofman workspace, which
 supplies their dependencies (`MIT OR Apache-2.0`); `add_member.py` adds them to
 that workspace. Nothing builds them automatically, so they are only exercised

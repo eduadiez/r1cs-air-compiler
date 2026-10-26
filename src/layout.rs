@@ -2,7 +2,7 @@
 //! ties between rows are broken by the order in which the rows last changed.
 use crate::{
     certificate::{Binding, Group, Layout, Network, Placement, Selector, Slot},
-    contract::{MAX_CELLS, MAX_ROWS, MIN_ROWS},
+    contract::{MAX_CELLS, MAX_ROWS, MAX_WIDTH, MIN_ROWS, MIN_WIDTH},
     ensure, ensure_within_limit, network, Result,
 };
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,12 @@ pub enum Strategy {
     /// First place each group of wire-connected equations that fits in one row
     /// together, then continue as `Local`.
     Components,
+    /// Give each shape its own band of columns, filled from the first row down,
+    /// so that the equations of a shape share few slots and selectors. The
+    /// trace has exactly `minRows` rows (when they suffice) and as many columns
+    /// as the bands need; `options.width` only bounds each equation. Wires are
+    /// not kept together, so they occupy more cells.
+    Columns,
 }
 /// Settings for building a packed layout.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,15 +122,11 @@ impl Placer {
         columns
     }
 }
-/// Place every equation of `network` in rows of `width` cells.
+/// Place every equation of `network` and bind the public values.
 ///
-/// Equations are grouped by canonical shape. With `Strategy::Components`, each
-/// connected group of wires that fits in one row is placed first, together
-/// with all its equations. Remaining equations with several wires go widest
-/// first: `Local` and `Components` prefer a row already holding their wires,
-/// `Mixed` takes the fullest row with room. Single-wire equations join the row
-/// where their wire first appears; public wires that appear in no equation get
-/// a cell of their own.
+/// Equations are grouped by canonical shape. `Strategy::Columns` places them
+/// in bands of columns (see [`place_in_bands`]); the other strategies fill
+/// rows of `options.width` cells (see [`place_in_rows`]).
 pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
     let (width, strategy, min_rows) = (config.options.width, config.strategy, config.min_rows);
     ensure(
@@ -132,19 +134,69 @@ pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
         format_args!("minRows must be a power of two, at least {MIN_ROWS}"),
     )?;
     let (groups, entries) = shape_entries(network, width)?;
+    let placed = if strategy == Strategy::Columns {
+        place_in_bands(&entries, network, min_rows)?
+    } else {
+        place_in_rows(&entries, network, width, strategy)
+    };
+    let arithmetic_rows = placed
+        .placements
+        .iter()
+        .map(|placement| placement.row + 1)
+        .max()
+        .unwrap_or(0);
+    let rows = placed.used_rows.next_power_of_two().max(min_rows);
+    ensure_within_limit(
+        rows <= MAX_ROWS && rows.saturating_mul(placed.width) <= MAX_CELLS,
+        format_args!("layout exceeds {MAX_ROWS} rows or {MAX_CELLS} cells"),
+    )?;
+    let (slots, selectors) = slots_and_selectors(&placed.placements);
+    Ok(Layout {
+        min_rows,
+        width: placed.width,
+        rows,
+        used_rows: placed.used_rows,
+        arithmetic_rows,
+        groups,
+        placements: placed.placements,
+        slots,
+        selectors,
+        public_bindings: placed.public_bindings,
+        requires_copy: placed.requires_copy,
+    })
+}
+
+/// Equations and public values placed in a trace of `width` columns.
+struct Placed {
+    width: usize,
+    placements: Vec<Placement>,
+    public_bindings: Vec<Binding>,
+    /// Rows holding an equation or a public cell, at least 1.
+    used_rows: usize,
+    requires_copy: bool,
+}
+
+/// Fill rows of `width` cells. With `Strategy::Components`, each connected
+/// group of wires that fits in one row is placed first, together with all its
+/// equations. Remaining equations with several wires go widest first: `Local`
+/// and `Components` prefer a row already holding their wires, `Mixed` takes
+/// the fullest row with room. Single-wire equations join the row where their
+/// wire first appears; public wires that appear in no equation get a cell of
+/// their own.
+fn place_in_rows(entries: &[Entry], network: &Network, width: usize, strategy: Strategy) -> Placed {
     let mut placer = Placer::new(width, network.wires);
     let mut placements = vec![];
     let mut handled = BTreeSet::new();
     if strategy == Strategy::Components {
         place_components(
             &mut placer,
-            &entries,
+            entries,
             network.wires,
             &mut placements,
             &mut handled,
         );
     }
-    place_multi_wire(&mut placer, &entries, &handled, strategy, &mut placements);
+    place_multi_wire(&mut placer, entries, &handled, strategy, &mut placements);
     for entry in entries
         .iter()
         .filter(|entry| !handled.contains(&entry.index) && entry.wires.len() == 1)
@@ -160,31 +212,156 @@ pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
         }
         placements.push(entry.at(0, vec![]));
     }
-    let arithmetic_rows = placements
-        .iter()
-        .map(|placement| placement.row + 1)
-        .max()
-        .unwrap_or(0);
     let public_bindings = bind_publics(&mut placer, network.publics);
-    let used_rows = placer.rows.len().max(1);
-    let rows = used_rows.next_power_of_two().max(min_rows);
-    ensure_within_limit(
-        rows <= MAX_ROWS && rows.saturating_mul(width) <= MAX_CELLS,
-        format_args!("layout exceeds {MAX_ROWS} rows or {MAX_CELLS} cells"),
-    )?;
-    let (slots, selectors) = slots_and_selectors(&placements);
-    Ok(Layout {
-        min_rows,
+    Placed {
         width,
-        rows,
-        used_rows,
-        arithmetic_rows,
-        groups,
         placements,
-        slots,
-        selectors,
         public_bindings,
+        used_rows: placer.rows.len().max(1),
         requires_copy: placer.locations.iter().any(|r| r.len() > 1),
+    }
+}
+
+/// Columns `start..start + width`, whose rows `0..used` are taken.
+struct Band {
+    start: usize,
+    width: usize,
+    used: usize,
+}
+
+/// Bands of columns side by side, each `rows` rows high.
+struct Bands {
+    rows: usize,
+    bands: Vec<Band>,
+    /// Columns taken by all bands.
+    width: usize,
+}
+impl Bands {
+    /// Take `count <= rows` consecutive rows of `width` columns: in the
+    /// narrowest band at least `width` wide with room, the fullest on ties
+    /// (then the first), or in a new band. Returns the first column and row.
+    fn take(&mut self, width: usize, count: usize) -> (usize, usize) {
+        let rows = self.rows;
+        let fitting = self
+            .bands
+            .iter_mut()
+            .filter(|band| band.width >= width && rows - band.used >= count)
+            .min_by_key(|band| (band.width - width, rows - band.used - count));
+        let band = match fitting {
+            Some(band) => band,
+            None => {
+                self.bands.push(Band {
+                    start: self.width,
+                    width,
+                    used: 0,
+                });
+                self.width += width;
+                self.bands.last_mut().expect("band just added")
+            }
+        };
+        let first = band.used;
+        band.used += count;
+        (band.start, first)
+    }
+}
+
+/// The first cell of each wire and its number of cells.
+struct Occupied {
+    first: Vec<Option<(usize, usize)>>,
+    cells: Vec<usize>,
+}
+impl Occupied {
+    fn add(&mut self, wire: u32, row: usize, column: usize) {
+        self.first[wire as usize].get_or_insert((row, column));
+        self.cells[wire as usize] += 1;
+    }
+}
+
+/// Place the equations of each shape, in runs of at most `rows` equations,
+/// one equation per row in a band of columns as wide as the shape; a run shares
+/// one slot. Shapes go widest first, then most used first. Public wires that
+/// appear in no equation get a cell of their own, and each public value binds
+/// to the first cell its wire was given.
+fn place_in_bands(entries: &[Entry], network: &Network, rows: usize) -> Result<Placed> {
+    let mut by_shape: BTreeMap<usize, Vec<&Entry>> = BTreeMap::new();
+    for entry in entries.iter().filter(|entry| !entry.wires.is_empty()) {
+        by_shape.entry(entry.shape).or_default().push(entry);
+    }
+    let mut shapes: Vec<_> = by_shape.into_iter().collect();
+    shapes.sort_by_key(|(shape, entries)| {
+        (
+            std::cmp::Reverse(entries[0].wires.len()),
+            std::cmp::Reverse(entries.len()),
+            *shape,
+        )
+    });
+    let mut bands = Bands {
+        rows,
+        bands: vec![],
+        width: 0,
+    };
+    let mut occupied = Occupied {
+        first: vec![None; network.wires as usize],
+        cells: vec![0; network.wires as usize],
+    };
+    let mut placements = vec![];
+    for (_, run) in &shapes {
+        let width = run[0].wires.len();
+        for chunk in run.chunks(rows) {
+            let (start, top) = bands.take(width, chunk.len());
+            for (offset, entry) in chunk.iter().enumerate() {
+                let row = top + offset;
+                for (position, wire) in entry.wires.iter().enumerate() {
+                    occupied.add(*wire, row, start + position);
+                }
+                placements.push(entry.at(row, (start..start + width).collect()));
+            }
+        }
+    }
+    // Constant equations occupy no cells; they need only some row to exist.
+    for entry in entries.iter().filter(|entry| entry.wires.is_empty()) {
+        placements.push(entry.at(0, vec![]));
+    }
+    let unplaced: Vec<u32> = (1..=network.publics)
+        .filter(|wire| occupied.first[*wire as usize].is_none())
+        .collect();
+    for chunk in unplaced.chunks(rows) {
+        let (column, top) = bands.take(1, chunk.len());
+        for (offset, wire) in chunk.iter().enumerate() {
+            occupied.add(*wire, top + offset, column);
+        }
+    }
+    let public_bindings = (0..network.publics)
+        .map(|public| {
+            let wire = public + 1;
+            let (row, col) = occupied.first[wire as usize].expect("every public wire has a cell");
+            Binding {
+                wire,
+                public,
+                row,
+                col,
+            }
+        })
+        .collect();
+    ensure_within_limit(
+        bands.width <= MAX_WIDTH,
+        format_args!(
+            "the shapes need {} columns in {rows} rows, more than {MAX_WIDTH}; raise minRows",
+            bands.width
+        ),
+    )?;
+    Ok(Placed {
+        width: bands.width.max(MIN_WIDTH),
+        placements,
+        public_bindings,
+        used_rows: bands
+            .bands
+            .iter()
+            .map(|band| band.used)
+            .max()
+            .unwrap_or(0)
+            .max(1),
+        requires_copy: occupied.cells.iter().any(|count| *count > 1),
     })
 }
 

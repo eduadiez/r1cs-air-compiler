@@ -121,7 +121,7 @@ fn satisfies(circuit: &Circuit, values: &[u64]) -> bool {
 }
 
 fn layout_config() -> impl Strategy<Value = LayoutConfig> {
-    (3usize..=12, any::<bool>(), 0usize..3, 0usize..3)
+    (3usize..=12, any::<bool>(), 0usize..3, 0usize..4)
         .prop_flat_map(|(width, fold, reuse, strategy)| {
             (Just((width, fold, reuse, strategy)), 2..width)
         })
@@ -132,7 +132,12 @@ fn layout_config() -> impl Strategy<Value = LayoutConfig> {
                 reuse: [Reuse::None, Reuse::Prefix, Reuse::Available][reuse],
                 fold,
             },
-            strategy: [Placement::Mixed, Placement::Local, Placement::Components][strategy],
+            strategy: [
+                Placement::Mixed,
+                Placement::Local,
+                Placement::Components,
+                Placement::Columns,
+            ][strategy],
             min_rows: 64,
         })
 }

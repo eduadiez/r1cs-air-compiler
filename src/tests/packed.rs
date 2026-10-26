@@ -1,8 +1,8 @@
 //! Packed compiler, packed checker and witness projection.
 use super::{
-    air, assert_rejected, challenge_operand, changed_pilout, constraint_labeled, fixed_column,
-    fixed_operand, hint_fields, r1cs_bytes, reuse_expression, with_unreferenced_operand,
-    witness_column, wtns_bytes, Change,
+    air, assert_limit, assert_rejected, challenge_operand, changed_pilout, constraint_labeled,
+    fixed_column, fixed_operand, hint_fields, r1cs_bytes, reuse_expression,
+    with_unreferenced_operand, witness_column, wtns_bytes, Change,
 };
 use crate::{
     contract::{label, REFERENCE_RELATION},
@@ -136,6 +136,38 @@ fn unused_public_wire_gets_its_own_row() {
     assert_eq!(a.certificate.layout.arithmetic_rows, 1);
     assert_eq!(a.certificate.layout.used_rows, 2);
     assert!(packed_check::check(&source, &a.pilout, &a.certificate).is_ok());
+}
+
+#[test]
+fn columns_layouts_give_each_run_of_a_shape_one_slot() {
+    // 100 equations of one shape: at 64 rows they form two runs, in two bands
+    // side by side; at 128 rows they fit in one.
+    let source = connected_source(100);
+    for (min_rows, runs) in [(64, 2), (128, 1)] {
+        let mut settings = config(3);
+        settings.strategy = Strategy::Columns;
+        settings.min_rows = min_rows;
+        let a = packed::compile(&source, &settings).unwrap();
+        let layout = &a.certificate.layout;
+        assert_eq!(layout.rows, min_rows);
+        assert_eq!(layout.width, 3 * runs);
+        assert_eq!(layout.slots.len(), runs);
+        packed_check::check(&source, &a.pilout, &a.certificate).unwrap();
+    }
+}
+
+#[test]
+fn columns_layouts_wider_than_the_limit_are_rejected() {
+    // 1025 runs of a single-wire shape need 1025 columns at 64 rows.
+    let n = 64 * 1025;
+    let equations: Vec<_> = (1..=n).map(|wire| [wire, wire, wire]).collect();
+    let source = r1cs_bytes([n + 1, 0, 0, n], &equations);
+    let mut settings = config(3);
+    settings.strategy = Strategy::Columns;
+    assert_limit(
+        packed::compile(&source, &settings),
+        "the shapes need 1025 columns in 64 rows, more than 1024; raise minRows",
+    );
 }
 
 #[test]

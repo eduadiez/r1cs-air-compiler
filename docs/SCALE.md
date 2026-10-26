@@ -81,6 +81,39 @@ with the flags in `docs/provenance.json` (`fixtureToolchain`), and run
 {"options":{"width":64,"chunk":32,"reuse":"available","fold":true},"strategy":"local","minRows":64}
 ```
 
+## Prover time
+
+Proof times with pil2-proofman, measured with
+`tools/backend-check/prove-time.sh` (median of 3 or 5 runs, same machine), for
+`Sha256(n)` built and laid out as in "Larger circuits". Times are in
+milliseconds and leave out the proof-of-work search (see the
+[backend check](../tools/backend-check/README.md)), which took 20–400 ms per
+proof regardless of the layout.
+
+| Message bits | Layout (`width`, `chunk`, `strategy`, `minRows`) | Rows × columns | Slots | Selectors | Quotient | Proof without search |
+| --- | --- | --- | --- | --- | --- | --- |
+| 256 (fixture) | 64, 32, `local`, 64 | 1024 × 64 | 911 | 379 | 7 | 20 |
+| 256 (fixture) | 64, 32, `columns`, 512 | 512 × 264 | 153 | 100 | 5 | 34 |
+| 1024 | 64, 32, `local`, 64 | 4096 × 64 | 1881 | 986 | 39 | 96 |
+| 1024 | 64, 32, `columns`, 4096 | 4096 × 132 | 148 | 130 | 13 | 64 |
+| 1024 | 64, 32, `columns`, 2048 | 2048 × 223 | 169 | 129 | 11 | 60 |
+| 4096 | 64, 32, `local`, 64 | 16384 × 64 | 2577 | 1435 | 175 | 348 |
+| 4096 | 96, 16, `local`, 64 | 8192 × 96 | 2084 | 999 | 94 | 215 |
+| 4096 | 64, 32, `columns`, 8192 | 8192 × 164 | 159 | 130 | 30 | 140 |
+| 4096 | 32, 16, `columns`, 4096 | 4096 × 280 | 219 | 157 | 23 | 134 |
+
+Most of the time of the row-filling strategies goes to evaluating the
+constraints (the quotient), and that grows with the number of slots and
+selectors: every slot is its own constraint, and every selector a fixed
+column. `columns` gives each shape its own band of columns, so slots and
+selectors stay near the number of shapes, at the cost of a wider trace with
+more copies. On the two larger circuits it took 35–60% less time; on the
+small fixture the wider copy argument costs more than it saves.
+
+The same layouts also give a smaller PILout: `Sha256(8192)` with width 64,
+chunks of 32 and `columns` compiles to a 26 MB PILout at 8192 rows and 47 MB
+at 32768 rows, against 127 MB with `local`.
+
 ## Reproducing
 
 ```sh

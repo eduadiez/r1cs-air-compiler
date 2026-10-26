@@ -46,12 +46,12 @@ described in [the specification](../SPEC.md); `certificate.json` and
 
 | Field | Values | Meaning |
 | --- | --- | --- |
-| `options.width` | `3..=1024` | Columns per row, and the most distinct wires one equation may use |
+| `options.width` | `3..=1024` | Columns per row, and the most distinct wires one equation may use (with `columns`, only the latter) |
 | `options.chunk` | `2..width` | Terms replaced by each new helper wire |
 | `options.reuse` | `none`, `prefix`, `available` | When an existing helper may stand in for terms of a later equation |
 | `options.fold` | `true`, `false` | Rewrite `k · B = C` with a constant `k` as a linear equation first |
-| `strategy` | `mixed`, `local`, `components` | How equations are assigned to rows |
-| `minRows` | power of two, at least 64 | Smallest number of rows |
+| `strategy` | `mixed`, `local`, `components`, `columns` | How equations are assigned to rows |
+| `minRows` | power of two, at least 64 | Smallest number of rows; with `columns`, the number of rows |
 
 Unknown fields are rejected. The values of `reuse` and `strategy` mean:
 
@@ -63,7 +63,13 @@ Unknown fields are rejected. The values of `reuse` and `strategy` mean:
 - `strategy: mixed`: put each equation in the fullest row that still has room;
 - `strategy: local`: prefer a row that already holds some of the equation's wires;
 - `strategy: components`: first place each group of wire-connected equations
-  that fits in one row together, then continue as `local`.
+  that fits in one row together, then continue as `local`;
+- `strategy: columns`: give the equations of each shape a band of columns,
+  one equation per row from the top down, starting a new band every `minRows`
+  equations; leftover runs share bands with room. The trace has `minRows`
+  rows and as many columns as the bands need, at most 1024 (otherwise the
+  command fails with kind `limit`). Wires get more cells, but the PILout has
+  far fewer slot constraints and selector columns.
 
 ## Reports
 
