@@ -79,7 +79,7 @@ fn auxiliary_equation(auxiliary: &Auxiliary) -> Equation {
         canonical(terms.chain([(auxiliary.id, FieldElement(P - 1))])),
     ]
 }
-/// Auxiliary equations followed by the rewritten circuit source equations: the order in
+/// Auxiliary definitions followed by the rewritten equations: the order in
 /// which [`Placement::index`](crate::certificate::Placement::index) numbers them.
 pub fn equations(rewritten: &RewrittenCircuit) -> Vec<Equation> {
     rewritten
@@ -260,7 +260,7 @@ fn choose_terms(
 /// An equation with its wires abstracted: equations with the same gate type differ
 /// only in which wires they use, so one constraint can check all of them.
 pub struct CanonicalGate {
-    /// Serialized `terms`; equal keys mean equal gate types. [`shape`] keeps the
+    /// Serialized `terms`; equal keys mean equal gate types. [`canonical_gate`] keeps the
     /// orientation of `A` and `B` with the smaller key, so the format of this
     /// string is part of the compiler's deterministic output.
     pub key: String,

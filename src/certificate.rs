@@ -60,7 +60,7 @@ pub struct Placement {
     pub row: usize,
     pub columns: Vec<usize>,
 }
-/// One PILout constraint: gate type `shape` applied to `columns`, enforced on
+/// One PILout constraint: gate type `gate_type` applied to `columns`, enforced on
 /// `rows` by selector column `selector`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

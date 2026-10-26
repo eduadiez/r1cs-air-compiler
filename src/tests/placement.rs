@@ -158,7 +158,7 @@ fn changed_rewritten_equation_is_rejected() {
 }
 
 #[test]
-fn shapes_are_checked() {
+fn gate_types_are_checked() {
     rejects("gate type 0: id out of order", |_, l| {
         l.gate_types[0].id = 1
     });
@@ -212,7 +212,7 @@ fn shapes_are_checked() {
 }
 
 #[test]
-fn shapes_must_give_back_the_placed_equation() {
+fn gate_types_must_give_back_the_placed_equation() {
     let changed = "its gate type and wires give a different equation";
     // A changed coefficient in any of A, B or C changes the equation.
     for side in 0..3 {
@@ -335,9 +335,9 @@ fn placements_are_checked() {
     rejects(
         &format!("equation {first}: its gate type and wires give a different equation"),
         |_, l| {
-            let shape = l.placements[0].gate_type;
-            let k = l.gate_types[shape].terms[2][0].1 .0;
-            l.gate_types[shape].terms[2][0].1 = FieldElement(if k == 1 { 2 } else { 1 });
+            let gate_type = l.placements[0].gate_type;
+            let k = l.gate_types[gate_type].terms[2][0].1 .0;
+            l.gate_types[gate_type].terms[2][0].1 = FieldElement(if k == 1 { 2 } else { 1 });
         },
     );
     rejects(
@@ -359,7 +359,7 @@ fn placements_are_checked() {
 }
 
 #[test]
-fn unused_selectors_and_shapes_are_rejected() {
+fn unused_selectors_and_gate_types_are_rejected() {
     rejects("no gate uses it", |_, l| {
         let id = l.selectors.len();
         l.selectors.push(Selector { id, rows: vec![0] });

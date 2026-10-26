@@ -134,7 +134,7 @@ impl Placer {
 /// Place every equation of `rewritten` and bind the public values.
 ///
 /// Equations are grouped by canonical gate type. `Strategy::Columns` places them
-/// in stacks of row groups (see [`place_in_bands`]); the other strategies fill rows
+/// in stacks of row groups (see [`place_in_stacks`]); the other strategies fill rows
 /// of `options.width` cells (see [`place_in_rows`]).
 pub fn pack(rewritten: &RewrittenCircuit, config: &LayoutConfig) -> Result<Layout> {
     let (width, strategy, min_rows) = (config.options.width, config.strategy, config.min_rows);
@@ -157,7 +157,7 @@ pub fn pack(rewritten: &RewrittenCircuit, config: &LayoutConfig) -> Result<Layou
             (width..=MAX_WIDTH).contains(&row_group_width),
             format_args!("rowGroupWidth must be in options.width..={MAX_WIDTH}"),
         )?;
-        place_in_bands(&entries, rewritten, min_rows, row_group_width)?
+        place_in_stacks(&entries, rewritten, min_rows, row_group_width)?
     } else {
         place_in_rows(&entries, rewritten, width, strategy)
     };
@@ -525,7 +525,7 @@ struct RowGroup<'a> {
     /// Distinct wires in order of first appearance; wire `i` goes to the
     /// `i`-th column of the segment that holds the row group.
     wires: Vec<u32>,
-    /// CanonicalGate and wire positions of each member. Row groups with equal keys
+    /// Gate type and wire positions of each member. Row groups with equal keys
     /// differ only in which wires they use, so they can share gates.
     key: Vec<(usize, Vec<u32>)>,
 }
@@ -552,12 +552,12 @@ impl<'a> RowGroup<'a> {
                 self.wires.push(*wire);
             }
         }
-        for (shape, members) in other.key {
+        for (gate_type, members) in other.key {
             let moved = members
                 .iter()
                 .map(|p| positions[&other.wires[*p as usize]])
                 .collect();
-            self.key.push((shape, moved));
+            self.key.push((gate_type, moved));
         }
         self.members.extend(other.members);
         self
@@ -586,7 +586,7 @@ const PERMUTATION_COLUMN_COST: usize = 13;
 /// Cost, in gates, of `count` row groups of one key with `members` equations
 /// each: one gate per member for every segment of at most `rows` row groups, plus
 /// `GATES_PER_SELECTOR` when the last segment is shorter than `rows`.
-fn run_cost(count: usize, members: usize, rows: usize) -> f64 {
+fn stack_cost(count: usize, members: usize, rows: usize) -> f64 {
     let runs = count.div_ceil(rows);
     let partial = usize::from(count % rows != 0);
     (runs * members) as f64 + partial as f64 * GATES_PER_SELECTOR
@@ -612,7 +612,7 @@ fn shared(a: &[(u32, u32)], b: &[(u32, u32)]) -> Vec<(u32, u32)> {
     pairs
 }
 
-/// GateType equations into row groups of at most `max_width` wires. Each round
+/// Group equations into row groups of at most `max_width` wires. Each round
 /// collects, for every pair of row groups that share a wire, the pattern
 /// `(key, key, shared positions)` (see [`patterns`]). Going from the patterns
 /// that save the most cells to the least, it joins the disjoint pairs of a
@@ -734,7 +734,7 @@ struct Joins {
 /// This assumes the row groups of a group end up with the same key; they usually
 /// do, and when they do not (a later partner shares wires with an earlier
 /// one) only the estimate is off, not the width. A pattern's joins are made
-/// only if the change in [`run_cost`] of the groups involved is less than the
+/// only if the change in [`stack_cost`] of the stacks involved is less than the
 /// cells saved, in columns, times `GATES_PER_COLUMN`.
 fn choose_joins(
     row_groups: &[RowGroup],
@@ -779,7 +779,7 @@ fn choose_joins(
         if chosen.is_empty() {
             continue;
         }
-        // GateType counts after the joins: each host moves to its group
+        // Row group counts per key after the joins: each host moves to its group
         // followed by this pattern, and each partner leaves its key.
         let mut after: BTreeMap<usize, usize> = BTreeMap::new();
         let mut moved: BTreeMap<usize, usize> = BTreeMap::new();
@@ -790,15 +790,15 @@ fn choose_joins(
         }
         let before: f64 = after
             .keys()
-            .map(|g| run_cost(count[*g], members[*g], rows))
+            .map(|g| stack_cost(count[*g], members[*g], rows))
             .sum();
         let remaining: f64 = after
             .iter()
-            .map(|(g, n)| run_cost(*n, members[*g], rows))
+            .map(|(g, n)| stack_cost(*n, members[*g], rows))
             .sum();
         let joined: f64 = moved
             .iter()
-            .map(|(g, n)| run_cost(*n, members[*g] + members[b_key], rows))
+            .map(|(g, n)| stack_cost(*n, members[*g] + members[b_key], rows))
             .sum();
         let saved_columns = (chosen.len() * shared.len()) as f64 / rows as f64;
         if remaining + joined - before - saved_columns * GATES_PER_COLUMN >= 0.0 {
@@ -849,7 +849,7 @@ fn apply_joins<'a>(row_groups: Vec<RowGroup<'a>>, joins: &Joins) -> Vec<RowGroup
 /// then longest first, and are packed both as [`Guillotine`] and as
 /// [`Skyline`], keeping the cheaper one that fits in `MAX_WIDTH` columns (see
 /// `COLUMN_COST`). The width is at least `MIN_WIDTH`.
-fn place_in_bands(
+fn place_in_stacks(
     entries: &[Entry],
     rewritten: &RewrittenCircuit,
     rows: usize,
@@ -1011,30 +1011,30 @@ impl Entry {
     }
 }
 
-/// Canonical gate type groups and one unplaced entry per equation, in equation order.
+/// The distinct gate types and one unplaced entry per equation, in equation order.
 fn gate_entries(rewritten: &RewrittenCircuit, width: usize) -> Result<(Vec<GateType>, Vec<Entry>)> {
-    let mut groups = vec![];
+    let mut gate_types = vec![];
     let mut ids = BTreeMap::new();
     let mut entries = vec![];
     for (index, equation) in rewrite::equations(rewritten).iter().enumerate() {
-        let shape = rewrite::canonical_gate(equation);
-        ensure(shape.wires.len() <= width, "equation exceeds width")?;
-        let id = *ids.entry(shape.key).or_insert_with(|| {
-            let id = groups.len();
-            groups.push(GateType {
+        let gate = rewrite::canonical_gate(equation);
+        ensure(gate.wires.len() <= width, "equation exceeds width")?;
+        let id = *ids.entry(gate.key).or_insert_with(|| {
+            let id = gate_types.len();
+            gate_types.push(GateType {
                 id,
-                width: shape.wires.len(),
-                terms: shape.terms,
+                width: gate.wires.len(),
+                terms: gate.terms,
             });
             id
         });
         entries.push(Entry {
             index,
             gate_type: id,
-            wires: shape.wires,
+            wires: gate.wires,
         });
     }
-    Ok((groups, entries))
+    Ok((gate_types, entries))
 }
 
 /// Representative of `w`'s set in the union-find forest `parent`, with path halving.
@@ -1174,7 +1174,7 @@ fn bind_publics(placer: &mut Placer, publics: u32) -> Vec<Binding> {
     bindings
 }
 
-/// One gate per distinct `(shape, columns)` pair, active on the rows that use
+/// One gate per distinct `(gate type, columns)` pair, active on the rows that use
 /// it, and one selector per distinct set of active rows.
 fn gates_and_selectors(placements: &[Placement]) -> (Vec<Gate>, Vec<Selector>) {
     let mut gates: Vec<Gate> = vec![];

@@ -207,7 +207,7 @@ fn columns_layouts_put_equations_that_share_wires_in_one_row() {
 }
 
 #[test]
-fn bundle_width_is_checked() {
+fn row_group_width_is_checked() {
     let mut settings = config(8);
     settings.strategy = Strategy::Columns;
     for row_group_width in [8, 16, 1024] {
@@ -293,7 +293,7 @@ fn copy_arguments_without_ratio_columns_are_checked() {
 }
 
 #[test]
-fn row_counts_and_bundle_widths_are_limited() {
+fn row_counts_and_row_group_widths_are_limited() {
     let mut settings = config(3);
     settings.strategy = Strategy::Columns;
     settings.min_rows = 1 << 63;

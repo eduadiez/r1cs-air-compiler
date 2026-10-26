@@ -27,7 +27,7 @@ type Activation = (usize, Vec<usize>, usize);
 pub struct Checked {
     /// Wire in each cell, row by row; 0 marks an unused cell.
     pub map: Vec<u32>,
-    /// Auxiliary equations, then rewritten equations, as numbered by
+    /// Auxiliary definitions, then rewritten equations, as numbered by
     /// [`Placement::index`].
     pub equations: Vec<Equation>,
     /// Cells `(row, column)` of each wire.
@@ -251,7 +251,7 @@ fn residual(equation: &Equation, expanded: &[Linear]) -> Result<Quadratic> {
     Ok(result)
 }
 
-/// Check gate type groups, selectors and gates; return every activation of a gate.
+/// Check gate types, selectors and gates; return every activation of a gate.
 fn active_gates(layout: &Layout) -> Result<BTreeSet<Activation>> {
     for (id, group) in layout.gate_types.iter().enumerate() {
         check_gate_type(id, group, layout.width)?;
@@ -321,7 +321,7 @@ fn active_gates(layout: &Layout) -> Result<BTreeSet<Activation>> {
     Ok(active)
 }
 
-/// GateType ids match their positions; every term refers to the constant (position -1) or
+/// Gate type ids match their positions; every term refers to the constant (position -1) or
 /// a position of the gate type, in increasing order, with a coefficient in `1..P`.
 fn check_gate_type(id: usize, group: &GateType, width: usize) -> Result<()> {
     ensure(
@@ -395,7 +395,7 @@ impl Cells {
 }
 
 /// Check that every equation is placed exactly once and that the placed
-/// `(shape, columns, row)` triples are exactly the active ones. Fills `cells`
+/// `(gate type, columns, row)` triples are exactly the active ones. Fills `cells`
 /// and returns the last row holding an equation, plus one.
 fn place_equations(
     layout: &Layout,
