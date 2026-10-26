@@ -33,7 +33,10 @@ First version.
 - The copy argument covers only the columns holding a cell of a wire with
   several cells; columns holding only unused cells and wires with one cell get
   no `S` column, no factors and no share of the ratio columns.
-- The `sha256` fixture is laid out with the `columns` strategy at 1024 rows.
+- Optional scripts in `tools/backend-check` that prove every fixture with
+  pil2-proofman (`run.sh`), time the prover on one artifact (`prove-time.sh`)
+  and estimate the fastest layout of a circuit without proving
+  (`choose-layout.sh`).
 - `Error::kind` tells an invalid input (`ErrorKind::Invalid`) from one that
   exceeds a size limit (`ErrorKind::Limit`).
 - Types that only the library builds (artifacts, reports, `Witness`) and the
