@@ -39,9 +39,9 @@ show the order of magnitude on one machine, not a guarantee.
 
 | Command | Time | Peak memory |
 | --- | --- | --- |
-| `air compile --layout` (includes the check) | 2.1 s | 140 MB |
-| `air check` | 0.6 s | 100 MB |
-| `air plan` | 1.5 s | 60 MB |
+| `air compile --layout` (includes the check) | 1.4 s | 140 MB |
+| `air check` | 0.5 s | 100 MB |
+| `air plan` | 0.8 s | 60 MB |
 | `air witness` | 0.8 s | 100 MB |
 
 Most of the time of `plan` (and of `compile`, which plans first) goes into
