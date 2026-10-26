@@ -573,9 +573,11 @@ const SLOTS_PER_COLUMN: f64 = 22.0;
 const SLOTS_PER_SELECTOR: f64 = 0.5;
 
 /// Relative cost of a column outside and inside the copy argument, used to
-/// choose between the two packings of the columns strategy.
+/// choose between the two packings of the columns strategy. A copy column
+/// also brings about 1.5 committed stage-two columns and a fixed column of
+/// labels, so it costs about 2.6 times a column without copies.
 const COLUMN_COST: usize = 5;
-const COPY_COLUMN_COST: usize = 8;
+const COPY_COLUMN_COST: usize = 13;
 
 /// Weighted cost of `count` bundles of a key with `members` equations: one
 /// slot per member and run of at most `rows` bundles, and a selector for a
@@ -715,7 +717,9 @@ struct Joins {
 }
 
 /// Choose the joins of one round. A bundle takes partners one pattern at a
-/// time, and each partner joins at most one bundle. The cost of a pattern is
+/// time, and each partner joins at most one bundle. Within a pattern, pairs
+/// are taken greedily in order; a pair whose second bundle cannot be taken
+/// still keeps its first bundle out of the rest of that pattern. The cost of a pattern is
 /// estimated per group of bundles: a key followed by the patterns taken so
 /// far, assuming the bundles of a group end up with the same key (they usually
 /// do; when a later partner also shares wires with an earlier one, the keys
