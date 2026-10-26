@@ -121,25 +121,34 @@ fn satisfies(circuit: &Circuit, values: &[u64]) -> bool {
 }
 
 fn layout_config() -> impl Strategy<Value = LayoutConfig> {
-    (3usize..=12, any::<bool>(), 0usize..3, 0usize..4)
-        .prop_flat_map(|(width, fold, reuse, strategy)| {
-            (Just((width, fold, reuse, strategy)), 2..width)
+    (
+        3usize..=12,
+        any::<bool>(),
+        0usize..3,
+        0usize..4,
+        any::<bool>(),
+    )
+        .prop_flat_map(|(width, fold, reuse, strategy, wide)| {
+            (Just((width, fold, reuse, strategy, wide)), 2..width)
         })
-        .prop_map(|((width, fold, reuse, strategy), chunk)| LayoutConfig {
-            options: ConversionOptions {
-                width,
-                chunk,
-                reuse: [Reuse::None, Reuse::Prefix, Reuse::Available][reuse],
-                fold,
+        .prop_map(
+            |((width, fold, reuse, strategy, wide), chunk)| LayoutConfig {
+                options: ConversionOptions {
+                    width,
+                    chunk,
+                    reuse: [Reuse::None, Reuse::Prefix, Reuse::Available][reuse],
+                    fold,
+                },
+                strategy: [
+                    Placement::Mixed,
+                    Placement::Local,
+                    Placement::Components,
+                    Placement::Columns,
+                ][strategy],
+                min_rows: 64,
+                bundle_width: wide.then_some(2 * width),
             },
-            strategy: [
-                Placement::Mixed,
-                Placement::Local,
-                Placement::Components,
-                Placement::Columns,
-            ][strategy],
-            min_rows: 64,
-        })
+        )
 }
 
 /// A change that a dishonest prover might make to an honest stage-one trace.

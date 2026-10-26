@@ -30,6 +30,8 @@ First version.
   so a prover with a blowup factor of 2 needs no intermediate columns of its
   own; this changed the packed PILout and certificate of every fixture with a
   copy argument.
+- An optional `bundleWidth` layout setting lets `columns` join more equations
+  per row than `options.width` wires.
 - The `sha256` fixture is laid out with the `columns` strategy at 1024 rows.
 - `Error::kind` tells an invalid input (`ErrorKind::Invalid`) from one that
   exceeds a size limit (`ErrorKind::Limit`).

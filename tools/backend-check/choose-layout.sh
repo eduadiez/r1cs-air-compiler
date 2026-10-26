@@ -4,8 +4,9 @@
 # setup, which reports how many constraint operations and committed and fixed
 # columns the proof will handle on how many rows; a cost model fitted to
 # prove-time.sh measurements turns those counts into an estimate. Candidates:
-# the columns strategy at every power-of-two minRows that fits, and the local
-# strategy at widths 32, 64 and 96, all with chunks of half the width.
+# the columns strategy at every power-of-two minRows that fits, with bundles
+# of WIDTH and of twice WIDTH wires, and the local strategy at widths 32, 64
+# and 96, all with chunks of half the width.
 # Needs a WORK_DIR in which run.sh has already built pil2-proofman.
 #
 # The estimate ranks layouts; it is not a measured time. Check the best few
@@ -84,25 +85,28 @@ for row_width in 32 64 96; do
 done >"$out/local.jsonl"
 # Larger minRows give narrower traces. Too few rows make the trace wider than
 # the limit; past the first minRows that fits, stop once the estimate has
-# risen twice in a row or a candidate no longer fits.
-rows=64
-rises=0
-previous=""
-while [ "$rows" -le 65536 ] && [ "$rises" -lt 2 ]; do
-    if line=$(candidate "columns-$rows" \
-        "{\"options\":$(options "$width"),\"strategy\":\"columns\",\"minRows\":$rows}"); then
-        echo "$line"
-        estimate=$(printf '%s' "$line" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["estimateMs"])')
-        if [ -n "$previous" ] && [ "$estimate" -gt "$previous" ]; then
-            rises=$((rises + 1))
-        else
-            rises=0
+# risen twice in a row or a candidate no longer fits. Each bundle width
+# (WIDTH and twice WIDTH) gets its own sweep.
+for bundle in "$width" $((2 * width)); do
+    rows=64
+    rises=0
+    previous=""
+    while [ "$rows" -le 65536 ] && [ "$rises" -lt 2 ]; do
+        if line=$(candidate "columns-$bundle-$rows" \
+            "{\"options\":$(options "$width"),\"strategy\":\"columns\",\"minRows\":$rows,\"bundleWidth\":$bundle}"); then
+            echo "$line"
+            estimate=$(printf '%s' "$line" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["estimateMs"])')
+            if [ -n "$previous" ] && [ "$estimate" -gt "$previous" ]; then
+                rises=$((rises + 1))
+            else
+                rises=0
+            fi
+            previous=$estimate
+        elif [ -n "$previous" ]; then
+            break
         fi
-        previous=$estimate
-    elif [ -n "$previous" ]; then
-        break
-    fi
-    rows=$((rows * 2))
+        rows=$((rows * 2))
+    done
 done >"$out/columns.jsonl"
 cat "$out/local.jsonl" "$out/columns.jsonl" | python3 -I -c '
 import json, sys

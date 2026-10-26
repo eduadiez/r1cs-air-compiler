@@ -27,6 +27,7 @@ pub fn config(width: usize) -> LayoutConfig {
             fold: true,
         },
         strategy: Strategy::Components,
+        bundle_width: None,
         min_rows: 64,
     }
 }
@@ -177,6 +178,24 @@ fn columns_layouts_put_equations_that_share_wires_in_one_row() {
     let layout = &a.certificate.layout;
     assert_eq!((layout.rows, layout.width, layout.slots.len()), (64, 10, 4));
     packed_check::check(&source, &a.pilout, &a.certificate).unwrap();
+}
+
+#[test]
+fn bundle_width_is_checked() {
+    let mut settings = config(8);
+    settings.strategy = Strategy::Columns;
+    for bundle_width in [8, 16, 1024] {
+        settings.bundle_width = Some(bundle_width);
+        let a = packed::compile(&source(), &settings).unwrap();
+        packed_check::check(&source(), &a.pilout, &a.certificate).unwrap();
+    }
+    for bundle_width in [7, 1025] {
+        settings.bundle_width = Some(bundle_width);
+        assert_rejected(
+            packed::compile(&source(), &settings),
+            "bundleWidth must be in options.width..=1024",
+        );
+    }
 }
 
 #[test]

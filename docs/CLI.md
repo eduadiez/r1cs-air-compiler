@@ -52,8 +52,10 @@ described in [the specification](../SPEC.md); `certificate.json` and
 | `options.fold` | `true`, `false` | Rewrite `k · B = C` with a constant `k` as a linear equation first |
 | `strategy` | `mixed`, `local`, `components`, `columns` | How equations are assigned to rows |
 | `minRows` | power of two, at least 64 | Smallest number of rows; with `columns`, the number of rows |
+| `bundleWidth` (optional) | `options.width..=1024` | With `columns`, the most wires of a bundle of equations; defaults to `options.width` |
 
-Unknown fields are rejected. The values of `reuse` and `strategy` mean:
+Unknown fields are rejected; `bundleWidth` may be left out. The values of
+`reuse` and `strategy` mean:
 
 - `reuse: none`: every split creates a new helper;
 - `reuse: prefix`: reuse a helper whose terms are, up to a common factor, the

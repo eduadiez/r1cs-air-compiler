@@ -120,7 +120,10 @@ of a trace about twice as wide. In these measurements it took 19–54% less
 time than the best row-filling layout, and the gain grows with the circuit.
 
 The best `minRows` depends on the circuit: in these runs it ranged from 1024
-to 4096. `tools/backend-check/choose-layout.sh` estimates it for a given
+to 4096. So does the best `bundleWidth`: bundles of 128 wires instead of 64
+proved a 96 000-constraint Poseidon chain 29% faster, but the 271 577-constraint
+SHA-256 circuit 7% slower, because wider bundles share more cells but leave
+more of the trace empty. `tools/backend-check/choose-layout.sh` estimates it for a given
 circuit by running the prover's setup on each candidate, without proving.
 
 Around these sizes the proof-of-work search, set by the prover's security

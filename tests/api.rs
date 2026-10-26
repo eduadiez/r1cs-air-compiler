@@ -15,6 +15,7 @@ fn config() -> LayoutConfig {
         },
         strategy: Strategy::Local,
         min_rows: 64,
+        bundle_width: None,
     }
 }
 

@@ -37,6 +37,12 @@ pub struct LayoutConfig {
     pub strategy: Strategy,
     /// Minimum row count; a power of two, at least 64.
     pub min_rows: usize,
+    /// Most wires of a bundle of equations with `Strategy::Columns`, from
+    /// `options.width` (the default) to `MAX_WIDTH`. Wider bundles let more
+    /// equations share cells but may leave more of the trace empty; which is
+    /// faster to prove depends on the circuit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle_width: Option<usize>,
 }
 struct Row {
     /// Wire in each column; 0 marks a free cell.
@@ -135,7 +141,12 @@ pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
     )?;
     let (groups, entries) = shape_entries(network, width)?;
     let placed = if strategy == Strategy::Columns {
-        place_in_bands(&entries, network, min_rows, width)?
+        let bundle_width = config.bundle_width.unwrap_or(width);
+        ensure(
+            (width..=MAX_WIDTH).contains(&bundle_width),
+            format_args!("bundleWidth must be in options.width..={MAX_WIDTH}"),
+        )?;
+        place_in_bands(&entries, network, min_rows, bundle_width)?
     } else {
         place_in_rows(&entries, network, width, strategy)
     };
