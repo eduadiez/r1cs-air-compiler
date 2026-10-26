@@ -136,13 +136,19 @@ Every cell has its own label: `ω^r · COSET^c` for row `r` and column `c`, wher
 `ω = 7^((P - 1) / n)` generates the row domain and `COSET` is the constant in
 `src/field.rs`. The compiler and the checker both check that all labels are
 distinct. The fixed
-column `ID` holds `ω^r`. For each column `c`, the fixed column `S{c}` holds the
-permuted labels: each cell of a wire holds the label of the previous cell of
-the same wire, in row-major order and cyclically. An unused cell, or the only
-cell of a wire, keeps its own label. The checker rebuilds all these columns
-from the layout.
+column `ID` holds `ω^r`. The permuted labels give each cell of a wire the label
+of the previous cell of the same wire, in row-major order and cyclically; an
+unused cell, or the only cell of a wire, keeps its own label.
 
-For each row and column `c`, define the factors
+The copy argument covers the *copy columns*: the columns holding at least one
+cell of a wire that occupies several cells, in increasing order. Every other
+column holds only unused cells and wires with one cell, whose cells all keep
+their own labels; their factors below would be equal, so leaving them out does
+not change the products. For each copy column `c`, the fixed column `S{c}`
+holds the permuted labels. The checker derives the copy columns from the
+layout and rebuilds all these columns.
+
+For each row and copy column `c`, define the factors
 
 ```text
 num_c = a[c] + α · S{c} + γ
@@ -150,7 +156,7 @@ den_c = a[c] + α · COSET^c · ID + γ
 ```
 
 A stage-two column `z` (`copy_product`) holds, on row `r`, the product of
-`num_c / den_c` over all cells of rows `0 … r`. The constraints are:
+`num_c / den_c` over the cells of copy columns in rows `0 … r`. The constraints are:
 
 ```text
 z[r] · ∏ den_c[r] = z[r - 1] · ∏ num_c[r]     (row 0 reads row n - 1)
@@ -165,9 +171,9 @@ all `num_c` equals the product of all `den_c`.
 **Degree reduction.** Every factor is linear in the columns, and each constraint
 has degree at most three (`MAX_DEGREE` in `src/contract.rs`): a STARK prover
 with a blowup factor of 2 handles that degree without adding columns of its
-own. Since `width ≥ 3`, the products above never fit, so the compiler adds
-stage-two ratio columns (`copy_ratios`) holding partial products, each
-constrained by `ratio_i · den_i = num_i`:
+own. With `p` copy columns, the products above fit when `p ≤ 2`; otherwise the
+compiler adds stage-two ratio columns (`copy_ratios`) holding partial
+products, each constrained by `ratio_i · den_i = num_i`:
 
 - the first ratio takes up to three numerator factors and up to two
   denominator factors;
@@ -177,7 +183,7 @@ constrained by `ratio_i · den_i = num_i`:
   ratio) and two denominator factors remain; the remaining factors go into the
   `z` constraint in place of the full products.
 
-This gives `⌊(width - 1) / 2⌋` ratio columns. The
+This gives `⌊(p - 1) / 2⌋` ratio columns. The
 checker computes this count and the stage-two width itself, rejects references
 to any stage-two column beyond that width, and compares the ratio, recurrence
 and `LAST` constraints with its own reconstruction, operation by operation.
@@ -255,8 +261,11 @@ constraint then holds on every row and the public constraints hold on row 0.
 
 ### Packed relation
 
-Let `M = n · width` be the number of cells; the checker requires
-`M ≤ MAX_CELLS`. Write `label(x)` for the label of cell `x`, and `prev(x)` for
+Let `M` be the number of cells in copy columns; the checker requires
+`n · width ≤ MAX_CELLS`, so `M ≤ MAX_CELLS`. In what follows, cells are
+those of copy columns; every cell of a wire with several cells is one of them,
+and every cell outside them is its own cycle of `prev`, with a factor `num`
+equal to its `den`. Write `label(x)` for the label of cell `x`, and `prev(x)` for
 the previous cell of the same wire, so that `S` holds `label(prev(x))` at cell
 `x`. The map `prev` is a permutation of the cells whose cycles are exactly the
 sets of cells of each wire; an unused cell, or the only cell of a wire, is its

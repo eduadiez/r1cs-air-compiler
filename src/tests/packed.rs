@@ -45,11 +45,36 @@ fn connected_source(n: u32) -> Vec<u8> {
     r1cs_bytes([wires, 1, 1, wires - 3], &equations)
 }
 
+/// `n` equations in a ring, `w_i · w_{i+1} = w_{i+2}` (indices from 1, wrapping
+/// around), so every wire is in three equations and most cells are copies.
+fn ring_source(n: u32) -> Vec<u8> {
+    let wire = |i: u32| i % n + 1;
+    let equations: Vec<_> = (0..n)
+        .map(|i| [wire(i), wire(i + 1), wire(i + 2)])
+        .collect();
+    r1cs_bytes([n + 1, 1, 1, n - 2], &equations)
+}
+
+/// Columns of `artifact` holding a cell of a wire with several cells.
+fn copy_columns(artifact: &PackedArtifact) -> std::collections::BTreeSet<usize> {
+    let width = artifact.certificate.layout.width;
+    let mut cells = std::collections::BTreeMap::<u32, usize>::new();
+    for wire in artifact.map.iter().filter(|w| **w != 0) {
+        *cells.entry(*wire).or_default() += 1;
+    }
+    let columns: std::collections::BTreeSet<_> = (0..artifact.map.len())
+        .filter(|cell| cells.get(&artifact.map[*cell]).is_some_and(|n| *n > 1))
+        .map(|cell| cell % width)
+        .collect();
+    columns
+}
+
 /// An artifact with a copy argument and ratio columns.
 fn ratio_artifact(width: usize) -> (Vec<u8>, PackedArtifact) {
-    let source = connected_source(width as u32 + 1);
+    let source = ring_source(4 * width as u32);
     let artifact = packed::compile(&source, &config(width)).unwrap();
     assert!(artifact.certificate.layout.requires_copy);
+    assert!(copy_columns(&artifact).len() >= 3);
     (source, artifact)
 }
 
@@ -213,13 +238,36 @@ fn columns_layouts_wider_than_the_limit_are_rejected() {
 }
 
 #[test]
+fn only_copy_columns_have_permuted_labels() {
+    let mut some_left_out = false;
+    for (source, width) in [(source(), 3), (ring_source(40), 4), (ring_source(40), 9)] {
+        let a = packed::compile(&source, &config(width)).unwrap();
+        let pilout = pb::PilOut::decode(a.pilout.as_slice()).unwrap();
+        let names: std::collections::BTreeSet<&str> = pilout
+            .symbols
+            .iter()
+            .filter_map(|s| s.name.strip_prefix("Kernel."))
+            .filter(|name| name.starts_with('S') && name[1..].parse::<usize>().is_ok())
+            .collect();
+        let expected: Vec<String> = copy_columns(&a).iter().map(|c| format!("S{c}")).collect();
+        let expected = expected.iter().map(String::as_str).collect();
+        assert_eq!(names, expected);
+        some_left_out |= names.len() < a.certificate.layout.width;
+    }
+    assert!(
+        some_left_out,
+        "no case leaves a column out of the copy argument"
+    );
+}
+
+#[test]
 fn ratio_column_counts_match_the_formula() {
     for width in [3, 4, 5, 6, 7, 8, 9, 12, 13, 16, 35, 36, 37, 64, 96, 192] {
         let (source, a) = ratio_artifact(width);
         packed_check::check(&source, &a.pilout, &a.certificate).unwrap();
         let pilout = pb::PilOut::decode(a.pilout.as_slice()).unwrap();
-        // Degree-3 ratios take two factors of each kind.
-        let ratios = ((width - 1) / 2) as u32;
+        // Degree-3 ratios take two factors of each kind, one per copy column.
+        let ratios = ((copy_columns(&a).len() - 1) / 2) as u32;
         assert_eq!(pilout.air_groups[0].airs[0].stage_widths[1], 1 + ratios);
         let ratio_hints = pilout.hints.iter().filter(|h| h.name == "im_col").count();
         assert_eq!(ratio_hints, ratios as usize);
@@ -230,7 +278,7 @@ fn ratio_column_counts_match_the_formula() {
 fn inputs_above_small_size_limits_are_accepted() {
     // Inputs of a few hundred KiB pass every size limit, so a limit computed
     // with the wrong operator (for example `256 * 1024` for 256 MiB) fails here.
-    let source = connected_source(6000);
+    let source = ring_source(16000);
     assert!(source.len() > 256 * 1024 + 1024);
     let circuit = r1cs::read(&source).unwrap();
     let (bytes, cert) = crate::compiler::compile(&source, &circuit, 64, false).unwrap();

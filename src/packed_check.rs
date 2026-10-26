@@ -66,20 +66,21 @@ pub fn check(
     let circuit = r1cs::read(source)?;
     let checked = placement_check::check(&circuit, &certificate.network, &certificate.layout)?;
     let layout = &certificate.layout;
+    let copy = CopyArgument::new(&checked.occurrences);
 
     let pilout = pilout_check::decode(pilout_bytes)?;
     let air = pilout_check::check_envelope(
         &pilout,
         &Geometry {
             rows: layout.rows as u32,
-            stage_widths: [layout.width as u32, stage_two_width(layout)],
+            stage_widths: [layout.width as u32, copy.stage_two_width()],
             publics: circuit.publics,
         },
     )?;
 
     let mut fixed = FixedColumns::new(air, layout.rows);
     let copy_columns = if layout.requires_copy {
-        fixed.add_copy_columns(layout, &checked.occurrences)?
+        fixed.add_copy_columns(layout, &checked.occurrences, &copy)?
     } else {
         0
     };
@@ -94,17 +95,17 @@ pub fn check(
 
     pilout_check::check_symbols(
         &pilout,
-        expected_symbols(layout, &fixed.names, circuit.publics),
+        expected_symbols(layout, &fixed.names, circuit.publics, &copy),
     )?;
 
     let main = main_polynomials(layout, copy_columns, &publics)?;
-    let roots = pilout_check::constraint_roots(air, &constraint_labels(layout, &publics))?;
+    let roots = pilout_check::constraint_roots(air, &constraint_labels(layout, &publics, &copy))?;
     check_main_constraints(air, layout, circuit.publics, &roots[..main.len()], &main)?;
 
     let mut graph = ExpressionGraph::default();
-    let expression_ids = graph.import(air, layout, circuit.publics, fixed.names.len())?;
+    let expression_ids = graph.import(air, layout, &copy, circuit.publics, fixed.names.len())?;
     let expected_hints = if layout.requires_copy {
-        check_copy_constraints(&mut graph, &expression_ids, layout, &roots[main.len()..])?
+        check_copy_constraints(&mut graph, &expression_ids, &copy, &roots[main.len()..])?
     } else {
         vec![zero_hint(&mut graph)]
     };
@@ -115,6 +116,7 @@ pub fn check(
         &OperandContext {
             expression_ids: &expression_ids,
             layout,
+            copy: &copy,
             publics: circuit.publics,
             fixed_columns: fixed.names.len(),
         },
@@ -133,7 +135,11 @@ pub fn check(
 }
 
 /// Labels of all constraints, in PILout order.
-fn constraint_labels(layout: &Layout, publics: &PublicSelectors) -> Vec<String> {
+fn constraint_labels(
+    layout: &Layout,
+    publics: &PublicSelectors,
+    copy: &CopyArgument,
+) -> Vec<String> {
     let mut labels = vec![];
     if !layout.requires_copy {
         labels.push(label::ZERO_COLUMN);
@@ -141,25 +147,44 @@ fn constraint_labels(layout: &Layout, publics: &PublicSelectors) -> Vec<String> 
     labels.extend(layout.slots.iter().map(|_| label::PACKED_EQUATION));
     labels.extend(publics.columns.iter().map(|_| label::PACKED_PUBLIC));
     if layout.requires_copy {
-        labels.extend((0..copy_ratios(layout)).map(|_| label::COPY_RATIO));
+        labels.extend((0..copy.ratios()).map(|_| label::COPY_RATIO));
         labels.extend([label::COPY_RECURRENCE, label::COPY_CLOSURE]);
     }
     labels.into_iter().map(String::from).collect()
 }
 
-/// Number of copy ratio columns, from the formula in SPEC.md rather than the
-/// compiler's loop.
-fn copy_ratios(layout: &Layout) -> u32 {
-    if layout.requires_copy && layout.width >= MAX_DEGREE {
-        ((layout.width - 1) / (MAX_DEGREE - 1)).max(1) as u32
-    } else {
-        0
-    }
+/// The columns in the copy argument (SPEC.md, "Copy argument"): those holding
+/// a cell of a wire with several cells, in increasing order. Empty without a
+/// copy argument.
+struct CopyArgument {
+    columns: Vec<usize>,
 }
-
-/// Stage-two width: the running product (or `stage2_zero`) plus the ratio columns.
-fn stage_two_width(layout: &Layout) -> u32 {
-    1 + copy_ratios(layout)
+impl CopyArgument {
+    fn new(occurrences: &BTreeMap<u32, Vec<(usize, usize)>>) -> Self {
+        let columns: BTreeSet<usize> = occurrences
+            .values()
+            .filter(|cells| cells.len() > 1)
+            .flatten()
+            .map(|(_, column)| *column)
+            .collect();
+        CopyArgument {
+            columns: columns.into_iter().collect(),
+        }
+    }
+    /// Number of copy ratio columns, from the formula in SPEC.md rather than
+    /// the compiler's loop.
+    fn ratios(&self) -> u32 {
+        (self.columns.len().saturating_sub(1) / (MAX_DEGREE - 1)) as u32
+    }
+    /// Stage-two width: the running product (or `stage2_zero`) plus the ratio columns.
+    fn stage_two_width(&self) -> u32 {
+        1 + self.ratios()
+    }
+    /// Index of the fixed column `FIRST`, after `ID` and one `S` column per
+    /// copy-argument column.
+    fn first_column(&self) -> u32 {
+        self.columns.len() as u32 + 1
+    }
 }
 
 /// Column values that are 1 on the rows `on` and 0 elsewhere.
@@ -214,6 +239,7 @@ impl<'a> FixedColumns<'a> {
         &mut self,
         layout: &Layout,
         occurrences: &BTreeMap<u32, Vec<(usize, usize)>>,
+        copy: &CopyArgument,
     ) -> Result<usize> {
         let (n, width) = (layout.rows, layout.width);
         let omega = pow(GENERATOR, (P - 1) / n as u64);
@@ -237,7 +263,7 @@ impl<'a> FixedColumns<'a> {
             }
         }
         self.add("ID".into(), &domain)?;
-        for col in 0..width {
+        for col in &copy.columns {
             self.add(
                 format!("S{col}"),
                 &(0..n)
@@ -246,7 +272,7 @@ impl<'a> FixedColumns<'a> {
             )?;
         }
         self.add(FIRST_COLUMN.into(), &indicator(n, &[0]))?;
-        Ok(width + 2)
+        Ok(copy.columns.len() + 2)
     }
 }
 
@@ -344,6 +370,7 @@ fn expected_symbols(
     layout: &Layout,
     fixed_names: &[String],
     publics: u32,
+    copy: &CopyArgument,
 ) -> BTreeMap<String, ExpectedSymbol> {
     let product = if layout.requires_copy {
         PRODUCT_COLUMN_NAME
@@ -373,7 +400,7 @@ fn expected_symbols(
             ExpectedSymbol::challenge(GAMMA, STAGE_TWO),
         ),
     ]);
-    let ratios = copy_ratios(layout);
+    let ratios = copy.ratios();
     if ratios > 0 {
         symbols.insert(
             RATIOS_SYMBOL.into(),
@@ -516,6 +543,7 @@ struct OperandContext<'a> {
     /// Graph id of each AIR expression.
     expression_ids: &'a [usize],
     layout: &'a Layout,
+    copy: &'a CopyArgument,
     publics: u32,
     fixed_columns: usize,
 }
@@ -561,6 +589,7 @@ impl ExpressionGraph {
         &mut self,
         air: &pb::Air,
         layout: &Layout,
+        copy: &CopyArgument,
         publics: u32,
         fixed_columns: usize,
     ) -> Result<Vec<usize>> {
@@ -571,6 +600,7 @@ impl ExpressionGraph {
             let context = OperandContext {
                 expression_ids: &expression_ids,
                 layout,
+                copy,
                 publics,
                 fixed_columns,
             };
@@ -595,7 +625,7 @@ impl ExpressionGraph {
                     x.stage == STAGE_ONE && x.col_idx < layout.width as u32 && x.row_offset == 0;
                 // Only the running product may be read at the previous row.
                 let stage_two = x.stage == STAGE_TWO
-                    && x.col_idx < stage_two_width(layout)
+                    && x.col_idx < context.copy.stage_two_width()
                     && (x.row_offset == 0
                         || (layout.requires_copy
                             && x.col_idx == PRODUCT_COLUMN
@@ -614,7 +644,7 @@ impl ExpressionGraph {
                     x.idx < context.fixed_columns as u32
                         && (x.row_offset == 0
                             || (layout.requires_copy
-                                && x.idx == first_column(layout)
+                                && x.idx == context.copy.first_column()
                                 && x.row_offset == 1)),
                     "fixed column out of range or with a row offset",
                 )?;
@@ -651,10 +681,6 @@ impl ExpressionGraph {
 }
 
 /// Index of the `FIRST` column, after `ID` and the `S` columns.
-fn first_column(layout: &Layout) -> u32 {
-    layout.width as u32 + 1
-}
-
 /// Hint name and the expected expression id of each named field.
 type ExpectedHint = (&'static str, BTreeMap<&'static str, usize>);
 
@@ -691,11 +717,11 @@ fn zero_hint(graph: &mut ExpressionGraph) -> ExpectedHint {
 fn check_copy_constraints(
     graph: &mut ExpressionGraph,
     expression_ids: &[usize],
-    layout: &Layout,
+    copy: &CopyArgument,
     roots: &[usize],
 ) -> Result<Vec<ExpectedHint>> {
-    let ratios = copy_ratios(layout) as usize;
-    let (numerators, denominators) = copy_factors(graph, layout.width);
+    let ratios = copy.ratios() as usize;
+    let (numerators, denominators) = copy_factors(graph, &copy.columns);
     let mut hints = vec![];
     let (numerator, denominator) = check_ratios(
         graph,
@@ -708,7 +734,7 @@ fn check_copy_constraints(
     check_running_product(
         graph,
         expression_ids,
-        layout,
+        copy,
         &roots[ratios..],
         numerator,
         denominator,
@@ -731,23 +757,22 @@ fn check_copy_constraints(
 
 /// For each column, the numerator factor with the permuted label column and
 /// the denominator factor with the cell's own label.
-fn copy_factors(graph: &mut ExpressionGraph, width: usize) -> (Vec<usize>, Vec<usize>) {
+fn copy_factors(graph: &mut ExpressionGraph, columns: &[usize]) -> (Vec<usize>, Vec<usize>) {
     let alpha = graph.leaf(Leaf::Challenge(ALPHA));
     let gamma = graph.leaf(Leaf::Challenge(GAMMA));
     let id = graph.leaf(Leaf::fixed(0));
-    let (mut numerators, mut denominators, mut shift) = (vec![], vec![], 1);
-    for col in 0..width {
-        let value = graph.leaf(Leaf::trace(col as u32));
-        let shift_constant = graph.constant(shift);
+    let (mut numerators, mut denominators) = (vec![], vec![]);
+    for (index, col) in columns.iter().enumerate() {
+        let value = graph.leaf(Leaf::trace(*col as u32));
+        let shift_constant = graph.constant(pow(COSET, *col as u64));
         let own_label = graph.mul(shift_constant, id);
         let own_label = graph.mul(alpha, own_label);
         let own = graph.add(value, own_label);
         denominators.push(graph.add(own, gamma));
-        let permuted_column = graph.leaf(Leaf::fixed(col as u32 + 1));
+        let permuted_column = graph.leaf(Leaf::fixed(index as u32 + 1));
         let permuted_label = graph.mul(alpha, permuted_column);
         let permuted = graph.add(value, permuted_label);
         numerators.push(graph.add(permuted, gamma));
-        shift = mul(shift, COSET);
     }
     (numerators, denominators)
 }
@@ -806,7 +831,7 @@ fn check_ratios(
 fn check_running_product(
     graph: &mut ExpressionGraph,
     expression_ids: &[usize],
-    layout: &Layout,
+    copy: &CopyArgument,
     roots: &[usize],
     numerator: usize,
     denominator: usize,
@@ -817,7 +842,7 @@ fn check_running_product(
     let rhs = graph.mul(previous, numerator);
     let recurrence = graph.sub(lhs, rhs);
     let last = graph.leaf(Leaf::Fixed {
-        column: first_column(layout),
+        column: copy.first_column(),
         offset: 1,
     });
     let one = graph.constant(1);

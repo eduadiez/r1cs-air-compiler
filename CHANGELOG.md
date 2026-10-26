@@ -30,6 +30,9 @@ First version.
   so a prover with a blowup factor of 2 needs no intermediate columns of its
   own; this changed the packed PILout and certificate of every fixture with a
   copy argument.
+- The copy argument covers only the columns that hold a cell of a wire with
+  several cells; columns of single-cell wires get no `S` column, factors or
+  ratio share.
 - An optional `bundleWidth` layout setting lets `columns` join more equations
   per row than `options.width` wires.
 - The `sha256` fixture is laid out with the `columns` strategy at 1024 rows.

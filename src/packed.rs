@@ -27,7 +27,10 @@ use std::collections::{BTreeMap, BTreeSet};
 struct CopyColumns {
     /// `ω^r`.
     id: pb::Operand,
-    /// `S{c}` for each column `c`.
+    /// The columns in the copy argument, those holding a cell of a wire with
+    /// several cells, in increasing order.
+    columns: Vec<usize>,
+    /// `S{c}` for each of those columns `c`.
     permuted: Vec<pb::Operand>,
     first: pb::Operand,
 }
@@ -176,7 +179,9 @@ impl Builder {
                 .map(|row| labels[row * layout.width])
                 .collect(),
         );
-        let permuted = (0..layout.width)
+        let columns = copy_columns(map, layout.width);
+        let permuted = columns
+            .iter()
             .map(|column| {
                 let values = (0..layout.rows)
                     .map(|row| permuted[row * layout.width + column])
@@ -187,6 +192,7 @@ impl Builder {
         let first = self.fixed(FIRST_COLUMN, indicator(layout.rows, [0]));
         Ok(CopyColumns {
             id,
+            columns,
             permuted,
             first,
         })
@@ -194,15 +200,16 @@ impl Builder {
     /// Copy argument (SPEC.md, "Copy argument"): ratio columns of degree at
     /// most `MAX_DEGREE`, the running product `z[r] · den[r] = z[r-1] · num[r]` (cyclic,
     /// so row 0 reads the last row) and `LAST · (z - 1) = 0`.
-    fn constrain_copies(&mut self, width: usize, columns: CopyColumns) {
+    fn constrain_copies(&mut self, columns: CopyColumns) {
         // No simplification: the checker compares these constraints operation
         // by operation.
-        self.without_simplification(|builder| builder.constrain_copies_exactly(width, columns));
+        self.without_simplification(|builder| builder.constrain_copies_exactly(columns));
     }
-    fn constrain_copies_exactly(&mut self, width: usize, columns: CopyColumns) {
-        let (numerators, denominators) = self.copy_factors(&columns.id, columns.permuted);
+    fn constrain_copies_exactly(&mut self, columns: CopyColumns) {
+        let (numerators, denominators) =
+            self.copy_factors(&columns.id, &columns.columns, columns.permuted);
         let (numerator, denominator, ratios) =
-            self.constrain_ratios(width, &numerators, &denominators);
+            self.constrain_ratios(numerators.len(), &numerators, &denominators);
         self.air.stage_widths[1] += ratios;
         if ratios > 0 {
             self.symbols.push(symbol(
@@ -254,22 +261,23 @@ impl Builder {
     fn copy_factors(
         &mut self,
         id: &pb::Operand,
+        columns: &[usize],
         permuted: Vec<pb::Operand>,
     ) -> (Vec<pb::Operand>, Vec<pb::Operand>) {
         let alpha = challenge(ALPHA);
         let gamma = challenge(GAMMA);
-        let (mut numerators, mut denominators, mut shift) = (vec![], vec![], 1);
-        for (column, label) in permuted.into_iter().enumerate() {
+        let (mut numerators, mut denominators) = (vec![], vec![]);
+        for (column, label) in columns.iter().zip(permuted) {
+            let shift = pow(COSET, *column as u64);
             let own_label = self.expression(Op::Mul, constant(shift), id.clone());
             let own_label = self.expression(Op::Mul, alpha.clone(), own_label);
-            let own = self.expression(Op::Add, trace(column as u32), own_label);
+            let own = self.expression(Op::Add, trace(*column as u32), own_label);
             let own = self.expression(Op::Add, own, gamma.clone());
             let permuted_label = self.expression(Op::Mul, alpha.clone(), label);
-            let permuted = self.expression(Op::Add, trace(column as u32), permuted_label);
+            let permuted = self.expression(Op::Add, trace(*column as u32), permuted_label);
             let permuted = self.expression(Op::Add, permuted, gamma.clone());
             numerators.push(permuted);
             denominators.push(own);
-            shift = mul(shift, COSET);
         }
         (numerators, denominators)
     }
@@ -336,6 +344,23 @@ fn ceil_sqrt(n: usize) -> usize {
     } else {
         s
     }
+}
+
+/// The columns holding a cell of a wire that occupies several cells, in
+/// increasing order; only they take part in the copy argument, since in every
+/// other column each cell keeps its own label.
+fn copy_columns(map: &[u32], width: usize) -> Vec<usize> {
+    let mut cells = BTreeMap::<u32, usize>::new();
+    for wire in map.iter().filter(|wire| **wire != 0) {
+        *cells.entry(*wire).or_default() += 1;
+    }
+    let columns: BTreeSet<usize> = map
+        .iter()
+        .enumerate()
+        .filter(|(_, wire)| cells.get(wire).is_some_and(|count| *count > 1))
+        .map(|(cell, _)| cell % width)
+        .collect();
+    columns.into_iter().collect()
 }
 
 /// Copy-argument labels in row-major cell order. Each cell's own label is
@@ -428,7 +453,7 @@ fn build_pilout(network: &Network, layout: &Layout, map: &[u32]) -> Result<Vec<u
     builder.constrain_slots(layout);
     builder.bind_publics(layout);
     if let Some(columns) = copy {
-        builder.constrain_copies(layout.width, columns);
+        builder.constrain_copies(columns);
     }
     Ok(builder.finish(network.publics))
 }
