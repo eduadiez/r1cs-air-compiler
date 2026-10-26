@@ -301,9 +301,14 @@ fn reports_have_the_documented_fields() {
     let compiled = cli.ok(&["compile", &source, "reference", "--rows", "64"]);
     assert_eq!(compiled["mode"], "reference");
     assert!(compiled["piloutBytes"].as_u64().unwrap() > 0);
+    assert_eq!(compiled["relation"], "r1cs-per-row-publics-at-row-zero");
     assert_eq!(
-        compiled["certificate"]["relation"],
-        "r1cs-per-row-publics-at-row-zero"
+        (compiled["rows"].as_u64(), compiled["width"].as_u64()),
+        (Some(64), Some(96))
+    );
+    assert_eq!(
+        compiled["piloutSha256"],
+        sha256(cli.path("reference/kernel.pilout"))
     );
     let checked = cli.ok(&[
         "check",
@@ -317,6 +322,14 @@ fn reports_have_the_documented_fields() {
     assert_eq!(checked["rows"], 64);
     let packed = cli.ok(&["compile", &source, "packed", "--layout", &layout]);
     assert_eq!(packed["mode"], "packed");
+    for key in [
+        "auxiliaries",
+        "requiresPermutation",
+        "piloutBytes",
+        "piloutSha256",
+    ] {
+        assert!(!packed[key].is_null(), "compile report lacks {key}");
+    }
     let checked = cli.ok(&[
         "check",
         &source,

@@ -41,7 +41,7 @@ pub fn project(source: &[u8], certificate: &PackedCertificate, wtns: &[u8]) -> R
         ensure(
             satisfied(equation, &values),
             format_args!(
-                "witness does not satisfy equation {index} (auxiliary equations come first)"
+                "witness does not satisfy equation {index} (auxiliary definitions come first)"
             ),
         )?;
     }

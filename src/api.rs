@@ -142,8 +142,8 @@ pub fn compile_packed(source: &[u8], config: &LayoutConfig) -> Result<PackedArti
 }
 
 /// Check that `pilout` encodes the packed relation of `source` as described by
-/// `certificate`: auxiliary wires, placement, selectors, public bindings, the copy
-/// argument and hints.
+/// `certificate`: auxiliary wires, placement, selectors, public bindings, the
+/// permutation argument and hints.
 ///
 /// # Errors
 /// Fails on an invalid certificate and on any difference between the PILout

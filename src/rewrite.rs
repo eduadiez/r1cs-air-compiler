@@ -94,12 +94,12 @@ pub fn equations(rewritten: &RewrittenCircuit) -> Vec<Equation> {
 /// distinct wires. Each step replaces some terms `Σ kᵢ·wᵢ` of one side by
 /// `k₀·h`, where `h` is an auxiliary wire constrained to `Σ (kᵢ/k₀)·wᵢ`, so its first
 /// coefficient is 1. Auxiliary wires only reference earlier wires.
-pub fn convert(source: &Circuit, options: &RewriteOptions) -> Result<RewrittenCircuit> {
+pub fn rewrite(source: &Circuit, options: &RewriteOptions) -> Result<RewrittenCircuit> {
     ensure(
         (MIN_WIDTH..=MAX_WIDTH).contains(&options.width)
             && (2..options.width).contains(&options.auxiliary_terms),
         format_args!(
-            "options.width must be {MIN_WIDTH}..={MAX_WIDTH} and options.auxiliary_terms 2..width (width={}, chunk={})",
+            "options.width must be {MIN_WIDTH}..={MAX_WIDTH} and options.auxiliaryTerms 2..width (width={}, auxiliaryTerms={})",
             options.width, options.auxiliary_terms
         ),
     )?;
@@ -194,7 +194,7 @@ fn fold_constant_factor(equation: Equation) -> Equation {
 }
 
 /// Choose the side and terms to replace by an auxiliary wire: by default the first
-/// `chunk` nonconstant terms of the side with the most terms; with
+/// `options.auxiliary_terms` nonconstant terms of the side with the most terms; with
 /// `Reuse::Available`, the terms of the longest existing auxiliary wire that appear,
 /// up to a common factor, on any side. Returns the side, the chosen terms and
 /// the reused auxiliary id, if any.

@@ -22,7 +22,7 @@ use crate::{
 use pb::{operand::Operand, SymbolType};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// References to the copy-argument fixed columns.
+/// References to the permutation-argument fixed columns.
 struct PermutationColumns {
     /// `ω^r`.
     id: pb::Operand,
@@ -170,7 +170,7 @@ impl Builder {
         }
         terms.pop().unwrap_or_else(|| constant(0))
     }
-    /// Add the copy-argument fixed columns `ID`, `S{c}` for each permutation column
+    /// Add the permutation-argument fixed columns `ID`, `S{c}` for each permutation column
     /// `c` in increasing order, and `FIRST`.
     fn permutation_columns(&mut self, layout: &Layout, map: &[u32]) -> Result<PermutationColumns> {
         let (labels, permuted) = labels(map, layout.rows, layout.width)?;
@@ -365,7 +365,7 @@ fn permutation_columns(map: &[u32], width: usize) -> Vec<usize> {
     columns.into_iter().collect()
 }
 
-/// Copy-argument labels in row-major cell order. Each cell's own label is
+/// Permutation-argument labels in row-major cell order. Each cell's own label is
 /// `ω^r · COSET^c`. In the permuted labels, each cell of a wire holds the label
 /// of the wire's previous cell, cyclically; an unused cell or a wire with one
 /// cell keeps its own label.
@@ -411,7 +411,7 @@ pub fn plan(
     circuit: &Circuit,
     config: &LayoutConfig,
 ) -> Result<(RewrittenCircuit, Layout, Checked)> {
-    let rewritten = rewrite::convert(circuit, &config.options).context("layout options")?;
+    let rewritten = rewrite::rewrite(circuit, &config.options).context("layout options")?;
     let layout = layout::pack(&rewritten, config).context("layout geometry")?;
     let checked =
         placement_check::check(circuit, &rewritten, &layout).context("layout validation")?;
@@ -449,7 +449,7 @@ fn build_pilout(rewritten: &RewrittenCircuit, layout: &Layout, map: &[u32]) -> R
         ZERO_COLUMN_NAME
     };
     let mut builder = Builder::new(layout.rows as u32, layout.width as u32, product, true);
-    let copy = if layout.requires_permutation {
+    let permutation = if layout.requires_permutation {
         Some(builder.permutation_columns(layout, map)?)
     } else {
         builder.constrain_zero_column();
@@ -457,7 +457,7 @@ fn build_pilout(rewritten: &RewrittenCircuit, layout: &Layout, map: &[u32]) -> R
     };
     builder.constrain_gates(layout);
     builder.bind_publics(layout);
-    if let Some(columns) = copy {
+    if let Some(columns) = permutation {
         builder.constrain_permutation(columns);
     }
     Ok(builder.finish(rewritten.publics))

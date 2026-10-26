@@ -1,5 +1,5 @@
 //! Placement check: auxiliary wire rewritten_circuits and layouts against their source.
-use super::{assert_limit, assert_rejected, packed::config, r1cs_bytes};
+use super::{assert_limit, assert_rejected, packed::config, r1cs_bytes, r1cs_with_terms};
 use crate::{
     certificate::{Auxiliary, Gate, GateType, Layout, Placement, RewrittenCircuit, Selector},
     field::{add, mul, FieldElement},
@@ -7,8 +7,8 @@ use crate::{
     packed, placement_check, r1cs, rewrite, P,
 };
 
-/// The xor fixture packed with its layout: auxiliary wires, shared gate types and a copy
-/// argument at width 8.
+/// The xor fixture packed with its layout: auxiliary wires, shared gate types and a
+/// permutation argument.
 fn xor_plan() -> (r1cs::Circuit, RewrittenCircuit, Layout) {
     let source = include_bytes!("../../fixtures/xor/kernel.r1cs");
     let settings: LayoutConfig =
@@ -22,17 +22,23 @@ fn xor_plan() -> (r1cs::Circuit, RewrittenCircuit, Layout) {
 /// Apply `change` to the xor rewritten and layout and require the placement
 /// check to reject the result with `expected`.
 fn rejects(expected: &str, change: impl Fn(&mut RewrittenCircuit, &mut Layout)) {
-    let (circuit, mut net, mut plan) = xor_plan();
-    assert!(placement_check::check(&circuit, &net, &plan).is_ok());
-    change(&mut net, &mut plan);
-    assert_rejected(placement_check::check(&circuit, &net, &plan), expected);
+    let (circuit, mut rewritten, mut plan) = xor_plan();
+    assert!(placement_check::check(&circuit, &rewritten, &plan).is_ok());
+    change(&mut rewritten, &mut plan);
+    assert_rejected(
+        placement_check::check(&circuit, &rewritten, &plan),
+        expected,
+    );
 }
 
 /// Like `rejects`, but require a size limit error.
 fn exceeds(expected: &str, change: impl Fn(&mut RewrittenCircuit, &mut Layout)) {
-    let (circuit, mut net, mut plan) = xor_plan();
-    change(&mut net, &mut plan);
-    assert_limit(placement_check::check(&circuit, &net, &plan), expected);
+    let (circuit, mut rewritten, mut plan) = xor_plan();
+    change(&mut rewritten, &mut plan);
+    assert_limit(
+        placement_check::check(&circuit, &rewritten, &plan),
+        expected,
+    );
 }
 
 #[test]
@@ -147,12 +153,28 @@ fn rewritten_equations_are_checked() {
 #[test]
 fn changed_rewritten_equation_is_rejected() {
     let source = r1cs::read(&r1cs_bytes([5, 1, 1, 2], &[[1, 2, 3], [1, 3, 4]])).unwrap();
-    let mut net = rewrite::convert(&source, &config(3).options).unwrap();
+    let mut rewritten = rewrite::rewrite(&source, &config(3).options).unwrap();
     // Change one coefficient; the equation count is unchanged.
-    net.equations[0][2][0].1 .0 = 2;
-    let plan = layout::pack(&net, &config(3)).unwrap();
+    rewritten.equations[0][2][0].1 .0 = 2;
+    let plan = layout::pack(&rewritten, &config(3)).unwrap();
     assert_rejected(
-        placement_check::check(&source, &net, &plan),
+        placement_check::check(&source, &rewritten, &plan),
+        "rewritten equation 0 differs from its source equation",
+    );
+}
+
+#[test]
+fn moved_coefficients_are_rejected() {
+    // w1 · w2 = w3 + w4 rewritten as w1 · w2 = 3·w3 - w4: the coefficients
+    // still add up to the same value, but the monomials differ.
+    let terms = [vec![(1, 1)], vec![(2, 1)], vec![(3, 1), (4, 1)]];
+    let source = r1cs::read(&r1cs_with_terms([5, 1, 1, 2], &[terms])).unwrap();
+    let mut rewritten = rewrite::rewrite(&source, &config(4).options).unwrap();
+    assert!(rewritten.auxiliaries.is_empty());
+    rewritten.equations[0][2] = vec![(3, FieldElement(3)), (4, FieldElement(P - 1))];
+    let plan = layout::pack(&rewritten, &config(4)).unwrap();
+    assert_rejected(
+        placement_check::check(&source, &rewritten, &plan),
         "rewritten equation 0 differs from its source equation",
     );
 }
@@ -227,14 +249,14 @@ fn gate_types_must_give_back_the_placed_equation() {
         });
     }
     // Swapping A and B gives back the same A·B - C.
-    let (circuit, net, mut plan) = xor_plan();
+    let (circuit, rewritten, mut plan) = xor_plan();
     let g = plan
         .gate_types
         .iter()
         .position(|g| g.terms[0] != g.terms[1])
         .unwrap();
     plan.gate_types[g].terms.swap(0, 1);
-    placement_check::check(&circuit, &net, &plan).unwrap();
+    placement_check::check(&circuit, &rewritten, &plan).unwrap();
 }
 
 #[test]
@@ -494,7 +516,7 @@ fn auxiliary_circuit(
     a: Vec<(u32, FieldElement)>,
 ) -> (r1cs::Circuit, RewrittenCircuit, Layout) {
     let circuit = r1cs::read(&r1cs_bytes([4, 0, 0, 3], &[[1, 2, 3]])).unwrap();
-    let net = RewrittenCircuit {
+    let rewritten = RewrittenCircuit {
         original_wires: 4,
         wires: 5,
         publics: 0,
@@ -502,15 +524,15 @@ fn auxiliary_circuit(
         equations: vec![[a, vec![(2, FieldElement(1))], vec![(3, FieldElement(1))]]],
     };
     let settings = config(3);
-    let plan = layout::pack(&net, &settings).unwrap();
-    (circuit, net, plan)
+    let plan = layout::pack(&rewritten, &settings).unwrap();
+    (circuit, rewritten, plan)
 }
 
 #[test]
 fn auxiliaries_must_be_normalized_even_when_the_relation_holds() {
     let check = |terms, a| {
-        let (circuit, net, plan) = auxiliary_circuit(terms, a);
-        placement_check::check(&circuit, &net, &plan)
+        let (circuit, rewritten, plan) = auxiliary_circuit(terms, a);
+        placement_check::check(&circuit, &rewritten, &plan)
     };
     let inverse_of_two = P.div_ceil(2); // (P + 1) / 2
                                         // h = w1 + w2, A = h - w2.

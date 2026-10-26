@@ -35,7 +35,7 @@ pub mod label {
     pub const PACKED_GATE: &str = "packed gate";
     /// A packed public-binding constraint.
     pub const PACKED_PUBLIC: &str = "packed public";
-    /// A copy-argument ratio constraint.
+    /// A permutation-argument ratio constraint.
     pub const PERMUTATION_RATIO: &str = "permutation ratio";
     /// The permutation argument's running-product recurrence.
     pub const PERMUTATION_RECURRENCE: &str = "permutation recurrence";
@@ -69,8 +69,8 @@ pub const GAMMA: u32 = 1;
 /// Symbol names of the challenges `α` and `γ`.
 pub const CHALLENGE_NAMES: [&str; 2] = ["alpha", "gamma"];
 /// Highest degree of any constraint. Degree 3 is what a STARK prover with a
-/// blowup factor of 2 handles without adding columns of its own, so each copy
-/// ratio takes two denominator factors and two numerator factors plus the
+/// blowup factor of 2 handles without adding columns of its own, so each
+/// permutation ratio takes two denominator factors and two numerator factors plus the
 /// previous ratio (three numerator factors for the first).
 pub const MAX_DEGREE: usize = 3;
 

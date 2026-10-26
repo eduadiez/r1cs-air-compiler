@@ -140,7 +140,7 @@ change the behavior:
 | Location | Mutation | Why it survives |
 | --- | --- | --- |
 | `pilout_check.rs`, `scalar` | `\|` → `^` when appending a byte | Same result: the shifted value has a zero low byte. |
-| `packed_check.rs`, `add_copy_columns` | `(P - 1) / n` → `(P + 1) / n` or `P / n` | Same result for every power of two `n ≥ 64`. |
+| `packed_check.rs`, `add_permutation_columns` | `(P - 1) / n` → `(P + 1) / n` or `P / n` | Same result for every power of two `n ≥ 64`. |
 | `r1cs.rs`, `linear_combination` and the equation count in `read` | looser bound on the size check before allocation | Same result: truncated input is still rejected while reading. |
 
 Any other survivor means some check is no longer tested: add a test that

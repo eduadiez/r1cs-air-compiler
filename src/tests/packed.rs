@@ -44,8 +44,8 @@ fn artifact(width: usize) -> PackedArtifact {
     packed::compile(&source(), &config(width)).unwrap()
 }
 
-/// One shared input connects more equations than fit on a row, so a copy
-/// argument is needed even at large widths.
+/// One shared input connects more equations than fit on a row, so a
+/// permutation argument is needed even at large widths.
 fn connected_source(n: u32) -> Vec<u8> {
     let wires = 2 * n + 2;
     let equations: Vec<_> = (0..n).map(|i| [1, 2 * i + 2, 2 * i + 3]).collect();

@@ -258,10 +258,14 @@ fn compile_reference(
     let out = fresh(output)?;
     write(out.join("kernel.pilout"), &artifact.pilout)?;
     write_json(out.join("certificate.json"), &artifact.certificate)?;
+    let certificate = &artifact.certificate;
     Ok(json!({
         "mode": mode,
+        "relation": certificate.relation(),
+        "rows": certificate.rows(),
+        "width": certificate.width(),
         "piloutBytes": artifact.pilout.len(),
-        "certificate": artifact.certificate,
+        "piloutSha256": certificate.pilout_sha256(),
     }))
 }
 
@@ -275,10 +279,16 @@ fn compile_packed(source: &str, output: &str, config: &str) -> CommandResult<Val
     write(out.join("kernel.pilout"), &artifact.pilout)?;
     write_json(out.join("certificate.json"), &artifact.certificate)?;
     write(out.join("map.bin"), u32_bytes(&artifact.map))?;
+    let certificate = &artifact.certificate;
     Ok(json!({
         "mode": "packed",
+        "relation": certificate.relation(),
+        "rows": certificate.rows(),
+        "width": certificate.width(),
+        "auxiliaries": certificate.auxiliary_count(),
+        "requiresPermutation": certificate.requires_permutation(),
         "piloutBytes": artifact.pilout.len(),
-        "certificate": artifact.certificate,
+        "piloutSha256": certificate.pilout_sha256(),
     }))
 }
 

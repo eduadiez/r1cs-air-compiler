@@ -123,17 +123,21 @@ fn satisfies(circuit: &Circuit, values: &[u64]) -> bool {
 
 fn layout_config() -> impl Strategy<Value = LayoutConfig> {
     (3usize..=12, any::<bool>(), 0usize..3, any::<bool>())
-        .prop_flat_map(|(width, fold, reuse, wide)| (Just((width, fold, reuse, wide)), 2..width))
-        .prop_map(|((width, fold, reuse, wide), chunk)| LayoutConfig {
-            options: RewriteOptions {
-                width,
-                auxiliary_terms: chunk,
-                reuse_auxiliaries: [Reuse::None, Reuse::Prefix, Reuse::Available][reuse],
-                fold_constants: fold,
-            },
-            min_rows: 64,
-            row_group_width: wide.then_some(2 * width),
+        .prop_flat_map(|(width, fold_constants, reuse, wide)| {
+            (Just((width, fold_constants, reuse, wide)), 2..width)
         })
+        .prop_map(
+            |((width, fold_constants, reuse, wide), auxiliary_terms)| LayoutConfig {
+                options: RewriteOptions {
+                    width,
+                    auxiliary_terms,
+                    reuse_auxiliaries: [Reuse::None, Reuse::Prefix, Reuse::Available][reuse],
+                    fold_constants,
+                },
+                min_rows: 64,
+                row_group_width: wide.then_some(2 * width),
+            },
+        )
 }
 
 /// A change that a dishonest prover might make to an honest stage-one trace.

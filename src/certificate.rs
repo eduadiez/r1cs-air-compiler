@@ -52,7 +52,7 @@ pub struct GateType {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Placement {
-    /// Index of the equation: auxiliary equations first, then rewritten equations.
+    /// Index of the equation: auxiliary definitions first, then rewritten equations.
     pub index: usize,
     /// CanonicalGate group id.
     pub gate_type: usize,

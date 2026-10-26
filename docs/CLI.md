@@ -108,7 +108,7 @@ Keys are printed in alphabetical order; their order carries no meaning. The
 
 | Command | `result` fields |
 | --- | --- |
-| `compile` | `mode` (`reference`, `optimized-reference` or `packed`), `piloutBytes`, `certificate` (the whole certificate) |
+| `compile` | `mode` (`reference`, `optimized-reference` or `packed`), `relation`, `rows`, `width`, `piloutBytes`, `piloutSha256`; packed also `auxiliaries` and `requiresPermutation` |
 | `check` (reference) | `accepted`, `relation`, `sourceEquations`, `publicBindings`, `rows`, `width`, `formallyVerified` |
 | `check` (packed) | `accepted`, `relation`, `sourceEquations`, `auxiliaries`, `rows`, `width`, `requiresPermutation`, `formallyVerified` |
 | `plan` | `rows`, `width`, `auxiliaries`, `requiresPermutation`, `checkedEquations` (auxiliary definitions plus source equations) |
