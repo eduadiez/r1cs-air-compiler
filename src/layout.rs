@@ -1,5 +1,7 @@
-//! Places equations into rows of `width` cells. Placement is deterministic:
-//! ties between rows are broken by the order in which the rows last changed.
+//! Places equations into the cells of the trace. The row strategies fill rows
+//! of `width` cells, breaking ties by the order in which rows last changed;
+//! the columns strategy joins equations into bundles and packs runs of equal
+//! bundles into columns. Placement is deterministic.
 use crate::{
     certificate::{Binding, Group, Layout, Network, Placement, Selector, Slot},
     contract::{MAX_CELLS, MAX_ROWS, MAX_WIDTH, MIN_ROWS, MIN_WIDTH},
@@ -20,11 +22,13 @@ pub enum Strategy {
     /// First place each group of wire-connected equations that fits in one row
     /// together, then continue as `Local`.
     Components,
-    /// Give each shape its own band of columns, filled from the first row down,
-    /// so that the equations of a shape share few slots and selectors. The
-    /// trace has exactly `minRows` rows (when they suffice) and as many columns
-    /// as the bands need; `options.width` only bounds each equation. Wires are
-    /// not kept together, so they occupy more cells.
+    /// Join equations that share wires into bundles, then put the bundles of
+    /// each kind in runs, one bundle per row, in the same columns, so that the
+    /// equations share few slots and selectors. The trace has exactly
+    /// `minRows` rows and as many columns as the runs need, at most
+    /// `MAX_WIDTH`; `options.width` only bounds each equation, and
+    /// `bundleWidth` each bundle. Wires get more cells than with the row
+    /// strategies.
     Columns,
 }
 /// Settings for building a packed layout.
@@ -131,13 +135,21 @@ impl Placer {
 /// Place every equation of `network` and bind the public values.
 ///
 /// Equations are grouped by canonical shape. `Strategy::Columns` places them
-/// in bands of columns (see [`place_in_bands`]); the other strategies fill
-/// rows of `options.width` cells (see [`place_in_rows`]).
+/// in runs of bundles (see [`place_in_bands`]); the other strategies fill rows
+/// of `options.width` cells (see [`place_in_rows`]).
 pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
     let (width, strategy, min_rows) = (config.options.width, config.strategy, config.min_rows);
     ensure(
         min_rows >= MIN_ROWS && min_rows.is_power_of_two(),
         format_args!("minRows must be a power of two, at least {MIN_ROWS}"),
+    )?;
+    ensure_within_limit(
+        min_rows <= MAX_ROWS,
+        format_args!("minRows exceeds {MAX_ROWS}"),
+    )?;
+    ensure(
+        strategy == Strategy::Columns || config.bundle_width.is_none(),
+        "bundleWidth applies only to the columns strategy",
     )?;
     let (groups, entries) = shape_entries(network, width)?;
     let placed = if strategy == Strategy::Columns {
@@ -180,7 +192,9 @@ pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
 /// Equations and public values placed in a trace of `width` columns.
 struct Placed {
     width: usize,
-    /// Columns in the copy argument (SPEC.md, "Copy argument").
+    /// Columns in the copy argument (SPEC.md, "Copy argument"). Only the
+    /// columns strategy counts them, to compare its packings; the row
+    /// strategies set it to `width`.
     copy_columns: usize,
     placements: Vec<Placement>,
     public_bindings: Vec<Binding>,
@@ -228,7 +242,6 @@ fn place_in_rows(entries: &[Entry], network: &Network, width: usize, strategy: S
     let public_bindings = bind_publics(&mut placer, network.publics);
     Placed {
         width,
-        // Only used to compare packings of the columns strategy.
         copy_columns: width,
         placements,
         public_bindings,
@@ -295,7 +308,9 @@ impl Packing for Rectangles {
     }
     /// Take `count` rows of `width` columns, in pieces. They go in the
     /// narrowest free rectangle at least `width` wide, preferring one with
-    /// room for all of them (then the first); a rectangle too short takes what
+    /// room for all of them, then the one earliest in the list of free
+    /// rectangles (whose order changes as rectangles are used and added); a
+    /// rectangle too short takes what
     /// fits and the rest goes elsewhere. Using a rectangle leaves the columns
     /// to the right of the piece and the rows below it free. Without a fitting
     /// rectangle, a new band is added.
@@ -350,6 +365,18 @@ impl Packing for Rectangles {
     }
 }
 
+/// Open columns of one kind in [`Levels`], fullest first.
+struct Pool {
+    columns: Vec<usize>,
+    /// `sums[i]` is the sum of the levels of the first `i` columns.
+    sums: Vec<usize>,
+}
+
+/// A new column used by [`Levels`] counts as `rows / NEW_COLUMN_PENALTY`
+/// empty cells on top of those above its piece, so that partly filled columns
+/// are used before new ones are added.
+const NEW_COLUMN_PENALTY: usize = 8;
+
 /// The trace, `rows` rows high, as columns filled from the top down, each to
 /// its own level. A piece may use any columns, adjacent or not. Columns that
 /// hold positions which may have copies are kept apart from the others.
@@ -372,7 +399,7 @@ impl Levels {
     }
     /// The open columns of one kind, fullest first, with prefix sums of their
     /// levels.
-    fn pool(&self, copies: bool) -> (Vec<usize>, Vec<usize>) {
+    fn pool(&self, copies: bool) -> Pool {
         let mut columns: Vec<usize> = (0..self.levels.len())
             .filter(|c| self.copies[*c] == copies && self.levels[*c] < self.rows)
             .collect();
@@ -381,18 +408,22 @@ impl Levels {
         for c in &columns {
             sums.push(sums.last().expect("starts at 0") + self.levels[*c]);
         }
-        (columns, sums)
+        Pool { columns, sums }
     }
-    /// The first `k` columns of `pool` at or below level `top`, and how many
-    /// cells they leave empty above `top`, with new columns (empty from row 0,
-    /// plus `rows / 8`) once the pool runs out.
-    fn choose(&self, pool: &(Vec<usize>, Vec<usize>), top: usize, k: usize) -> (usize, usize) {
-        let (columns, sums) = pool;
+    /// The index in `pool` of its first column at or below level `top`, and
+    /// how many cells the `k` columns from there leave empty above `top`.
+    /// When the pool runs out, new columns are added; each counts as its `top`
+    /// empty cells plus a penalty of `rows / NEW_COLUMN_PENALTY` cells.
+    fn choose(&self, pool: &Pool, top: usize, k: usize) -> (usize, usize) {
+        let Pool { columns, sums } = pool;
         let first = columns.partition_point(|c| self.levels[*c] > top);
         let existing = k.min(columns.len() - first);
         let filled = sums[first + existing] - sums[first];
         let new = k - existing;
-        (first, existing * top - filled + new * (top + self.rows / 8))
+        (
+            first,
+            existing * top - filled + new * (top + self.rows / NEW_COLUMN_PENALTY),
+        )
     }
 }
 impl Packing for Levels {
@@ -408,7 +439,7 @@ impl Packing for Levels {
     /// columns stay empty. For each possible start (the level of an open
     /// column, or 0), each kind takes its fullest columns at or below it; the
     /// start chosen has room for all the rows if any, then leaves the fewest
-    /// cells empty above the piece, counting `rows / 8` more for each new
+    /// cells empty above the piece, counting `rows / NEW_COLUMN_PENALTY` more for each new
     /// column so that existing columns are filled first, then is the highest.
     fn take(&mut self, copies: &[bool], mut count: usize) -> Vec<Piece> {
         let wanted = |kind: bool| copies.iter().filter(|c| **c == kind).count();
@@ -418,7 +449,7 @@ impl Packing for Levels {
             let pools = [self.pool(true), self.pool(false)];
             let mut tops: Vec<usize> = pools
                 .iter()
-                .flat_map(|(columns, _)| columns.iter().map(|c| self.levels[*c]))
+                .flat_map(|pool| pool.columns.iter().map(|c| self.levels[*c]))
                 .chain([0])
                 .collect();
             tops.sort_unstable();
@@ -435,7 +466,8 @@ impl Packing for Levels {
             let mut chosen = [vec![], vec![]];
             for (kind, (pool, k)) in pools.iter().zip([with_copies, without]).enumerate() {
                 let (first, _) = self.choose(pool, top, k);
-                let mut columns: Vec<usize> = pool.0[first..].iter().copied().take(k).collect();
+                let mut columns: Vec<usize> =
+                    pool.columns[first..].iter().copied().take(k).collect();
                 while columns.len() < k {
                     self.levels.push(0);
                     self.copies.push(kind == 0);
@@ -447,14 +479,14 @@ impl Packing for Levels {
                 columns.sort_unstable();
                 chosen[kind] = columns;
             }
-            let [mut copy_columns, mut other_columns] = chosen.map(Vec::into_iter);
+            let [mut with_copies_left, mut without_left] = chosen.map(Vec::into_iter);
             let columns = copies
                 .iter()
                 .map(|copy| {
                     if *copy {
-                        copy_columns.next()
+                        with_copies_left.next()
                     } else {
-                        other_columns.next()
+                        without_left.next()
                     }
                     .expect("one column per position")
                 })
@@ -487,7 +519,7 @@ impl Occupied {
 struct Bundle<'a> {
     members: Vec<&'a Entry>,
     /// Distinct wires in order of first appearance; wire `i` goes to the
-    /// band's column `i`.
+    /// `i`-th column of the piece that holds the bundle.
     wires: Vec<u32>,
     /// Shape and wire positions of each member. Bundles with equal keys
     /// differ only in which wires they use, so they can share slots.
@@ -540,6 +572,11 @@ const MAX_HOLDERS: usize = 16;
 const SLOTS_PER_COLUMN: f64 = 22.0;
 const SLOTS_PER_SELECTOR: f64 = 0.5;
 
+/// Relative cost of a column outside and inside the copy argument, used to
+/// choose between the two packings of the columns strategy.
+const COLUMN_COST: usize = 5;
+const COPY_COLUMN_COST: usize = 8;
+
 /// Weighted cost of `count` bundles of a key with `members` equations: one
 /// slot per member and run of at most `rows` bundles, and a selector for a
 /// run that does not fill its band.
@@ -571,10 +608,10 @@ fn shared(a: &[(u32, u32)], b: &[(u32, u32)]) -> Vec<(u32, u32)> {
 
 /// Group equations into bundles of at most `max_width` wires. Each round
 /// collects, for every pair of bundles that share a wire, the pattern
-/// `(key, key, shared positions)`. Going from the patterns that save the most
-/// cells to the least, it joins the disjoint pairs of a pattern when that
-/// lowers the weighted cost of the runs involved (see [`run_cost`]) by more
-/// than the columns the shared cells save.
+/// `(key, key, shared positions)` (see [`patterns`]). Going from the patterns
+/// that save the most cells to the least, it joins the disjoint pairs of a
+/// pattern when that lowers the weighted cost of the runs involved (see
+/// [`choose_joins`]), and stops after a round that joins nothing.
 fn bundles<'a>(
     entries: &[&'a Entry],
     wires: u32,
@@ -583,153 +620,218 @@ fn bundles<'a>(
 ) -> Vec<Bundle<'a>> {
     let mut bundles: Vec<Bundle> = entries.iter().map(|entry| Bundle::single(entry)).collect();
     for _ in 0..BUNDLE_ROUNDS {
-        let mut ids = BTreeMap::new();
-        let keys: Vec<usize> = bundles
-            .iter()
-            .map(|bundle| {
-                let next = ids.len();
-                *ids.entry(&bundle.key).or_insert(next)
-            })
-            .collect();
-        let key_count = ids.len();
-        drop(ids);
-        let mut holders = vec![vec![]; wires as usize];
-        for (index, bundle) in bundles.iter().enumerate() {
-            for wire in &bundle.wires {
-                holders[*wire as usize].push(index);
-            }
-        }
-        let sorted: Vec<_> = bundles.iter().map(Bundle::sorted_wires).collect();
-        let mut pairs = vec![];
-        for held in holders
-            .iter()
-            .filter(|held| (2..=MAX_HOLDERS).contains(&held.len()))
-        {
-            for (i, a) in held.iter().enumerate() {
-                for b in &held[i + 1..] {
-                    // Orient each pair by key so that equal patterns compare equal.
-                    pairs.push(if (keys[*a], *a) <= (keys[*b], *b) {
-                        (*a, *b)
-                    } else {
-                        (*b, *a)
-                    });
-                }
-            }
-        }
-        pairs.sort_unstable();
-        pairs.dedup();
-        let mut patterns: BTreeMap<_, Vec<(usize, usize)>> = BTreeMap::new();
-        for (a, b) in pairs {
-            let shared = shared(&sorted[a], &sorted[b]);
-            if bundles[a].wires.len() + bundles[b].wires.len() - shared.len() <= max_width {
-                patterns
-                    .entry((keys[a], keys[b], shared))
-                    .or_default()
-                    .push((a, b));
-            }
-        }
-        let mut patterns: Vec<_> = patterns.into_iter().collect();
-        patterns
-            .sort_by_key(|((_, _, shared), pairs)| std::cmp::Reverse(pairs.len() * shared.len()));
-        // Joins of this round: a bundle takes partners one pattern at a time,
-        // and each partner joins at most one bundle. Instances of a key that
-        // take the same patterns end up with the same key again, so the cost
-        // is tracked per group: a key followed by the patterns taken so far.
-        let mut group: Vec<usize> = keys.clone();
-        let mut count = vec![0usize; key_count];
-        let mut members = vec![0usize; key_count];
-        for (bundle, key) in bundles.iter().zip(&keys) {
-            count[*key] += 1;
-            members[*key] = bundle.key.len();
-        }
-        let mut next_groups = BTreeMap::new();
-        let mut width: Vec<usize> = bundles.iter().map(|bundle| bundle.wires.len()).collect();
-        let mut partners: Vec<Vec<usize>> = vec![vec![]; bundles.len()];
-        let mut absorbed = vec![false; bundles.len()];
-        for (pattern, ((_, b_key, shared), pairs)) in patterns.iter().enumerate() {
-            let mut taken = BTreeSet::new();
-            let chosen: Vec<_> = pairs
-                .iter()
-                .copied()
-                .filter(|&(a, b)| {
-                    !absorbed[a]
-                        && !absorbed[b]
-                        && partners[b].is_empty()
-                        && width[a] + bundles[b].wires.len() - shared.len() <= max_width
-                        && taken.insert(a)
-                        && taken.insert(b)
-                })
-                .collect();
-            if chosen.is_empty() {
-                continue;
-            }
-            // Group counts after the joins: each host moves to its group
-            // followed by this pattern, and each partner leaves its key.
-            let mut after: BTreeMap<usize, usize> = BTreeMap::new();
-            let mut moved: BTreeMap<usize, usize> = BTreeMap::new();
-            for &(a, _) in &chosen {
-                *after.entry(group[a]).or_insert(count[group[a]]) -= 1;
-                *moved.entry(group[a]).or_default() += 1;
-                *after.entry(*b_key).or_insert(count[*b_key]) -= 1;
-            }
-            let before: f64 = after
-                .keys()
-                .map(|g| run_cost(count[*g], members[*g], rows))
-                .sum();
-            let remaining: f64 = after
-                .iter()
-                .map(|(g, n)| run_cost(*n, members[*g], rows))
-                .sum();
-            let joined: f64 = moved
-                .iter()
-                .map(|(g, n)| run_cost(*n, members[*g] + members[*b_key], rows))
-                .sum();
-            let saved_columns = (chosen.len() * shared.len()) as f64 / rows as f64;
-            if remaining + joined - before - saved_columns * SLOTS_PER_COLUMN >= 0.0 {
-                continue;
-            }
-            for (g, n) in after {
-                count[g] = n;
-            }
-            for &(a, b) in &chosen {
-                let from = group[a];
-                let to = *next_groups.entry((from, pattern)).or_insert_with(|| {
-                    count.push(0);
-                    members.push(members[from] + members[*b_key]);
-                    count.len() - 1
-                });
-                count[to] += 1;
-                group[a] = to;
-                width[a] += bundles[b].wires.len() - shared.len();
-                partners[a].push(b);
-                absorbed[b] = true;
-            }
-        }
-        if partners.iter().all(Vec::is_empty) {
+        let (keys, key_count) = key_ids(&bundles);
+        let patterns = patterns(&bundles, &keys, wires, max_width);
+        let joins = choose_joins(&bundles, &keys, key_count, &patterns, max_width, rows);
+        if joins.partners.iter().all(Vec::is_empty) {
             break;
         }
-        let mut pending: Vec<Option<Bundle>> = bundles.into_iter().map(Some).collect();
-        let mut next = vec![];
-        for index in 0..pending.len() {
-            if absorbed[index] {
-                continue;
-            }
-            let mut bundle = pending[index].take().expect("each bundle is taken once");
-            for partner in &partners[index] {
-                bundle = bundle.join(pending[*partner].take().expect("partner joins once"));
-            }
-            next.push(bundle);
-        }
-        bundles = next;
+        bundles = apply_joins(bundles, &joins);
     }
     bundles
+}
+
+/// A number for each bundle's key, in order of first appearance, and the
+/// number of distinct keys.
+fn key_ids(bundles: &[Bundle]) -> (Vec<usize>, usize) {
+    let mut ids = BTreeMap::new();
+    let keys = bundles
+        .iter()
+        .map(|bundle| {
+            let next = ids.len();
+            *ids.entry(&bundle.key).or_insert(next)
+        })
+        .collect();
+    (keys, ids.len())
+}
+
+/// Pairs of bundles that share wires and could be joined, grouped by the
+/// keys of both bundles and the positions they share.
+struct Pattern {
+    /// Key of the second bundle of every pair.
+    partner_key: usize,
+    /// Positions of the shared wires, in the first bundle and in the second.
+    shared: Vec<(u32, u32)>,
+    /// The pairs, each oriented so that its first bundle has the smaller key.
+    pairs: Vec<(usize, usize)>,
+}
+
+/// The patterns among pairs of bundles that share a wire held by at most
+/// `MAX_HOLDERS` bundles and that, joined, fit in `max_width` wires; the ones
+/// that save the most cells (pairs times shared wires) come first.
+fn patterns(bundles: &[Bundle], keys: &[usize], wires: u32, max_width: usize) -> Vec<Pattern> {
+    let mut holders = vec![vec![]; wires as usize];
+    for (index, bundle) in bundles.iter().enumerate() {
+        for wire in &bundle.wires {
+            holders[*wire as usize].push(index);
+        }
+    }
+    let sorted: Vec<_> = bundles.iter().map(Bundle::sorted_wires).collect();
+    let mut pairs = vec![];
+    for held in holders
+        .iter()
+        .filter(|held| (2..=MAX_HOLDERS).contains(&held.len()))
+    {
+        for (i, a) in held.iter().enumerate() {
+            for b in &held[i + 1..] {
+                // Orient each pair by key so that equal patterns compare equal.
+                pairs.push(if (keys[*a], *a) <= (keys[*b], *b) {
+                    (*a, *b)
+                } else {
+                    (*b, *a)
+                });
+            }
+        }
+    }
+    pairs.sort_unstable();
+    pairs.dedup();
+    let mut patterns: BTreeMap<_, Vec<(usize, usize)>> = BTreeMap::new();
+    for (a, b) in pairs {
+        let shared = shared(&sorted[a], &sorted[b]);
+        if bundles[a].wires.len() + bundles[b].wires.len() - shared.len() <= max_width {
+            patterns
+                .entry((keys[a], keys[b], shared))
+                .or_default()
+                .push((a, b));
+        }
+    }
+    let mut patterns: Vec<_> = patterns
+        .into_iter()
+        .map(|((_, partner_key, shared), pairs)| Pattern {
+            partner_key,
+            shared,
+            pairs,
+        })
+        .collect();
+    patterns.sort_by_key(|pattern| std::cmp::Reverse(pattern.pairs.len() * pattern.shared.len()));
+    patterns
+}
+
+/// The joins of one round: the partners each bundle takes, in order, and
+/// whether each bundle joins another.
+struct Joins {
+    partners: Vec<Vec<usize>>,
+    absorbed: Vec<bool>,
+}
+
+/// Choose the joins of one round. A bundle takes partners one pattern at a
+/// time, and each partner joins at most one bundle. The cost of a pattern is
+/// estimated per group of bundles: a key followed by the patterns taken so
+/// far, assuming the bundles of a group end up with the same key (they usually
+/// do; when a later partner also shares wires with an earlier one, the keys
+/// differ and the estimate is off, but the joined width is still within
+/// `max_width`). A pattern's joins are made only if they lower the weighted
+/// cost of the runs of the groups involved (see [`run_cost`]) by more than the
+/// columns the shared cells save.
+fn choose_joins(
+    bundles: &[Bundle],
+    keys: &[usize],
+    key_count: usize,
+    patterns: &[Pattern],
+    max_width: usize,
+    rows: usize,
+) -> Joins {
+    let mut group: Vec<usize> = keys.to_vec();
+    let mut count = vec![0usize; key_count];
+    let mut members = vec![0usize; key_count];
+    for (bundle, key) in bundles.iter().zip(keys) {
+        count[*key] += 1;
+        members[*key] = bundle.key.len();
+    }
+    let mut next_groups = BTreeMap::new();
+    let mut width: Vec<usize> = bundles.iter().map(|bundle| bundle.wires.len()).collect();
+    let mut joins = Joins {
+        partners: vec![vec![]; bundles.len()],
+        absorbed: vec![false; bundles.len()],
+    };
+    for (index, pattern) in patterns.iter().enumerate() {
+        let (b_key, shared) = (pattern.partner_key, &pattern.shared);
+        let mut taken = BTreeSet::new();
+        let chosen: Vec<_> = pattern
+            .pairs
+            .iter()
+            .copied()
+            .filter(|&(a, b)| {
+                !joins.absorbed[a]
+                    && !joins.absorbed[b]
+                    && joins.partners[b].is_empty()
+                    && width[a] + bundles[b].wires.len() - shared.len() <= max_width
+                    && taken.insert(a)
+                    && taken.insert(b)
+            })
+            .collect();
+        if chosen.is_empty() {
+            continue;
+        }
+        // Group counts after the joins: each host moves to its group
+        // followed by this pattern, and each partner leaves its key.
+        let mut after: BTreeMap<usize, usize> = BTreeMap::new();
+        let mut moved: BTreeMap<usize, usize> = BTreeMap::new();
+        for &(a, _) in &chosen {
+            *after.entry(group[a]).or_insert(count[group[a]]) -= 1;
+            *moved.entry(group[a]).or_default() += 1;
+            *after.entry(b_key).or_insert(count[b_key]) -= 1;
+        }
+        let before: f64 = after
+            .keys()
+            .map(|g| run_cost(count[*g], members[*g], rows))
+            .sum();
+        let remaining: f64 = after
+            .iter()
+            .map(|(g, n)| run_cost(*n, members[*g], rows))
+            .sum();
+        let joined: f64 = moved
+            .iter()
+            .map(|(g, n)| run_cost(*n, members[*g] + members[b_key], rows))
+            .sum();
+        let saved_columns = (chosen.len() * shared.len()) as f64 / rows as f64;
+        if remaining + joined - before - saved_columns * SLOTS_PER_COLUMN >= 0.0 {
+            continue;
+        }
+        for (g, n) in after {
+            count[g] = n;
+        }
+        for &(a, b) in &chosen {
+            let from = group[a];
+            let to = *next_groups.entry((from, index)).or_insert_with(|| {
+                count.push(0);
+                members.push(members[from] + members[b_key]);
+                count.len() - 1
+            });
+            count[to] += 1;
+            group[a] = to;
+            width[a] += bundles[b].wires.len() - shared.len();
+            joins.partners[a].push(b);
+            joins.absorbed[b] = true;
+        }
+    }
+    joins
+}
+
+/// The bundles after `joins`: each bundle that takes partners followed by
+/// them in order, and every other bundle that joins no one, as it was.
+fn apply_joins<'a>(bundles: Vec<Bundle<'a>>, joins: &Joins) -> Vec<Bundle<'a>> {
+    let mut pending: Vec<Option<Bundle>> = bundles.into_iter().map(Some).collect();
+    let mut next = vec![];
+    for index in 0..pending.len() {
+        if joins.absorbed[index] {
+            continue;
+        }
+        let mut bundle = pending[index].take().expect("each bundle is taken once");
+        for partner in &joins.partners[index] {
+            bundle = bundle.join(pending[*partner].take().expect("partner joins once"));
+        }
+        next.push(bundle);
+    }
+    next
 }
 
 /// Place the equations in bundles (see [`bundles`]), one bundle per row in
 /// as many columns as the bundle has wires. The bundles of one key form a
 /// run, placed top down in one or more pieces of the trace; each member of a
 /// piece shares one slot. Runs go widest first, then longest first, and are
-/// packed both as [`Rectangles`] and as [`Levels`], keeping the narrower.
+/// packed both as [`Rectangles`] and as [`Levels`], keeping the cheaper one
+/// that fits in `MAX_WIDTH` columns (see `COLUMN_COST`).
 fn place_in_bands(
     entries: &[Entry],
     network: &Network,
@@ -752,24 +854,24 @@ fn place_in_bands(
             run[0].members[0].index,
         )
     });
-    // Pack with both methods and keep the cheaper trace: a copy column also
-    // has a fixed column of labels and about 1.5 stage-two columns, so it
-    // weighs about 1.6 times a column without copies.
+    // Pack with both methods and keep the cheaper trace that fits.
     let rectangles = arrange(entries, network, &runs, Rectangles::new(rows));
     let levels = arrange(entries, network, &runs, Levels::new(rows));
-    let weight = |placed: &Placed| 5 * placed.width + 3 * placed.copy_columns;
-    let placed = if weight(&levels) < weight(&rectangles) {
-        levels
-    } else {
-        rectangles
-    };
+    let narrowest = rectangles.width.min(levels.width);
     ensure_within_limit(
-        placed.width <= MAX_WIDTH,
+        narrowest <= MAX_WIDTH,
         format_args!(
-            "the shapes need {} columns in {rows} rows, more than {MAX_WIDTH}; raise minRows",
-            placed.width
+            "the shapes need {narrowest} columns in {rows} rows, more than {MAX_WIDTH}; raise minRows"
         ),
     )?;
+    let placed = [rectangles, levels]
+        .into_iter()
+        .filter(|placed| placed.width <= MAX_WIDTH)
+        .min_by_key(|placed| {
+            COLUMN_COST * (placed.width - placed.copy_columns)
+                + COPY_COLUMN_COST * placed.copy_columns
+        })
+        .expect("the narrowest packing fits");
     Ok(Placed {
         width: placed.width.max(MIN_WIDTH),
         ..placed
@@ -790,9 +892,9 @@ fn arrange(
         cells: vec![0; network.wires as usize],
     };
     // Cells per wire: one in each bundle that holds it.
-    let mut holders = vec![0usize; network.wires as usize];
+    let mut cells_per_wire = vec![0usize; network.wires as usize];
     for wire in runs.iter().flatten().flat_map(|bundle| &bundle.wires) {
-        holders[*wire as usize] += 1;
+        cells_per_wire[*wire as usize] += 1;
     }
     let mut placements = vec![];
     let mut cells = vec![];
@@ -802,7 +904,7 @@ fn arrange(
         let copies: Vec<bool> = (0..run[0].wires.len())
             .map(|p| {
                 run.iter()
-                    .any(|bundle| holders[bundle.wires[p] as usize] > 1)
+                    .any(|bundle| cells_per_wire[bundle.wires[p] as usize] > 1)
             })
             .collect();
         let mut bundles = run.iter();

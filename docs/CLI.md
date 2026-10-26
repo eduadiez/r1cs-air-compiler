@@ -67,11 +67,13 @@ Unknown fields are rejected; `bundleWidth` may be left out. The values of
 - `strategy: components`: first place each group of wire-connected equations
   that fits in one row together, then continue as `local`;
 - `strategy: columns`: first join equations that share wires into bundles
-  that repeat with the same structure (at most `options.width` wires each),
-  then give each kind of bundle a band of columns, one bundle per row from the
-  top down, starting a new band every `minRows` bundles; leftover runs share
-  bands with room. The trace has `minRows` rows and as many columns as the
-  bands need, at most 1024 (otherwise the command fails with kind `limit`).
+  that repeat with the same structure (at most `bundleWidth` wires each), then
+  place the bundles of each kind in runs, one bundle per row, each run in one
+  or more pieces of the same columns. The runs are packed in two ways, and the
+  cheaper trace is kept; one of them keeps wires that occur in a single bundle
+  in columns of their own, which stay out of the copy argument. The trace has
+  exactly `minRows` rows and as many columns as the runs need, at most 1024
+  (otherwise the command fails with kind `limit`).
   Wires get more cells than with the other strategies, but the PILout has far
   fewer slot constraints and selector columns. [Scale](SCALE.md) compares the
   proving times of the strategies for several values of `minRows`, and

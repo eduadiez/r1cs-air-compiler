@@ -24,17 +24,15 @@ First version.
   `limit`. `certificate.json` and `plan.json` are compact JSON followed by a
   newline.
 - Layout strategies `mixed`, `local`, `components` and `columns`; `columns`
-  puts each shape in its own band of columns, which gives far fewer slot
-  constraints and selectors.
-- Copy ratios have degree 3 (two numerator and two denominator factors each),
-  so a prover with a blowup factor of 2 needs no intermediate columns of its
-  own; this changed the packed PILout and certificate of every fixture with a
-  copy argument.
-- The copy argument covers only the columns that hold a cell of a wire with
-  several cells; columns of single-cell wires get no `S` column, factors or
-  ratio share.
-- An optional `bundleWidth` layout setting lets `columns` join more equations
-  per row than `options.width` wires.
+  joins equations that share wires into bundles and places equal bundles in
+  runs, which gives far fewer slot constraints and selectors. An optional
+  `bundleWidth` setting bounds its bundles.
+- Every constraint has degree at most 3: copy ratios take two numerator and
+  two denominator factors each, so a prover with a blowup factor of 2 needs
+  no intermediate columns of its own.
+- The copy argument covers only the columns holding a cell of a wire with
+  several cells; columns holding only unused cells and wires with one cell get
+  no `S` column, no factors and no share of the ratio columns.
 - The `sha256` fixture is laid out with the `columns` strategy at 1024 rows.
 - `Error::kind` tells an invalid input (`ErrorKind::Invalid`) from one that
   exceeds a size limit (`ErrorKind::Limit`).

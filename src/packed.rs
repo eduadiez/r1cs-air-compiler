@@ -170,7 +170,8 @@ impl Builder {
         }
         terms.pop().unwrap_or_else(|| constant(0))
     }
-    /// Add the copy-argument fixed columns `ID`, `S0..S{width-1}` and `FIRST`.
+    /// Add the copy-argument fixed columns `ID`, `S{c}` for each copy column
+    /// `c` in increasing order, and `FIRST`.
     fn copy_columns(&mut self, layout: &Layout, map: &[u32]) -> Result<CopyColumns> {
         let (labels, permuted) = labels(map, layout.rows, layout.width)?;
         let id = self.fixed(
@@ -208,8 +209,7 @@ impl Builder {
     fn constrain_copies_exactly(&mut self, columns: CopyColumns) {
         let (numerators, denominators) =
             self.copy_factors(&columns.id, &columns.columns, columns.permuted);
-        let (numerator, denominator, ratios) =
-            self.constrain_ratios(numerators.len(), &numerators, &denominators);
+        let (numerator, denominator, ratios) = self.constrain_ratios(&numerators, &denominators);
         self.air.stage_widths[1] += ratios;
         if ratios > 0 {
             self.symbols.push(symbol(
@@ -288,24 +288,25 @@ impl Builder {
     /// numerator and denominator products and the number of ratio columns.
     fn constrain_ratios(
         &mut self,
-        width: usize,
         numerators: &[pb::Operand],
         denominators: &[pb::Operand],
     ) -> (pb::Operand, pb::Operand, u32) {
+        // One numerator and one denominator factor per copy column.
+        let factors = numerators.len();
         // Next unused numerator and denominator factor.
         let (mut next_num, mut next_den, mut ratios) = (0, 0, 0);
         let mut numerator = constant(1);
-        if width >= MAX_DEGREE {
+        if factors >= MAX_DEGREE {
             while ratios == 0
-                || width - next_num + 1 >= MAX_DEGREE
-                || width - next_den >= MAX_DEGREE
+                || factors - next_num + 1 >= MAX_DEGREE
+                || factors - next_den >= MAX_DEGREE
             {
                 // The first ratio takes `MAX_DEGREE` numerators; later ones one
                 // fewer, plus the previous ratio.
-                let take = (MAX_DEGREE - usize::from(ratios > 0)).min(width - next_num);
+                let take = (MAX_DEGREE - usize::from(ratios > 0)).min(factors - next_num);
                 numerator = self.multiply(numerator, &numerators[next_num..next_num + take]);
                 next_num += take;
-                let take = (MAX_DEGREE - 1).min(width - next_den);
+                let take = (MAX_DEGREE - 1).min(factors - next_den);
                 let denominator =
                     self.multiply(constant(1), &denominators[next_den..next_den + take]);
                 next_den += take;
@@ -434,9 +435,9 @@ pub fn compile(source: &[u8], config: &LayoutConfig) -> Result<PackedArtifact> {
     })
 }
 
-/// Generate the PILout. Fixed columns come in this order: `ID`, `S0..S{width-1}`
-/// and `FIRST` (only with a copy argument), the selectors `E*`, then `PH*`,
-/// `PL*` and `PA*`.
+/// Generate the PILout. Fixed columns come in this order: `ID`, `S{c}` for each
+/// copy column `c` and `FIRST` (only with a copy argument), the selectors `E*`,
+/// then `PH*`, `PL*` and `PA*`.
 fn build_pilout(network: &Network, layout: &Layout, map: &[u32]) -> Result<Vec<u8>> {
     let product = if layout.requires_copy {
         PRODUCT_COLUMN_NAME

@@ -110,14 +110,14 @@ proof regardless of the layout.
 The time of a proof is roughly proportional to the number of rows of the
 extended domain times a weighted count of columns, in which a committed column
 (stage one, stage two and the quotient) weighs most, a fixed column much less,
-and each operation of the constraints less still. The copy argument adds about
-1.5 stage-two columns per trace column, so a trace column weighs about as much
-as twenty slot constraints. The row-filling strategies keep each wire in few
-cells, but leave thousands of slots and selectors, which are expensive to
-evaluate. `columns` joins equations that share wires into bundles that repeat
-with the same structure, gives each kind of bundle its own band of columns,
-and so keeps slots and selectors near the number of bundle kinds, at the cost
-of a trace about twice as wide. In these measurements it took 19–54% less
+and each operation of the constraints less still. Each column in the copy
+argument also adds about 1.5 stage-two columns and a fixed column of labels,
+so it weighs about as much as 22 slot constraints. The row-filling
+strategies keep each wire in few cells, but leave thousands of slots and
+selectors, which are expensive to evaluate. `columns` joins equations that
+share wires into bundles that repeat with the same structure, places the
+bundles of each kind in runs that share their slots, and so keeps slots and
+selectors near the number of bundle kinds, at the cost of a wider trace. In these measurements it took 19–54% less
 time than the best row-filling layout, and the gain grows with the circuit.
 
 The best `minRows` depends on the circuit: in these runs it ranged from 1024

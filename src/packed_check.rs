@@ -233,8 +233,8 @@ impl<'a> FixedColumns<'a> {
         Ok(id as u32)
     }
     /// The copy-argument columns: `ID` (the row domain `ω^r`), one permuted
-    /// label column `S{col}` per stage-one column, and `FIRST`. Returns the
-    /// number of columns added.
+    /// label column `S{col}` per copy column in increasing order, and `FIRST`.
+    /// Returns the number of columns added.
     fn add_copy_columns(
         &mut self,
         layout: &Layout,
@@ -680,7 +680,6 @@ impl ExpressionGraph {
     }
 }
 
-/// Index of the `FIRST` column, after `ID` and the `S` columns.
 /// Hint name and the expected expression id of each named field.
 type ExpectedHint = (&'static str, BTreeMap<&'static str, usize>);
 
@@ -755,8 +754,8 @@ fn check_copy_constraints(
     Ok(hints)
 }
 
-/// For each column, the numerator factor with the permuted label column and
-/// the denominator factor with the cell's own label.
+/// For each copy column, the numerator factor with the permuted label column
+/// and the denominator factor with the cell's own label.
 fn copy_factors(graph: &mut ExpressionGraph, columns: &[usize]) -> (Vec<usize>, Vec<usize>) {
     let alpha = graph.leaf(Leaf::Challenge(ALPHA));
     let gamma = graph.leaf(Leaf::Challenge(GAMMA));
@@ -790,12 +789,12 @@ fn check_ratios(
     denominators: &[usize],
     hints: &mut Vec<ExpectedHint>,
 ) -> Result<(usize, usize)> {
-    let width = numerators.len();
+    let factors = numerators.len();
     // The running numerator and the next unused numerator and denominator factor.
     let (mut numerator, mut next_num, mut next_den) = (graph.constant(1), 0, 0);
     for (i, root) in roots.iter().enumerate() {
-        let num_end = width.min(MAX_DEGREE + (MAX_DEGREE - 1) * i);
-        let den_end = width.min((MAX_DEGREE - 1) * (i + 1));
+        let num_end = factors.min(MAX_DEGREE + (MAX_DEGREE - 1) * i);
+        let den_end = factors.min((MAX_DEGREE - 1) * (i + 1));
         for factor in &numerators[next_num..num_end] {
             numerator = graph.mul(numerator, *factor);
         }

@@ -146,7 +146,8 @@ fn layout_config() -> impl Strategy<Value = LayoutConfig> {
                     Placement::Columns,
                 ][strategy],
                 min_rows: 64,
-                bundle_width: wide.then_some(2 * width),
+                // Only the columns strategy accepts a bundle width.
+                bundle_width: (wide && strategy == 3).then_some(2 * width),
             },
         )
 }
@@ -346,6 +347,21 @@ fn constraint_count(pilout: &[u8]) -> usize {
     decode(pilout).air_groups[0].airs[0].constraints.len()
 }
 
+/// Number of constraints before the copy argument's, which come last and
+/// are labeled `copy ...`.
+fn slot_and_public_constraints(pilout: &[u8]) -> usize {
+    decode(pilout).air_groups[0].airs[0]
+        .constraints
+        .iter()
+        .filter(|c| match &c.constraint {
+            Some(pb::constraint::Constraint::EveryRow(row)) => {
+                !row.debug_line.as_deref().unwrap_or("").starts_with("copy ")
+            }
+            _ => true,
+        })
+        .count()
+}
+
 /// Polynomials of the first `count` constraints, which must not use row offsets.
 fn constraint_polynomials(
     pilout: &[u8],
@@ -469,10 +485,7 @@ proptest! {
             // The checker compares the copy argument operation by operation, so
             // an accepted change can only have touched the slot and public
             // constraints, and must have left their polynomials as they were.
-            let layout = &artifact.certificate.layout;
-            let ratios = (layout.width - 1) / 2;
-            let copy = if layout.requires_copy { ratios + 2 } else { 0 };
-            let main = constraint_count(&artifact.pilout) - copy;
+            let main = slot_and_public_constraints(&artifact.pilout);
             let publics = artifact.certificate.network.publics;
             prop_assert_eq!(
                 constraint_polynomials(&artifact.pilout, width, publics, main),

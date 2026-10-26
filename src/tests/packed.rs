@@ -261,6 +261,51 @@ fn only_copy_columns_have_permuted_labels() {
 }
 
 #[test]
+fn copy_arguments_without_ratio_columns_are_checked() {
+    // Two equations share wire 1, which takes cells in one column only.
+    let source = connected_source(2);
+    let a = packed::compile(&source, &config(3)).unwrap();
+    let copy = copy_columns(&a).len();
+    assert!(a.certificate.layout.requires_copy && copy <= 2);
+    let pilout = pb::PilOut::decode(a.pilout.as_slice()).unwrap();
+    assert_eq!(pilout.air_groups[0].airs[0].stage_widths[1], 1);
+    assert!(pilout.symbols.iter().all(|s| s.name != "copy_ratios"));
+    let first = pilout
+        .symbols
+        .iter()
+        .find(|s| s.name == "Kernel.FIRST")
+        .unwrap();
+    assert_eq!(first.id, copy as u32 + 1);
+    rejects(
+        "copy recurrence differs from the expected one",
+        &source,
+        a,
+        |p| {
+            let recurrence = constraint_labeled(p, label::COPY_RECURRENCE);
+            let closure = constraint_labeled(p, label::COPY_CLOSURE);
+            reuse_expression(p, recurrence, closure);
+        },
+    );
+}
+
+#[test]
+fn row_counts_and_bundle_widths_are_limited() {
+    let mut settings = config(3);
+    settings.strategy = Strategy::Columns;
+    settings.min_rows = 1 << 63;
+    assert_limit(
+        packed::compile(&source(), &settings),
+        "minRows exceeds 65536",
+    );
+    let mut settings = config(3);
+    settings.bundle_width = Some(6);
+    assert_rejected(
+        packed::compile(&source(), &settings),
+        "bundleWidth applies only to the columns strategy",
+    );
+}
+
+#[test]
 fn ratio_column_counts_match_the_formula() {
     for width in [3, 4, 5, 6, 7, 8, 9, 12, 13, 16, 35, 36, 37, 64, 96, 192] {
         let (source, a) = ratio_artifact(width);

@@ -209,7 +209,11 @@ requires every hint to match exactly:
 - Every constraint carries a fixed label in `debug_line` (for example
   `R1CS 3`, `packed equation`, `copy closure`), and both checkers require it.
 - Constraints, fixed columns and hints must appear in the order the compiler
-  emits them. The packed checker evaluates expressions in order up to
+  emits them. For packed artifacts the fixed columns are, in order: `ID`,
+  `S{c}` for each copy column `c` in increasing order and `FIRST` (these three
+  only with a copy argument, so `FIRST` is fixed column `p + 1` for `p` copy
+  columns), the selectors `E{i}`, then the `PH`, `PL` and `PA` columns of the
+  public values. The packed checker evaluates expressions in order up to
   the last slot or public constraint, so copy-argument expressions must come
   after those. An artifact that encodes the same relation in a different order
   is rejected.
@@ -263,9 +267,10 @@ constraint then holds on every row and the public constraints hold on row 0.
 
 Let `M` be the number of cells in copy columns; the checker requires
 `n · width ≤ MAX_CELLS`, so `M ≤ MAX_CELLS`. In what follows, cells are
-those of copy columns; every cell of a wire with several cells is one of them,
-and every cell outside them is its own cycle of `prev`, with a factor `num`
-equal to its `den`. Write `label(x)` for the label of cell `x`, and `prev(x)` for
+those of copy columns. Every cell of a wire with several cells is one of
+them; cells outside them hold unused cells or wires with one cell, take no
+part in the copy argument, and need none, since a wire with one cell holds
+one value. Write `label(x)` for the label of cell `x`, and `prev(x)` for
 the previous cell of the same wire, so that `S` holds `label(prev(x))` at cell
 `x`. The map `prev` is a permutation of the cells whose cycles are exactly the
 sets of cells of each wire; an unused cell, or the only cell of a wire, is its
