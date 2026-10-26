@@ -180,6 +180,8 @@ pub fn pack(network: &Network, config: &LayoutConfig) -> Result<Layout> {
 /// Equations and public values placed in a trace of `width` columns.
 struct Placed {
     width: usize,
+    /// Columns in the copy argument (SPEC.md, "Copy argument").
+    copy_columns: usize,
     placements: Vec<Placement>,
     public_bindings: Vec<Binding>,
     /// Rows holding an equation or a public cell, at least 1.
@@ -226,6 +228,8 @@ fn place_in_rows(entries: &[Entry], network: &Network, width: usize, strategy: S
     let public_bindings = bind_publics(&mut placer, network.publics);
     Placed {
         width,
+        // Only used to compare packings of the columns strategy.
+        copy_columns: width,
         placements,
         public_bindings,
         used_rows: placer.rows.len().max(1),
@@ -251,8 +255,11 @@ struct Piece {
 
 /// A way of dividing a trace of a fixed number of rows among runs of bundles.
 trait Packing {
-    /// Take `count` rows of `width` columns, in one or more pieces.
-    fn take(&mut self, width: usize, count: usize) -> Vec<Piece>;
+    /// Take `count` rows of one column per entry of `copies`, in one or more
+    /// pieces. An entry is true for a position that may hold a wire with
+    /// several cells; a packing may keep the others in columns of their own,
+    /// which can then stay out of the copy argument.
+    fn take(&mut self, copies: &[bool], count: usize) -> Vec<Piece>;
     /// Columns used so far.
     fn width(&self) -> usize;
     /// Rows used so far in any column.
@@ -292,7 +299,8 @@ impl Packing for Rectangles {
     /// fits and the rest goes elsewhere. Using a rectangle leaves the columns
     /// to the right of the piece and the rows below it free. Without a fitting
     /// rectangle, a new band is added.
-    fn take(&mut self, width: usize, mut count: usize) -> Vec<Piece> {
+    fn take(&mut self, copies: &[bool], mut count: usize) -> Vec<Piece> {
+        let width = copies.len();
         let mut pieces = vec![];
         while count > 0 {
             let fitting = (0..self.free.len())
@@ -343,11 +351,14 @@ impl Packing for Rectangles {
 }
 
 /// The trace, `rows` rows high, as columns filled from the top down, each to
-/// its own level. A piece may use any columns, adjacent or not.
+/// its own level. A piece may use any columns, adjacent or not. Columns that
+/// hold positions which may have copies are kept apart from the others.
 struct Levels {
     rows: usize,
     /// Rows taken from the top of each column.
     levels: Vec<usize>,
+    /// Whether each column holds positions that may have copies.
+    copies: Vec<bool>,
     used_rows: usize,
 }
 impl Levels {
@@ -355,8 +366,33 @@ impl Levels {
         Levels {
             rows,
             levels: vec![],
+            copies: vec![],
             used_rows: 0,
         }
+    }
+    /// The open columns of one kind, fullest first, with prefix sums of their
+    /// levels.
+    fn pool(&self, copies: bool) -> (Vec<usize>, Vec<usize>) {
+        let mut columns: Vec<usize> = (0..self.levels.len())
+            .filter(|c| self.copies[*c] == copies && self.levels[*c] < self.rows)
+            .collect();
+        columns.sort_by_key(|c| (std::cmp::Reverse(self.levels[*c]), *c));
+        let mut sums = vec![0];
+        for c in &columns {
+            sums.push(sums.last().expect("starts at 0") + self.levels[*c]);
+        }
+        (columns, sums)
+    }
+    /// The first `k` columns of `pool` at or below level `top`, and how many
+    /// cells they leave empty above `top`, with new columns (empty from row 0,
+    /// plus `rows / 8`) once the pool runs out.
+    fn choose(&self, pool: &(Vec<usize>, Vec<usize>), top: usize, k: usize) -> (usize, usize) {
+        let (columns, sums) = pool;
+        let first = columns.partition_point(|c| self.levels[*c] > top);
+        let existing = k.min(columns.len() - first);
+        let filled = sums[first + existing] - sums[first];
+        let new = k - existing;
+        (first, existing * top - filled + new * (top + self.rows / 8))
     }
 }
 impl Packing for Levels {
@@ -366,52 +402,63 @@ impl Packing for Levels {
     fn used_rows(&self) -> usize {
         self.used_rows
     }
-    /// Take `count` rows of `width` columns, in pieces. A piece starts at
-    /// the highest level among its columns, and the rows above it in its
-    /// other columns stay empty. Among windows of `width` consecutive columns
-    /// in order of level (fullest first, followed by `width` new columns), it
-    /// takes one with room for all the rows if any, then the one that leaves
-    /// the fewest cells empty above the piece, counting `rows / 8` more for
-    /// each new column so that existing columns are filled first.
-    fn take(&mut self, width: usize, mut count: usize) -> Vec<Piece> {
-        let new_column = self.rows / 8;
+    /// Take `count` rows of one column per entry of `copies`, in pieces, with
+    /// copy positions and the others in separate columns. A piece starts at
+    /// the highest level among its columns, and the rows above it in its other
+    /// columns stay empty. For each possible start (the level of an open
+    /// column, or 0), each kind takes its fullest columns at or below it; the
+    /// start chosen has room for all the rows if any, then leaves the fewest
+    /// cells empty above the piece, counting `rows / 8` more for each new
+    /// column so that existing columns are filled first, then is the highest.
+    fn take(&mut self, copies: &[bool], mut count: usize) -> Vec<Piece> {
+        let wanted = |kind: bool| copies.iter().filter(|c| **c == kind).count();
+        let (with_copies, without) = (wanted(true), wanted(false));
         let mut pieces = vec![];
         while count > 0 {
-            let mut order: Vec<(usize, Option<usize>)> = (0..self.levels.len())
-                .filter(|c| self.levels[*c] < self.rows)
-                .map(|c| (self.levels[c], Some(c)))
-                .collect();
-            order.sort_by_key(|(level, c)| (std::cmp::Reverse(*level), *c));
-            order.extend(std::iter::repeat_n((0, None), width));
-            let start = (0..=order.len() - width)
-                .min_by_key(|i| {
-                    let window = &order[*i..*i + width];
-                    let top = window[0].0;
-                    let empty: usize = window
-                        .iter()
-                        .map(|(level, column)| match column {
-                            Some(_) => top - level,
-                            None => top + new_column,
-                        })
-                        .sum();
-                    (self.rows - top < count, empty, *i)
-                })
-                .expect("the new columns form a window");
-            let top = order[start].0;
-            let taken = count.min(self.rows - top);
-            let mut columns: Vec<usize> = order[start..start + width]
+            let pools = [self.pool(true), self.pool(false)];
+            let mut tops: Vec<usize> = pools
                 .iter()
-                .map(|(_, column)| {
-                    column.unwrap_or_else(|| {
-                        self.levels.push(0);
-                        self.levels.len() - 1
-                    })
+                .flat_map(|(columns, _)| columns.iter().map(|c| self.levels[*c]))
+                .chain([0])
+                .collect();
+            tops.sort_unstable();
+            tops.dedup();
+            let top = *tops
+                .iter()
+                .min_by_key(|top| {
+                    let empty = self.choose(&pools[0], **top, with_copies).1
+                        + self.choose(&pools[1], **top, without).1;
+                    (self.rows - **top < count, empty, std::cmp::Reverse(**top))
+                })
+                .expect("0 is a possible start");
+            let taken = count.min(self.rows - top);
+            let mut chosen = [vec![], vec![]];
+            for (kind, (pool, k)) in pools.iter().zip([with_copies, without]).enumerate() {
+                let (first, _) = self.choose(pool, top, k);
+                let mut columns: Vec<usize> = pool.0[first..].iter().copied().take(k).collect();
+                while columns.len() < k {
+                    self.levels.push(0);
+                    self.copies.push(kind == 0);
+                    columns.push(self.levels.len() - 1);
+                }
+                for column in &columns {
+                    self.levels[*column] = top + taken;
+                }
+                columns.sort_unstable();
+                chosen[kind] = columns;
+            }
+            let [mut copy_columns, mut other_columns] = chosen.map(Vec::into_iter);
+            let columns = copies
+                .iter()
+                .map(|copy| {
+                    if *copy {
+                        copy_columns.next()
+                    } else {
+                        other_columns.next()
+                    }
+                    .expect("one column per position")
                 })
                 .collect();
-            for column in &columns {
-                self.levels[*column] = top + taken;
-            }
-            columns.sort_unstable();
             self.used_rows = self.used_rows.max(top + taken);
             pieces.push(Piece {
                 columns,
@@ -684,10 +731,13 @@ fn place_in_bands(
             run[0].members[0].index,
         )
     });
-    // Pack with both methods and keep the narrower trace.
+    // Pack with both methods and keep the cheaper trace: a copy column also
+    // has a fixed column of labels and about 1.5 stage-two columns, so it
+    // weighs about 1.6 times a column without copies.
     let rectangles = arrange(entries, network, &runs, Rectangles::new(rows));
     let levels = arrange(entries, network, &runs, Levels::new(rows));
-    let placed = if levels.width < rectangles.width {
+    let weight = |placed: &Placed| 5 * placed.width + 3 * placed.copy_columns;
+    let placed = if weight(&levels) < weight(&rectangles) {
         levels
     } else {
         rectangles
@@ -718,14 +768,28 @@ fn arrange(
         first: vec![None; network.wires as usize],
         cells: vec![0; network.wires as usize],
     };
+    // Cells per wire: one in each bundle that holds it.
+    let mut holders = vec![0usize; network.wires as usize];
+    for wire in runs.iter().flatten().flat_map(|bundle| &bundle.wires) {
+        holders[*wire as usize] += 1;
+    }
     let mut placements = vec![];
+    let mut cells = vec![];
     for run in runs {
-        let width = run[0].wires.len();
+        // A position may have copies if its wire is in another bundle in
+        // any bundle of the run.
+        let copies: Vec<bool> = (0..run[0].wires.len())
+            .map(|p| {
+                run.iter()
+                    .any(|bundle| holders[bundle.wires[p] as usize] > 1)
+            })
+            .collect();
         let mut bundles = run.iter();
-        for piece in packing.take(width, run.len()) {
+        for piece in packing.take(&copies, run.len()) {
             for (row, bundle) in (piece.top..piece.top + piece.count).zip(bundles.by_ref()) {
                 for (position, wire) in bundle.wires.iter().enumerate() {
                     occupied.add(*wire, row, piece.columns[position]);
+                    cells.push((*wire, piece.columns[position]));
                 }
                 for (member, (_, positions)) in bundle.members.iter().zip(&bundle.key) {
                     let columns = positions
@@ -745,7 +809,7 @@ fn arrange(
         .filter(|wire| occupied.first[*wire as usize].is_none())
         .collect();
     let mut wires = unplaced.iter();
-    for piece in packing.take(1, unplaced.len()) {
+    for piece in packing.take(&[false], unplaced.len()) {
         for (row, wire) in (piece.top..piece.top + piece.count).zip(wires.by_ref()) {
             occupied.add(*wire, row, piece.columns[0]);
         }
@@ -762,8 +826,15 @@ fn arrange(
             }
         })
         .collect();
+    let copy_columns = cells
+        .iter()
+        .filter(|(wire, _)| occupied.cells[*wire as usize] > 1)
+        .map(|(_, column)| *column)
+        .collect::<BTreeSet<_>>()
+        .len();
     Placed {
         width: packing.width(),
+        copy_columns,
         placements,
         public_bindings,
         used_rows: packing.used_rows().max(1),
