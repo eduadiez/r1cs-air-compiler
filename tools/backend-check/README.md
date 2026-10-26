@@ -48,6 +48,16 @@ for small proofs is the number of proof-of-work bits, for example
 queries that keeps its target security level, and the script prints both
 (`powBits`, `queries`). [Scale](../../docs/SCALE.md) shows the effect.
 
+`choose-layout.sh WORK_DIR SOURCE [WIDTH]` estimates which layout
+configuration of `SOURCE` proves fastest, without proving. It compiles the
+`columns` strategy at every `minRows` that fits and the `local` strategy at
+widths 32, 64 and 96, runs the setup on each, and estimates the proof time
+from the counts the setup reports (constraint operations, committed and fixed
+columns, extended rows) with a cost model fitted to `prove-time.sh` runs of
+six circuits, whose median error was 10%. It prints the candidates as JSON,
+best first. The estimate ranks layouts; check the best few with
+`prove-time.sh`.
+
 The files under `witness/` build only inside the pil2-proofman workspace, which
 supplies their dependencies (`MIT OR Apache-2.0`); `add_member.py` adds them to
 that workspace. Nothing builds them automatically, so they are only exercised

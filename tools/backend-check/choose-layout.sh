@@ -1,0 +1,113 @@
+#!/bin/sh
+# Estimate which layout configuration of SOURCE pil2-proofman proves fastest,
+# without proving. Each candidate is compiled and run through the prover's
+# setup, which reports how many constraint operations and committed and fixed
+# columns the proof will handle on how many rows; a cost model fitted to
+# prove-time.sh measurements turns those counts into an estimate. Candidates:
+# the columns strategy at every power-of-two minRows that fits, and the local
+# strategy at widths 32, 64 and 96, all with chunks of half the width.
+# Needs a WORK_DIR in which run.sh has already built pil2-proofman.
+#
+# The estimate ranks layouts; it is not a measured time. Check the best few
+# with prove-time.sh before relying on them.
+#
+# Usage: tools/backend-check/choose-layout.sh WORK_DIR SOURCE.r1cs [WIDTH]
+# WIDTH (default 64) bounds the wires of an equation for the columns strategy.
+set -eu
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    echo "usage: $0 WORK_DIR SOURCE.r1cs [WIDTH]" >&2
+    exit 2
+fi
+unset CARGO_TARGET_DIR
+root=$(cd "$(dirname "$0")/../.." && pwd)
+work=$(cd "$1" && pwd)
+source=$2
+width=${3:-64}
+setup="$work/pil2-proofman/target/release/proofman-setup"
+if [ ! -e "$setup" ]; then
+    echo "$setup is missing; run tools/backend-check/run.sh $work first" >&2
+    exit 1
+fi
+(cd "$root" && cargo build --locked --release -q)
+air="$root/target/release/air"
+out=$(mktemp -d "$work/choose-layout.XXXXXX")
+
+# Compile and set up one candidate; print its layout and the setup's counts.
+candidate() {
+    name=$1
+    layout=$2
+    printf '%s\n' "$layout" >"$out/$name.json"
+    if ! "$air" compile "$source" "$out/$name" --layout "$out/$name.json" >/dev/null 2>"$out/$name.err"; then
+        return 1
+    fi
+    "$setup" setup -a "$out/$name/kernel.pilout" -b "$out/$name.build" >"$out/$name.log" 2>&1
+    python3 -I - "$out/$name.json" "$out/$name.build" <<'EOF'
+import glob, json, sys
+
+layout, build = sys.argv[1], sys.argv[2]
+(info,) = glob.glob(f"{build}/provingKey/*/*/airs/*/air/*.starkinfo.json")
+stark = json.load(open(info))
+expressions = json.load(open(info.replace("starkinfo", "expressionsinfo")))
+(quotient,) = [e for e in expressions["expressionsCode"] if e["expId"] == stark["cExpId"]]
+sections = stark["mapSectionsN"]
+committed = sum(n for name, n in sections.items() if name.startswith("cm"))
+extended = 2 ** stark["starkStruct"]["nBitsExt"] / 1e6
+# Fitted to 90 prove-time.sh runs of six circuits (median error 10%), in
+# milliseconds; the proof-of-work search is left out. The first terms are per
+# million (item × extended row), the last ones per proof and per column.
+columns = committed + sections["const"]
+estimate = (
+    extended * (
+        0.229 * len(quotient["code"]) + 10.6 * committed + 1.38 * sections["const"] + 532
+    )
+    + 4.5
+    + 0.0134 * columns
+)
+print(json.dumps({
+    "layout": json.load(open(layout)),
+    "rows": 2 ** stark["starkStruct"]["nBits"],
+    "committedColumns": committed,
+    "fixedColumns": sections["const"],
+    "operations": len(quotient["code"]),
+    "estimateMs": round(estimate),
+}))
+EOF
+}
+
+options() {
+    echo "{\"width\":$1,\"chunk\":$(($1 / 2)),\"reuse\":\"available\",\"fold\":true}"
+}
+
+for row_width in 32 64 96; do
+    candidate "local-$row_width" \
+        "{\"options\":$(options "$row_width"),\"strategy\":\"local\",\"minRows\":64}" || true
+done >"$out/local.jsonl"
+# Larger minRows give narrower traces. Too few rows make the trace wider than
+# the limit; past the first minRows that fits, stop once the estimate has
+# risen twice in a row or a candidate no longer fits.
+rows=64
+rises=0
+previous=""
+while [ "$rows" -le 65536 ] && [ "$rises" -lt 2 ]; do
+    if line=$(candidate "columns-$rows" \
+        "{\"options\":$(options "$width"),\"strategy\":\"columns\",\"minRows\":$rows}"); then
+        echo "$line"
+        estimate=$(printf '%s' "$line" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["estimateMs"])')
+        if [ -n "$previous" ] && [ "$estimate" -gt "$previous" ]; then
+            rises=$((rises + 1))
+        else
+            rises=0
+        fi
+        previous=$estimate
+    elif [ -n "$previous" ]; then
+        break
+    fi
+    rows=$((rows * 2))
+done >"$out/columns.jsonl"
+cat "$out/local.jsonl" "$out/columns.jsonl" | python3 -I -c '
+import json, sys
+candidates = sorted((json.loads(line) for line in sys.stdin), key=lambda c: c["estimateMs"])
+for c in candidates:
+    print(json.dumps(c))
+'
+echo "work files in $out" >&2

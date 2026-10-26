@@ -115,6 +115,10 @@ and so keeps slots and selectors near the number of bundle kinds, at the cost
 of a trace about twice as wide. In these measurements it took 19–54% less
 time than the best row-filling layout, and the gain grows with the circuit.
 
+The best `minRows` depends on the circuit: in these runs it ranged from 1024
+to 4096. `tools/backend-check/choose-layout.sh` estimates it for a given
+circuit by running the prover's setup on each candidate, without proving.
+
 Around these sizes the proof-of-work search, set by the prover's security
 parameters rather than by the AIR, takes longer than the rest of the proof.
 

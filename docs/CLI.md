@@ -72,7 +72,8 @@ Unknown fields are rejected. The values of `reuse` and `strategy` mean:
   bands need, at most 1024 (otherwise the command fails with kind `limit`).
   Wires get more cells than with the other strategies, but the PILout has far
   fewer slot constraints and selector columns. [Scale](SCALE.md) compares the
-  proving times of the strategies for several values of `minRows`.
+  proving times of the strategies for several values of `minRows`, and
+  `tools/backend-check/choose-layout.sh` estimates the best one for a circuit.
 
 ## Reports
 
