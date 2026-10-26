@@ -2,7 +2,7 @@
 use super::{assert_limit, assert_rejected, packed::config, r1cs_bytes};
 use crate::{
     certificate::{Group, Helper, Layout, Network, Placement, Selector, Slot},
-    field::{add, FieldElement},
+    field::{add, mul, FieldElement},
     layout::{self, LayoutConfig, Strategy},
     network, packed, placement_check, r1cs, P,
 };
@@ -199,6 +199,32 @@ fn shapes_are_checked() {
         let first = l.groups[0].terms[2][0];
         l.groups[0].terms[2].push(first);
     });
+}
+
+#[test]
+fn shapes_must_give_back_the_placed_equation() {
+    let changed = "its shape and wires give a different equation";
+    // A changed coefficient in any of A, B or C changes the equation.
+    for side in 0..3 {
+        rejects(changed, |_, l| {
+            let g = l
+                .groups
+                .iter()
+                .position(|g| !g.terms[side].is_empty())
+                .unwrap();
+            let k = &mut l.groups[g].terms[side][0].1;
+            *k = FieldElement(mul(k.0, 2));
+        });
+    }
+    // Swapping A and B gives back the same A·B - C.
+    let (circuit, net, mut plan) = xor_plan();
+    let g = plan
+        .groups
+        .iter()
+        .position(|g| g.terms[0] != g.terms[1])
+        .unwrap();
+    plan.groups[g].terms.swap(0, 1);
+    placement_check::check(&circuit, &net, &plan).unwrap();
 }
 
 #[test]

@@ -501,15 +501,11 @@ impl<'a> Bundle<'a> {
             key: vec![(entry.shape, (0..entry.wires.len() as u32).collect())],
         }
     }
-    /// The positions of the wires `self` shares with `other`, as pairs of
-    /// positions in `self` and in `other`.
-    fn shared(&self, other: &Bundle) -> Vec<(u32, u32)> {
-        let positions: BTreeMap<_, _> = other.wires.iter().zip(0u32..).collect();
-        self.wires
-            .iter()
-            .zip(0u32..)
-            .filter_map(|(wire, i)| positions.get(wire).map(|j| (i, *j)))
-            .collect()
+    /// The bundle's wires with their positions, in increasing wire order.
+    fn sorted_wires(&self) -> Vec<(u32, u32)> {
+        let mut wires: Vec<(u32, u32)> = self.wires.iter().copied().zip(0..).collect();
+        wires.sort_unstable();
+        wires
     }
     /// `self` followed by `other`, sharing the cells of common wires.
     fn join(mut self, other: Bundle<'a>) -> Self {
@@ -553,6 +549,26 @@ fn run_cost(count: usize, members: usize, rows: usize) -> f64 {
     (runs * members) as f64 + partial as f64 * SLOTS_PER_SELECTOR
 }
 
+/// The positions of the wires two bundles share, as pairs of positions in the
+/// first and in the second, in order of position in the first. Each argument
+/// is a bundle's wires with their positions, in increasing wire order.
+fn shared(a: &[(u32, u32)], b: &[(u32, u32)]) -> Vec<(u32, u32)> {
+    let (mut i, mut j, mut pairs) = (0, 0, vec![]);
+    while i < a.len() && j < b.len() {
+        match a[i].0.cmp(&b[j].0) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                pairs.push((a[i].1, b[j].1));
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    pairs.sort_unstable();
+    pairs
+}
+
 /// Group equations into bundles of at most `max_width` wires. Each round
 /// collects, for every pair of bundles that share a wire, the pattern
 /// `(key, key, shared positions)`. Going from the patterns that save the most
@@ -572,16 +588,19 @@ fn bundles<'a>(
             .iter()
             .map(|bundle| {
                 let next = ids.len();
-                *ids.entry(bundle.key.clone()).or_insert(next)
+                *ids.entry(&bundle.key).or_insert(next)
             })
             .collect();
+        let key_count = ids.len();
+        drop(ids);
         let mut holders = vec![vec![]; wires as usize];
         for (index, bundle) in bundles.iter().enumerate() {
             for wire in &bundle.wires {
                 holders[*wire as usize].push(index);
             }
         }
-        let mut pairs = BTreeSet::new();
+        let sorted: Vec<_> = bundles.iter().map(Bundle::sorted_wires).collect();
+        let mut pairs = vec![];
         for held in holders
             .iter()
             .filter(|held| (2..=MAX_HOLDERS).contains(&held.len()))
@@ -589,7 +608,7 @@ fn bundles<'a>(
             for (i, a) in held.iter().enumerate() {
                 for b in &held[i + 1..] {
                     // Orient each pair by key so that equal patterns compare equal.
-                    pairs.insert(if (keys[*a], *a) <= (keys[*b], *b) {
+                    pairs.push(if (keys[*a], *a) <= (keys[*b], *b) {
                         (*a, *b)
                     } else {
                         (*b, *a)
@@ -597,9 +616,11 @@ fn bundles<'a>(
                 }
             }
         }
+        pairs.sort_unstable();
+        pairs.dedup();
         let mut patterns: BTreeMap<_, Vec<(usize, usize)>> = BTreeMap::new();
         for (a, b) in pairs {
-            let shared = bundles[a].shared(&bundles[b]);
+            let shared = shared(&sorted[a], &sorted[b]);
             if bundles[a].wires.len() + bundles[b].wires.len() - shared.len() <= max_width {
                 patterns
                     .entry((keys[a], keys[b], shared))
@@ -615,8 +636,8 @@ fn bundles<'a>(
         // take the same patterns end up with the same key again, so the cost
         // is tracked per group: a key followed by the patterns taken so far.
         let mut group: Vec<usize> = keys.clone();
-        let mut count = vec![0usize; ids.len()];
-        let mut members = vec![0usize; ids.len()];
+        let mut count = vec![0usize; key_count];
+        let mut members = vec![0usize; key_count];
         for (bundle, key) in bundles.iter().zip(&keys) {
             count[*key] += 1;
             members[*key] = bundle.key.len();
