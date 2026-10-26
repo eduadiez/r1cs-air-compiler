@@ -222,46 +222,94 @@ fn place_in_rows(entries: &[Entry], network: &Network, width: usize, strategy: S
     }
 }
 
-/// Columns `start..start + width`, whose rows `0..used` are taken.
-struct Band {
-    start: usize,
+/// A free rectangle of the trace: `width` columns from `column` and `height`
+/// rows from `top`.
+struct Area {
+    column: usize,
+    top: usize,
     width: usize,
-    used: usize,
+    height: usize,
 }
 
-/// Bands of columns side by side, each `rows` rows high.
+/// Consecutive rows `top..top + count` of the columns from `column` on.
+struct Piece {
+    column: usize,
+    top: usize,
+    count: usize,
+}
+
+/// The trace, `rows` rows high, divided into bands of columns as runs are
+/// placed. Free space is kept as rectangles cut from the bands.
 struct Bands {
     rows: usize,
-    bands: Vec<Band>,
+    free: Vec<Area>,
     /// Columns taken by all bands.
     width: usize,
+    /// Rows taken in any band.
+    used_rows: usize,
 }
 impl Bands {
-    /// Take `count <= rows` consecutive rows of `width` columns: in the
-    /// narrowest band at least `width` wide with room, the fullest on ties
-    /// (then the first), or in a new band. Returns the first column and row.
-    fn take(&mut self, width: usize, count: usize) -> (usize, usize) {
-        let rows = self.rows;
-        let fitting = self
-            .bands
-            .iter_mut()
-            .filter(|band| band.width >= width && rows - band.used >= count)
-            .min_by_key(|band| (band.width - width, rows - band.used - count));
-        let band = match fitting {
-            Some(band) => band,
-            None => {
-                self.bands.push(Band {
-                    start: self.width,
-                    width,
-                    used: 0,
+    fn new(rows: usize) -> Self {
+        Bands {
+            rows,
+            free: vec![],
+            width: 0,
+            used_rows: 0,
+        }
+    }
+    /// Take `count` rows of `width` columns, in pieces. They go in the
+    /// narrowest free rectangle at least `width` wide, preferring one with
+    /// room for all of them (then the first); a rectangle too short takes what
+    /// fits and the rest goes elsewhere. Using a rectangle leaves the columns to the right of the
+    /// piece and the rows below it free. Without a fitting rectangle, a new
+    /// band is added.
+    fn take(&mut self, width: usize, mut count: usize) -> Vec<Piece> {
+        let mut pieces = vec![];
+        while count > 0 {
+            let fitting = (0..self.free.len())
+                .filter(|i| self.free[*i].width >= width)
+                .min_by_key(|i| {
+                    let area = &self.free[*i];
+                    (area.width - width, area.height < count, *i)
                 });
-                self.width += width;
-                self.bands.last_mut().expect("band just added")
+            let area = match fitting {
+                Some(index) => self.free.swap_remove(index),
+                None => {
+                    self.width += width;
+                    Area {
+                        column: self.width - width,
+                        top: 0,
+                        width,
+                        height: self.rows,
+                    }
+                }
+            };
+            let taken = count.min(area.height);
+            pieces.push(Piece {
+                column: area.column,
+                top: area.top,
+                count: taken,
+            });
+            count -= taken;
+            self.used_rows = self.used_rows.max(area.top + taken);
+            if area.width > width {
+                self.free.push(Area {
+                    column: area.column + width,
+                    top: area.top,
+                    width: area.width - width,
+                    height: area.height,
+                });
             }
-        };
-        let first = band.used;
-        band.used += count;
-        (band.start, first)
+            if area.height > taken {
+                self.free.push(Area {
+                    column: area.column,
+                    top: area.top + taken,
+                    width,
+                    height: area.height - taken,
+                });
+            }
+        }
+        pieces
     }
 }
 
@@ -501,11 +549,7 @@ fn place_in_bands(
             run[0].members[0].index,
         )
     });
-    let mut bands = Bands {
-        rows,
-        bands: vec![],
-        width: 0,
-    };
+    let mut bands = Bands::new(rows);
     let mut occupied = Occupied {
         first: vec![None; network.wires as usize],
         cells: vec![0; network.wires as usize],
@@ -513,15 +557,17 @@ fn place_in_bands(
     let mut placements = vec![];
     for run in &runs {
         let width = run[0].wires.len();
-        for chunk in run.chunks(rows) {
-            let (start, top) = bands.take(width, chunk.len());
-            for (offset, bundle) in chunk.iter().enumerate() {
-                let row = top + offset;
+        let mut bundles = run.iter();
+        for piece in bands.take(width, run.len()) {
+            for (row, bundle) in (piece.top..piece.top + piece.count).zip(bundles.by_ref()) {
                 for (position, wire) in bundle.wires.iter().enumerate() {
-                    occupied.add(*wire, row, start + position);
+                    occupied.add(*wire, row, piece.column + position);
                 }
                 for (member, (_, positions)) in bundle.members.iter().zip(&bundle.key) {
-                    let columns = positions.iter().map(|p| start + *p as usize).collect();
+                    let columns = positions
+                        .iter()
+                        .map(|p| piece.column + *p as usize)
+                        .collect();
                     placements.push(member.at(row, columns));
                 }
             }
@@ -534,10 +580,10 @@ fn place_in_bands(
     let unplaced: Vec<u32> = (1..=network.publics)
         .filter(|wire| occupied.first[*wire as usize].is_none())
         .collect();
-    for chunk in unplaced.chunks(rows) {
-        let (column, top) = bands.take(1, chunk.len());
-        for (offset, wire) in chunk.iter().enumerate() {
-            occupied.add(*wire, top + offset, column);
+    let mut wires = unplaced.iter();
+    for piece in bands.take(1, unplaced.len()) {
+        for (row, wire) in (piece.top..piece.top + piece.count).zip(wires.by_ref()) {
+            occupied.add(*wire, row, piece.column);
         }
     }
     let public_bindings = (0..network.publics)
@@ -563,13 +609,7 @@ fn place_in_bands(
         width: bands.width.max(MIN_WIDTH),
         placements,
         public_bindings,
-        used_rows: bands
-            .bands
-            .iter()
-            .map(|band| band.used)
-            .max()
-            .unwrap_or(0)
-            .max(1),
+        used_rows: bands.used_rows.max(1),
         requires_copy: occupied.cells.iter().any(|count| *count > 1),
     })
 }
