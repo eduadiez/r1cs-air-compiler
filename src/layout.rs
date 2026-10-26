@@ -374,8 +374,9 @@ impl<'a> Bundle<'a> {
     }
 }
 
-/// Rounds of joining bundles that share wires.
-const BUNDLE_ROUNDS: usize = 8;
+/// Most rounds of joining bundles that share wires; joining stops earlier when
+/// a round joins nothing.
+const BUNDLE_ROUNDS: usize = 64;
 /// Wires held by more bundles than this are not used to find pairs to join.
 const MAX_HOLDERS: usize = 16;
 /// Relative proving costs used to decide joins, in slots: a column of the
