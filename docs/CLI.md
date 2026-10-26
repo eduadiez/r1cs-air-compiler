@@ -71,7 +71,8 @@ Unknown fields are rejected. The values of `reuse` and `strategy` mean:
   bands with room. The trace has `minRows` rows and as many columns as the
   bands need, at most 1024 (otherwise the command fails with kind `limit`).
   Wires get more cells than with the other strategies, but the PILout has far
-  fewer slot constraints and selector columns.
+  fewer slot constraints and selector columns. [Scale](SCALE.md) compares the
+  proving times of the strategies for several values of `minRows`.
 
 ## Reports
 

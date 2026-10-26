@@ -17,8 +17,8 @@ memory, so circuits of this size need a packed layout.
 ## Packed layout
 
 With `fixtures/sha256/layout.json` (width 64, chunks of 32, `available` reuse,
-folding, `local` strategy) the AIR has 1024 rows, 64 stage-one and 16
-stage-two columns, 483 fixed columns and 960 constraints.
+folding, `local` strategy) the AIR has 1024 rows, 64 stage-one and 32
+stage-two columns, 483 fixed columns and 976 constraints.
 
 | Output | Size |
 | --- | --- |
@@ -84,7 +84,7 @@ with the flags in `docs/provenance.json` (`fixtureToolchain`), and run
 ## Prover time
 
 Proof times with pil2-proofman, measured with
-`tools/backend-check/prove-time.sh` (median of 3 or 5 runs, same machine), for
+`tools/backend-check/prove-time.sh` (median of 7 runs, same machine), for
 `Sha256(n)` built and laid out as in "Larger circuits". Times are in
 milliseconds and leave out the proof-of-work search (see the
 [backend check](../tools/backend-check/README.md)), which took 20–400 ms per
@@ -92,26 +92,34 @@ proof regardless of the layout.
 
 | Message bits | Layout (`width`, `chunk`, `strategy`, `minRows`) | Rows × columns | Slots | Selectors | Quotient | Proof without search |
 | --- | --- | --- | --- | --- | --- | --- |
-| 256 (fixture) | 64, 32, `local`, 64 | 1024 × 64 | 911 | 379 | 7 | 20 |
-| 256 (fixture) | 64, 32, `columns`, 512 | 512 × 264 | 153 | 100 | 5 | 34 |
-| 1024 | 64, 32, `local`, 64 | 4096 × 64 | 1881 | 986 | 39 | 96 |
-| 1024 | 64, 32, `columns`, 4096 | 4096 × 132 | 148 | 130 | 13 | 64 |
-| 1024 | 64, 32, `columns`, 2048 | 2048 × 223 | 169 | 129 | 11 | 60 |
-| 4096 | 64, 32, `local`, 64 | 16384 × 64 | 2577 | 1435 | 175 | 348 |
-| 4096 | 96, 16, `local`, 64 | 8192 × 96 | 2084 | 999 | 94 | 215 |
-| 4096 | 64, 32, `columns`, 8192 | 8192 × 164 | 159 | 130 | 30 | 140 |
-| 4096 | 32, 16, `columns`, 4096 | 4096 × 280 | 219 | 157 | 23 | 134 |
+| 256 (fixture) | 64, 32, `local`, 64 | 1024 × 64 | 911 | 379 | 6 | 21 |
+| 256 (fixture) | 64, 32, `columns`, 1024 | 1024 × 85 | 270 | 147 | 5 | 17 |
+| 1024 | 64, 32, `local`, 64 | 4096 × 64 | 1881 | 986 | 42 | 83 |
+| 1024 | 64, 32, `columns`, 1024 | 1024 × 207 | 642 | 257 | 8 | 38 |
+| 1024 | 64, 32, `columns`, 2048 | 2048 × 128 | 367 | 196 | 12 | 42 |
+| 4096 | 64, 32, `local`, 64 | 16384 × 64 | 2577 | 1435 | 187 | 357 |
+| 4096 | 96, 16, `local`, 64 | 8192 × 96 | 2084 | 999 | 89 | 178 |
+| 4096 | 64, 32, `columns`, 4096 | 4096 × 165 | 525 | 236 | 23 | 82 |
+| 4096 | 64, 32, `columns`, 8192 | 8192 × 108 | 338 | 189 | 30 | 122 |
 
-Most of the time of the row-filling strategies goes to evaluating the
-constraints (the quotient), and that grows with the number of slots and
-selectors: every slot is its own constraint, and every selector a fixed
-column. `columns` gives each shape its own band of columns, so slots and
-selectors stay near the number of shapes, at the cost of a wider trace with
-more copies. On the two larger circuits it took 35–60% less time; on the
-small fixture the wider copy argument costs more than it saves.
+The time of a proof is roughly proportional to the number of rows of the
+extended domain times a weighted count of columns, in which a committed column
+(stage one, stage two and the quotient) weighs most, a fixed column much less,
+and each operation of the constraints less still. The copy argument adds about
+1.5 stage-two columns per trace column, so a trace column weighs about as much
+as twenty slot constraints. The row-filling strategies keep each wire in few
+cells, but leave thousands of slots and selectors, which are expensive to
+evaluate. `columns` joins equations that share wires into bundles that repeat
+with the same structure, gives each kind of bundle its own band of columns,
+and so keeps slots and selectors near the number of bundle kinds, at the cost
+of a trace about twice as wide. In these measurements it took 19–54% less
+time than the best row-filling layout, and the gain grows with the circuit.
+
+Around these sizes the proof-of-work search, set by the prover's security
+parameters rather than by the AIR, takes longer than the rest of the proof.
 
 The same layouts also give a smaller PILout: `Sha256(8192)` with width 64,
-chunks of 32 and `columns` compiles to a 26 MB PILout at 8192 rows and 47 MB
+chunks of 32 and `columns` compiles to an 18 MB PILout at 8192 rows and 35 MB
 at 32768 rows, against 127 MB with `local`.
 
 ## Reproducing
