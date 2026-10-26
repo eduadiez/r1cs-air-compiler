@@ -126,6 +126,28 @@ SHA-256 circuit 7% slower, because wider bundles share more cells but leave
 more of the trace empty. `tools/backend-check/choose-layout.sh` estimates it for a given
 circuit by running the prover's setup on each candidate, without proving.
 
+### Other circuits
+
+The same comparison on three more circomlib circuits, built like the SHA-256
+ones: a chain of 400 `Poseidon(2)` hashes (96 000 constraints), a chain of 300
+`MiMC7(91)` (109 200 constraints) and 2 500 `LessThan(32)` comparisons
+(82 500 constraints). For each circuit, the table compares the fastest
+`local` layout among widths 32, 64 and 96 with the `columns` layout that
+`choose-layout.sh` picked (median of 7 proofs, milliseconds, without the
+proof-of-work search):
+
+| Circuit | `local` | `columns` (`minRows`, `bundleWidth`) | Change |
+| --- | --- | --- | --- |
+| SHA-256, 256 bits (fixture) | 24 | 21 (512, 64) | −12% |
+| SHA-256, 1024 bits | 82 | 42 (1024, 128) | −49% |
+| SHA-256, 4096 bits | 241 | 72 (2048, 128) | −70% |
+| Poseidon chain | 87 | 28 (512, 128) | −68% |
+| MiMC7 chain | 108 | 22 (1024, 64) | −80% |
+| `LessThan(32)` batch | 19 | 10 (512, 64) | −47% |
+
+The comparisons need no copy argument with either strategy, since each one
+fits in a row; `columns` still needs fewer slots and rows.
+
 Around these sizes the proof-of-work search, set by the prover's security
 parameters rather than by the AIR, takes longer than the rest of the proof.
 
