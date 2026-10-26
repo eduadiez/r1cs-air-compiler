@@ -68,7 +68,8 @@ fn rewritten_circuit_and_layout_dimensions_are_checked() {
         l.used_rows += 1
     });
     rejects("arithmeticRows must be the last row", |_, l| {
-        l.arithmetic_rows += 1
+        l.arithmetic_rows += 1;
+        l.used_rows = l.used_rows.max(l.arithmetic_rows);
     });
     rejects("one rewritten equation per source equation", |n, _| {
         n.equations.pop();
@@ -410,6 +411,14 @@ fn public_bindings_are_checked() {
     rejects(", 16) out of range", |_, l| {
         l.public_bindings[0].col = l.width
     });
+}
+
+#[test]
+fn row_counts_are_bounded_by_the_trace() {
+    let bounds = "arithmeticRows and usedRows must be at most rows, in that order";
+    rejects(bounds, |_, l| l.used_rows = l.rows + 1);
+    rejects(bounds, |_, l| l.used_rows = usize::MAX);
+    rejects(bounds, |_, l| l.arithmetic_rows = l.used_rows + 1);
 }
 
 #[test]

@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     api, checker, compiler,
-    field::{inverse, mul},
+    field::{add, inverse, mul},
     layout::LayoutConfig,
     packed, packed_check, proto as pb, r1cs,
     rewrite::{Reuse, RewriteOptions},
@@ -183,6 +183,56 @@ fn apply_tamper(tamper: &Tamper, trace: &mut [u64], publics: &mut [u64], wires: 
                 publics[n % count] = value;
             }
         }
+    }
+}
+
+/// A change that a dishonest prover might make to the stage-two columns that
+/// the hints compute from an honest trace.
+#[derive(Clone, Debug)]
+enum StageTwoChange {
+    /// Set every value of the `n`-th column to 0.
+    Zero(usize),
+    /// Multiply every value of the `n`-th column by a factor other than 1.
+    Scale(usize, u64),
+    /// Set one value of the `n`-th column.
+    Cell(usize, usize, u64),
+}
+
+fn stage_two_change() -> impl Strategy<Value = StageTwoChange> {
+    prop_oneof![
+        any::<usize>().prop_map(StageTwoChange::Zero),
+        (any::<usize>(), 2..P).prop_map(|(n, k)| StageTwoChange::Scale(n, k)),
+        (any::<usize>(), any::<usize>(), 0..P).prop_map(|(n, r, v)| StageTwoChange::Cell(n, r, v)),
+    ]
+}
+
+/// Apply `change` to the stage-two columns. A change that leaves them as they
+/// were (zeroing or scaling a zero column) adds 1 to the column's first value
+/// instead.
+fn apply_stage_two_change(change: &StageTwoChange, columns: &mut [Vec<u64>]) {
+    let count = columns.len();
+    let before = columns.to_vec();
+    match *change {
+        StageTwoChange::Zero(n) => columns[n % count].fill(0),
+        StageTwoChange::Scale(n, k) => {
+            for value in &mut columns[n % count] {
+                *value = mul(*value, k);
+            }
+        }
+        StageTwoChange::Cell(n, row, value) => {
+            let column = &mut columns[n % count];
+            let rows = column.len();
+            column[row % rows] = value;
+        }
+    }
+    if columns == before.as_slice() {
+        let n = match *change {
+            StageTwoChange::Zero(n)
+            | StageTwoChange::Scale(n, _)
+            | StageTwoChange::Cell(n, _, _) => n,
+        };
+        let column = &mut columns[n % count];
+        column[0] = add(column[0], 1);
     }
 }
 
@@ -517,6 +567,38 @@ proptest! {
         let result = air::evaluate(&decode(&artifact.pilout), &trace);
         prop_assume!(result != Err(Failure::ZeroDenominator));
         prop_assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn changed_stage_two_columns_violate_the_air(
+        (circuit, values) in satisfiable_circuit(),
+        settings in layout_config(),
+        packed: bool,
+        change in stage_two_change(),
+        challenges in challenges(),
+    ) {
+        // Filling stage two from the hints covers every prover only if no
+        // other stage-two columns satisfy the AIR; see `air.rs`.
+        let source = circuit.bytes();
+        let (pilout, stage_one, publics) = if packed {
+            let artifact = api::compile_packed(&source, &settings).unwrap();
+            let wtns = super::wtns_bytes(&values);
+            let witness = api::project_witness(&source, &artifact.pilout, &artifact.certificate, &wtns)
+                .unwrap();
+            (artifact.pilout, witness.trace, witness.publics)
+        } else {
+            let (pilout, certificate) =
+                compiler::compile(&source, &r1cs::read(&source).unwrap(), 64, false).unwrap();
+            let (rows, width) = (certificate.rows(), certificate.width());
+            let stage_one = reference_trace(certificate.wire_columns(), width, rows, &values);
+            (pilout, stage_one, values[1..=circuit.header[2] as usize].to_vec())
+        };
+        let trace = Trace { stage_one: &stage_one, publics: &publics, challenges };
+        let pilout = decode(&pilout);
+        let result =
+            air::evaluate_changed(&pilout, &trace, |columns| apply_stage_two_change(&change, columns));
+        prop_assume!(result != Err(Failure::ZeroDenominator));
+        prop_assert!(matches!(result, Err(Failure::Violated { .. })), "{result:?}");
     }
 
     #[test]

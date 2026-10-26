@@ -4,9 +4,10 @@
 //! neither the compiler nor the checkers, so it is an independent oracle for
 //! the soundness and completeness properties of `SPEC.md`.
 //!
-//! Filling stage two from the hints loses no generality: given nonzero
-//! denominators, the ratio and running product constraints determine those
-//! columns uniquely, and the `stage2_zero` constraint forces its column to 0.
+//! Filling stage two from the hints covers every prover only if the
+//! constraints leave no other choice of stage-two columns. The property
+//! `changed_stage_two_columns_violate_the_air` tests that claim with
+//! [`evaluate_changed`], which lets a test replace the filled columns.
 use crate::{
     field::{add, inverse, mul, neg},
     proto as pb,
@@ -34,6 +35,17 @@ pub struct Trace<'a> {
 
 /// Fill stage two from the hints and evaluate every constraint on every row.
 pub fn evaluate(pilout: &pb::PilOut, trace: &Trace) -> Result<(), Failure> {
+    evaluate_changed(pilout, trace, |_| {})
+}
+
+/// [`evaluate`], with `change` applied to the stage-two columns (in index
+/// order, one value per row) after the hints fill them, as a dishonest prover
+/// would choose them.
+pub fn evaluate_changed(
+    pilout: &pb::PilOut,
+    trace: &Trace,
+    change: impl FnOnce(&mut [Vec<u64>]),
+) -> Result<(), Failure> {
     let air = &pilout.air_groups[0].airs[0];
     let rows = air.num_rows.unwrap() as usize;
     let widths = &air.stage_widths;
@@ -55,10 +67,13 @@ pub fn evaluate(pilout: &pb::PilOut, trace: &Trace) -> Result<(), Failure> {
     for hint in &pilout.hints {
         columns.fill(hint)?;
     }
-    assert!(
-        columns.stage_two.iter().all(Option::is_some),
-        "a stage-two column has no hint"
-    );
+    let mut stage_two: Vec<Vec<u64>> = columns
+        .stage_two
+        .iter_mut()
+        .map(|column| column.take().expect("a stage-two column has no hint"))
+        .collect();
+    change(&mut stage_two);
+    columns.stage_two = stage_two.into_iter().map(Some).collect();
     for row in 0..rows {
         let mut memo = vec![None; air.expressions.len()];
         for (index, constraint) in air.constraints.iter().enumerate() {
@@ -266,4 +281,42 @@ fn the_xor_trace_satisfies_its_air_and_changes_do_not() {
         check(&witness.trace, &publics),
         Err(Failure::Violated { .. })
     ));
+}
+
+/// Negative control for `changed_stage_two_columns_violate_the_air`: the
+/// recurrence is linear in the running product, so only the closure
+/// constraint stops a prover from scaling it (or setting it to 0) and
+/// satisfying the AIR with other stage-two values than the hints give.
+#[test]
+fn without_closure_the_running_product_is_not_determined() {
+    use crate::api;
+    let source = include_bytes!("../../fixtures/xor/kernel.r1cs");
+    let wtns = include_bytes!("../../fixtures/xor/input.wtns");
+    let artifact = api::compile_packed(source, &super::packed::config(8)).unwrap();
+    let witness =
+        api::project_witness(source, &artifact.pilout, &artifact.certificate, wtns).unwrap();
+    let mut pilout = <pb::PilOut as prost::Message>::decode(&artifact.pilout[..]).unwrap();
+    let trace = Trace {
+        stage_one: &witness.trace,
+        publics: &witness.publics,
+        challenges: [0x1234_5678_9abc_def0, 0x0fed_cba9_8765_4321],
+    };
+    // Stage-two column 0 is the running product.
+    let scaled = |columns: &mut [Vec<u64>]| {
+        for value in &mut columns[0] {
+            *value = mul(*value, 3);
+        }
+    };
+    let zero = |columns: &mut [Vec<u64>]| columns[0].fill(0);
+    for change in [&scaled as &dyn Fn(&mut [Vec<u64>]), &zero] {
+        assert!(matches!(
+            evaluate_changed(&pilout, &trace, change),
+            Err(Failure::Violated { .. })
+        ));
+    }
+    let closure = super::constraint_labeled(&pilout, "permutation closure");
+    pilout.air_groups[0].airs[0].constraints.remove(closure);
+    for change in [&scaled as &dyn Fn(&mut [Vec<u64>]), &zero] {
+        assert_eq!(evaluate_changed(&pilout, &trace, change), Ok(()));
+    }
 }

@@ -719,9 +719,17 @@ fn place_in_stacks(
             "the gate types need {narrowest} columns in {rows} rows, more than {MAX_WIDTH}; raise minRows"
         ),
     )?;
+    let fits =
+        |width: usize| width <= MAX_WIDTH && rows.saturating_mul(width.max(MIN_WIDTH)) <= MAX_CELLS;
+    ensure_within_limit(
+        fits(narrowest),
+        format_args!(
+            "the gate types need {narrowest} columns in {rows} rows, more than {MAX_CELLS} cells"
+        ),
+    )?;
     let placed = [guillotine, skyline]
         .into_iter()
-        .filter(|placed| placed.width <= MAX_WIDTH)
+        .filter(|placed| fits(placed.width))
         .min_by_key(|placed| {
             COLUMN_COST * (placed.width - placed.permutation_columns)
                 + PERMUTATION_COLUMN_COST * placed.permutation_columns

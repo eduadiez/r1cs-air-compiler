@@ -93,7 +93,11 @@ pub fn check(source: &Circuit, rewritten: &RewrittenCircuit, layout: &Layout) ->
         "usedRows must count the rows up to the last one holding an equation or public cell",
     )?;
     ensure(
-        layout.rows == layout.used_rows.next_power_of_two().max(layout.min_rows),
+        layout
+            .used_rows
+            .checked_next_power_of_two()
+            .map(|rows| rows.max(layout.min_rows))
+            == Some(layout.rows),
         "rows must be usedRows rounded up to a power of two, at least minRows",
     )?;
     ensure(
@@ -133,6 +137,12 @@ fn check_dimensions(source: &Circuit, rewritten: &RewrittenCircuit, layout: &Lay
     ensure_within_limit(
         layout.rows.saturating_mul(layout.width) <= MAX_CELLS,
         format_args!("layout exceeds {MAX_CELLS} cells"),
+    )?;
+    // Bounding these first keeps every equation row inside the trace and the
+    // rounding of usedRows below from overflowing.
+    ensure(
+        layout.arithmetic_rows <= layout.used_rows && layout.used_rows <= layout.rows,
+        "arithmeticRows and usedRows must be at most rows, in that order",
     )?;
     ensure(
         rewritten.equations.len() == source.equations.len(),

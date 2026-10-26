@@ -36,15 +36,25 @@ air="$root/target/release/air"
 out=$(mktemp -d "$work/choose-layout.XXXXXX")
 
 # Compile and set up one candidate; print its layout and the setup's counts.
+# Return 1 when the layout exceeds a size limit (the candidate does not fit)
+# and 2 on any other failure, after printing it.
 candidate() {
     name=$1
     layout=$2
     printf '%s\n' "$layout" >"$out/$name.json"
-    if ! "$air" compile "$source" "$out/$name" --layout "$out/$name.json" >/dev/null 2>"$out/$name.err"; then
-        return 1
+    if ! "$air" compile "$source" "$out/$name" --layout "$out/$name.json" >"$out/$name.report" 2>&1; then
+        if grep -q '"kind":"limit"' "$out/$name.report"; then
+            return 1
+        fi
+        echo "compiling candidate $name failed:" >&2
+        cat "$out/$name.report" >&2
+        return 2
     fi
-    "$setup" setup -a "$out/$name/kernel.pilout" -b "$out/$name.build" >"$out/$name.log" 2>&1
-    python3 -I - "$out/$name.json" "$out/$name.build" <<'EOF'
+    if ! "$setup" setup -a "$out/$name/kernel.pilout" -b "$out/$name.build" >"$out/$name.log" 2>&1; then
+        echo "the prover setup of candidate $name failed; see $out/$name.log" >&2
+        return 2
+    fi
+    python3 -I - "$out/$name.json" "$out/$name.build" <<'EOF' || return 2
 import glob, json, sys
 
 layout, build = sys.argv[1], sys.argv[2]
@@ -90,8 +100,13 @@ for row_group in "$width" $((2 * width)); do
     rises=0
     previous=""
     while [ "$rows" -le 65536 ] && [ "$rises" -lt 2 ]; do
-        if line=$(candidate "columns-$row_group-$rows" \
-            "{\"options\":$(options "$width"),\"minRows\":$rows,\"rowGroupWidth\":$row_group}"); then
+        status=0
+        line=$(candidate "columns-$row_group-$rows" \
+            "{\"options\":$(options "$width"),\"minRows\":$rows,\"rowGroupWidth\":$row_group}") ||
+            status=$?
+        if [ "$status" -gt 1 ]; then
+            exit "$status"
+        elif [ "$status" -eq 0 ]; then
             echo "$line"
             estimate=$(printf '%s' "$line" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["estimateMs"])')
             if [ -n "$previous" ] && [ "$estimate" -gt "$previous" ]; then
@@ -106,6 +121,10 @@ for row_group in "$width" $((2 * width)); do
         rows=$((rows * 2))
     done
 done >"$out/columns.jsonl"
+if [ ! -s "$out/columns.jsonl" ]; then
+    echo "no candidate fits within the size limits; see $out" >&2
+    exit 1
+fi
 python3 -I -c '
 import json, sys
 candidates = sorted((json.loads(line) for line in sys.stdin), key=lambda c: c["estimateMs"])

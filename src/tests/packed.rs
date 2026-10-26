@@ -733,3 +733,29 @@ fn witnesses_are_checked_and_projected() {
         "WTNS value of wire 2 not below P",
     );
 }
+
+#[test]
+fn equation_rows_beyond_the_trace_are_rejected() {
+    // The only equation is 0 · 0 = 1, which no witness satisfies. Moving it to
+    // a row far past the trace, with usedRows = usize::MAX (whose rounding up
+    // to a power of two overflows), would leave its selector zero on every row.
+    let source = r1cs_with_terms([2, 1, 0, 0], &[[vec![], vec![], vec![(0, 1)]]]);
+    let mut a = packed::compile(&source, &config(3)).unwrap();
+    let layout = &mut a.certificate.layout;
+    let far = usize::MAX - 1;
+    layout.placements[0].row = far;
+    layout.gates[0].rows = vec![far];
+    layout.selectors[0].rows = vec![far];
+    layout.arithmetic_rows = usize::MAX;
+    layout.used_rows = usize::MAX;
+    let bytes = changed_pilout(&a.pilout, |p| {
+        for value in &mut fixed_column(p, "E0").values {
+            value.clear();
+        }
+    });
+    a.certificate.pilout_sha256 = sha256_hex(&bytes);
+    assert_rejected(
+        packed_check::check(&source, &bytes, &a.certificate),
+        "arithmeticRows and usedRows must be at most rows, in that order",
+    );
+}

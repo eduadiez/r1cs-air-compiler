@@ -312,6 +312,8 @@ The layout must satisfy:
 
 - `width` in `3 … 1024`, `minRows` a power of two of at least 64, and
   `rows · width ≤ MAX_CELLS`;
+- `arithmeticRows ≤ usedRows ≤ rows`, so every placement and selector row
+  (each below `arithmeticRows`) is a row of the trace;
 - `arithmeticRows` = the last row holding a placement, plus 1;
 - `usedRows` = the last row holding an equation or public cell, plus 1, and at
   least 1;

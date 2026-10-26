@@ -73,7 +73,9 @@ shows the effect.
 `options.width` `WIDTH` (default 64), `auxiliaryTerms` half of it, `available`
 reuse and folding: `rowGroupWidth` `WIDTH` and `2 × WIDTH`, each at `minRows`
 64, 128, … up to 65536. Each sweep skips sizes that do not fit and stops when
-the estimate has risen twice in a row or a candidate no longer fits.
+the estimate has risen twice in a row or a candidate no longer fits. Any
+other failure (a missing or invalid source, a failed setup) stops the script
+with an error, and so does a search in which no candidate fits.
 
 It runs only the prover's setup on each candidate and estimates the proof time
 (without the proof-of-work search) from the counts the setup reports:
