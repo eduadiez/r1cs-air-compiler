@@ -139,12 +139,17 @@ proof-of-work search):
 
 | Circuit | `local` | `columns` (`minRows`, `bundleWidth`) | Change |
 | --- | --- | --- | --- |
-| SHA-256, 256 bits (fixture) | 24 | 21 (512, 64) | −12% |
-| SHA-256, 1024 bits | 82 | 42 (1024, 128) | −49% |
-| SHA-256, 4096 bits | 241 | 72 (2048, 128) | −70% |
-| Poseidon chain | 87 | 28 (512, 128) | −68% |
-| MiMC7 chain | 108 | 22 (1024, 64) | −80% |
+| SHA-256, 256 bits (fixture) | 24 | 19 (512, 64) | −21% |
+| SHA-256, 1024 bits | 85 | 35 (1024, 128) | −59% |
+| SHA-256, 4096 bits | 254 | 70 (2048, 128) | −72% |
+| Poseidon chain | 98 | 23 (512, 128) | −77% |
+| MiMC7 chain | 113 | 13 (1024, 64) | −88% |
 | `LessThan(32)` batch | 19 | 10 (512, 64) | −47% |
+
+In the Poseidon and MiMC7 chains most wires end up inside one bundle, so most
+columns hold no copies and stay out of the copy argument; in the SHA-256
+circuits about half the cells are copies, because each bit of the state is
+used in several rounds.
 
 The comparisons need no copy argument with either strategy, since each one
 fits in a row; `columns` still needs fewer slots and rows.
