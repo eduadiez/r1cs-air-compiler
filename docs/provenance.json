@@ -89,7 +89,7 @@
   },
   "fixtureToolchain": {
     "circom": "2.2.3",
-    "flags": "--r1cs --wasm --prime goldilocks --O2",
+    "flags": "--r1cs --sym --wasm --prime goldilocks --O2",
     "node": "v26.7.0"
   },
   "fixtures": {
@@ -107,6 +107,9 @@
     },
     "fixtures/adder/kernel.r1cs": {
       "sha256": "bfce3239a8033edffd2d2f8932f4fc6f3e3649e6bb1cea274a476077d2c70bbc"
+    },
+    "fixtures/adder/kernel.sym": {
+      "sha256": "5b54609cb4be5b9e0566b62814feb12c910140bcdb520e573a28d0f46384c630"
     },
     "fixtures/adder/layout.json": {
       "sha256": "f07a280dfc021aa46381949270ebe7b2fa97db86c0d313e7158b3afe7e7360cf"
@@ -126,6 +129,9 @@
     "fixtures/mux/kernel.r1cs": {
       "sha256": "5927d8a8f48cd30f360e62a99668157a5a1d586fad6efb3456d4f6c8f74ed587"
     },
+    "fixtures/mux/kernel.sym": {
+      "sha256": "3ff8e36e17091921753c3863a3e4dcfd24686c81e3acdf641537f33f82d5e462"
+    },
     "fixtures/mux/layout.json": {
       "sha256": "09bb369a0e7a915c4c03448eec94324a4bb9b2e7f49ab08f3cd133def9cace20"
     },
@@ -143,6 +149,9 @@
     },
     "fixtures/range/kernel.r1cs": {
       "sha256": "28653662bd09601a2ba99fbb014322dcfba56d2c3fd6b694a5960fbec8cf4029"
+    },
+    "fixtures/range/kernel.sym": {
+      "sha256": "8c473ef43d35f3ad49f40fa65cd323babe0ed02cc37664ad9926c048e506833e"
     },
     "fixtures/range/layout.json": {
       "sha256": "b5781e1036afe077b44a5ac46fccd4f1407a333e991d7af1206c8d36192ccc88"
@@ -179,6 +188,9 @@
     },
     "fixtures/xor/kernel.r1cs": {
       "sha256": "d12202beab690023130a4f38ac053b7ea08af578f8c62a12be444d1cfc2d7826"
+    },
+    "fixtures/xor/kernel.sym": {
+      "sha256": "e4c3d108fecec609448b7fc29da4b529efbba6dfe84d17f82fdbb4b6b2dfd8f2"
     },
     "fixtures/xor/layout.json": {
       "sha256": "885636843dcb9c87c466c7f2b255bb63224176c0a6df31f6fd83f08ba0474908"

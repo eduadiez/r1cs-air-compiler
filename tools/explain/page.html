@@ -8,58 +8,70 @@
 :root {
   --bg: #fbfbfa; --panel: #ffffff; --text: #1d1f23; --muted: #646a73;
   --line: #e2e4e8; --empty: #f0f1f3; --accent: #2457d6; --select: #d6392f;
-  --code: #f4f5f7;
+  --code: #f4f5f7; --note: #fff7e0; --note-line: #f0d68a; --on-cell: #15171a;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #15171a; --panel: #1d2024; --text: #e6e8eb; --muted: #9aa1ab;
     --line: #2e3238; --empty: #24272c; --accent: #7aa2ff; --select: #ff7a6e;
-    --code: #262a30;
+    --code: #262a30; --note: #2d2717; --note-line: #6b5a24; --on-cell: #f4f5f7;
   }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px; }
+main { max-width: 1280px; margin: 0 auto; padding: 24px 16px 64px; }
 h1 { font-size: 22px; margin: 0 0 4px; }
-h2 { font-size: 16px; margin: 32px 0 8px; }
-p.lead { color: var(--muted); margin: 0 0 20px; }
+h2 { font-size: 16px; margin: 32px 0 6px; }
+p.lead { color: var(--muted); margin: 0 0 16px; }
+.note { background: var(--note); border: 1px solid var(--note-line); border-radius: 8px;
+  padding: 8px 12px; margin: 0 0 16px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
 .card b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
 .card span { color: var(--muted); font-size: 12px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
-.grid-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 8px;
-  background: var(--panel); position: relative; }
-canvas { display: block; image-rendering: pixelated; cursor: crosshair; }
+.grid-wrap { overflow: auto; max-height: 72vh; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); }
+canvas { display: block; cursor: crosshair; }
 #tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--line);
   border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.15);
-  display: none; max-width: 360px; z-index: 10; }
-.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  display: none; max-width: 420px; z-index: 10; }
+.bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.bar .grow { flex: 1; }
 button, input { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line);
   border-radius: 6px; padding: 4px 10px; }
 button { cursor: pointer; }
-input[type=number] { width: 110px; }
-code, .eq { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
-.eq { background: var(--code); border-radius: 6px; padding: 8px 10px; margin: 4px 0 10px;
-  overflow-wrap: anywhere; }
+button:disabled { opacity: .4; cursor: default; }
+input[type=number] { width: 100px; }
+input[type=search] { width: 260px; }
+code, .eq, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+.eq { background: var(--code); border-radius: 6px; padding: 8px 10px; margin: 4px 0 10px; overflow-wrap: anywhere; }
 .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
 table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
-th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: var(--muted); font-weight: 500; font-size: 12px; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; position: sticky; top: 0; background: var(--panel); }
 tr.click { cursor: pointer; }
 tr.click:hover td { background: var(--code); }
-a { color: var(--accent); cursor: pointer; }
+tr.focus td { background: var(--code); }
+a { color: var(--accent); cursor: pointer; text-decoration: none; }
+a:hover { text-decoration: underline; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
-.legend { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+.legend { color: var(--muted); font-size: 12.5px; margin: 0 0 8px; }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+.chip { display: inline-block; border-left: 4px solid var(--line); background: var(--code); border-radius: 4px;
+  padding: 0 6px; margin: 2px 4px 2px 0; cursor: pointer; white-space: nowrap; }
+.chip .col { color: var(--muted); margin-right: 4px; }
+.chip.on { outline: 2px solid var(--select); }
+.placed { margin: 2px 0; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
 <main>
   <h1 id="title">Circuit layout</h1>
   <p class="lead" id="lead"></p>
+  <div id="notice"></div>
   <div class="cards" id="cards"></div>
   <div id="content"></div>
 </main>
@@ -70,69 +82,76 @@ const D = JSON.parse(document.getElementById("data").textContent);
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const n = (x) => Number(x).toLocaleString("en-US");
+const hasNames = Object.keys(D.names).length > 0;
 
-// Wire names: Circom signal names when a .sym file was given.
+// A wire's name: its Circom signal name when a symbol file was given, else
+// its role from the R1CS header (outputs, public inputs, private inputs).
 function wireName(w) {
   if (w === 0) return "1";
   if (D.names[w]) return D.names[w];
   if (D.kind === "packed" && w >= D.originalWires) return "aux" + w;
+  const o = D.outputs, i = D.publicInputs, p = D.privateInputs;
+  if (w <= o) return `out[${w - 1}]`;
+  if (w <= o + i) return `pub[${w - 1 - o}]`;
+  if (w <= o + i + p) return `in[${w - 1 - o - i}]`;
   return "w" + w;
 }
 // A linear combination, at most `max` terms.
 function lc(terms, name = wireName, max = 8) {
   if (!terms.length) return "0";
   const parts = terms.slice(0, max).map(([w, k], i) => {
-    const neg = k < 0, a = Math.abs(k);
-    const coef = w === 0 ? String(a) : (a === 1 ? "" : a + "·");
-    const body = w === 0 ? coef : coef + name(w);
+    // Coefficients beyond 2^53 arrive as strings, to keep every digit.
+    const neg = String(k).startsWith("-"), a = String(k).replace(/^-/, "");
+    const body = w === 0 ? a : (a === "1" ? "" : a + "·") + name(w);
     return (i === 0 ? (neg ? "−" : "") : (neg ? " − " : " + ")) + body;
   });
-  const more = terms.length > max ? ` + … (${terms.length - max} more terms)` : "";
-  return parts.join("") + more;
+  return parts.join("") + (terms.length > max ? ` + … (${terms.length - max} more)` : "");
 }
-function equation([a, b, c], name = wireName) {
-  return `(${lc(a, name)}) · (${lc(b, name)}) = ${lc(c, name)}`;
-}
-function card(value, label) {
-  return `<div class="card"><b>${value}</b><span>${label}</span></div>`;
-}
+const product = (a, b, name) => (a.length || b.length ? `(${lc(a, name)}) · (${lc(b, name)})` : "0");
+const equation = ([a, b, c], name = wireName) => `${product(a, b, name)} = ${lc(c, name)}`;
+const card = (value, label) => `<div class="card"><b>${value}</b><span>${label}</span></div>`;
 
 $("title").textContent = `${D.source}: ${D.kind} artifact`;
-$("lead").textContent = `Relation ${D.relation}. Read from the certificate and map, which "air check" verifies; this page does not check them.`;
+$("lead").textContent = `Relation ${D.relation}. Drawn from the certificate${D.kind === "packed" ? " and map" : ""}, which "air check" verifies; this page does not check them.`;
+if (!hasNames) {
+  $("notice").innerHTML = `<div class="note"><b>No signal names.</b> An R1CS file has none, so wires are shown by role:
+    <code>out[i]</code> outputs, <code>pub[i]</code> public inputs, <code>in[i]</code> private inputs, <code>wN</code> internal wires.
+    For Circom names, compile with <code>circom --sym</code> and pass the <code>.sym</code> file with <code>--sym</code>,
+    or put it next to the <code>.r1cs</code> file with the same name.</div>`;
+}
 
 if (D.kind === "packed") packed(); else columns();
 
-// ------------------------------------------------------------- reference / module
+// ------------------------------------------------------------ reference / module
 function columns() {
   const column = (w) => (w === 0 ? "1" : `a[${D.wireColumns[w]}]`);
+  const publics = D.outputs + D.publicInputs;
   const cards = [
     card(n(D.equations.length), "source equations"),
-    card(n(D.wires), "wires (incl. constant 1)"),
-    card(n(D.width), "stage-one columns"),
+    card(n(D.wires - 1), "wires, one column each"),
   ];
   if (D.rows) cards.push(card(n(D.rows), "rows, one instance each"));
-  cards.push(card(n(D.kind === "module" ? D.exports.length : D.publicWires.length),
-    D.kind === "module" ? "exported wires" : "public values"));
+  cards.push(card(n(D.kind === "module" ? D.exports.length : publics),
+    D.kind === "module" ? "exported wires" : "public values, on row 0"));
   $("cards").innerHTML = cards.join("");
-  const tags = (w) => {
-    const t = [];
+  const tag = (w) => {
     const p = D.publicWires.indexOf(w);
-    if (p >= 0) t.push(`public[${p}] on row 0`);
-    if (D.exports.includes(w)) t.push("exported");
-    return t.join(", ");
+    if (p >= 0) return `public[${p}]`;
+    return D.exports.includes(w) ? "exported" : "";
   };
   const rows = D.wireColumns.map((c, w) => (c === null ? "" :
-    `<tr><td>a[${c}]</td><td><code>${esc(wireName(w))}</code></td><td>${w}</td><td>${tags(w)}</td></tr>`)).join("");
+    `<tr><td class="mono">a[${c}]</td><td><code>${esc(wireName(w))}</code></td><td>${w}</td><td>${tag(w)}</td></tr>`)).join("");
   $("content").innerHTML = `
-    <h2>Columns</h2>
-    <p class="legend">Every row holds a whole assignment: wire <i>w</i> in column <code>a[w − 1]</code>; the constant wire 1 has no column.</p>
-    <div class="panel" style="max-height:50vh;overflow:auto"><table>
-      <tr><th>Column</th><th>Wire</th><th>Id</th><th></th></tr>${rows}</table></div>
     <h2>Equations</h2>
-    <p class="legend">Each source equation is one constraint <code>A·B − C = 0</code> over the columns, enforced on every row.</p>
-    <div class="row"><button id="prev">←</button><input type="number" id="pick" min="0" max="${D.equations.length - 1}" value="0"><button id="next">→</button><span class="legend" id="count"></span></div>
-    <div class="label">Over wires</div><div class="eq" id="eqw"></div>
-    <div class="label">Over columns</div><div class="eq" id="eqc"></div>`;
+    <p class="legend">Each source equation becomes one constraint <code>A·B − C = 0</code> over the columns,
+      enforced on every row${D.kind === "module" ? " of the host" : ""}.</p>
+    <div class="bar"><button id="prev">←</button><input type="number" id="pick" min="0" max="${D.equations.length - 1}" value="0"><button id="next">→</button><span class="legend" id="count"></span></div>
+    <div class="label">Over signals</div><div class="eq" id="eqw"></div>
+    <div class="label">Over columns</div><div class="eq" id="eqc"></div>
+    <h2>Columns</h2>
+    <p class="legend">Every row holds a whole assignment: wire <i>w</i> in column <code>a[w − 1]</code>; the constant 1 needs no column.</p>
+    <div class="panel" style="max-height:60vh;overflow:auto;padding:0"><table>
+      <tr><th>Column</th><th>Signal</th><th>Wire</th><th></th></tr>${rows}</table></div>`;
   const show = (i) => {
     i = Math.max(0, Math.min(D.equations.length - 1, i | 0));
     $("pick").value = i;
@@ -146,7 +165,7 @@ function columns() {
   show(0);
 }
 
-// ------------------------------------------------------------------- packed
+// -------------------------------------------------------------------- packed
 function packed() {
   const W = D.width, R = D.rows, nAux = D.auxiliaries.length;
   const cellsOf = new Map();
@@ -161,84 +180,159 @@ function packed() {
   });
   const auxPos = new Map(D.auxiliaries.map(([id], i) => [id, i]));
   const publicAt = new Map(D.publicBindings.map(([j, w, r, c]) => [r * W + c, j]));
-  const placementName = (index) => (index < nAux
-    ? `auxiliary ${wireName(D.auxiliaries[index][0])}`
-    : `equation ${index - nAux}`);
+  const usedRows = [...new Set([...byRow.keys(), ...D.publicBindings.map((b) => b[2])])].sort((a, b) => a - b);
+  const byName = new Map();
+  for (const w of cellsOf.keys()) byName.set(wireName(w), w);
+  const placementName = (index) => (index < nAux ? `${wireName(D.auxiliaries[index][0])} defined` : `equation ${index - nAux}`);
+  // What a placement enforces: an auxiliary definition, or a rewritten equation.
+  const placementText = (index) => {
+    if (index < nAux) {
+      const [id, terms] = D.auxiliaries[index];
+      return `${wireName(id)} = ${lc(terms)}`;
+    }
+    return equation(D.rewritten[index - nAux]);
+  };
 
   $("cards").innerHTML = [
     card(n(D.equations.length), "source equations"),
-    card(n(nAux), "auxiliary wires"),
-    card(n(D.placements.length), "placed equations"),
+    card(n(nAux), "auxiliary wires added"),
     card(`${n(R)} × ${n(W)}`, "rows × columns"),
     card(`${Math.round((100 * used) / (R * W))}%`, `cells used (${n(used)})`),
-    card(n(D.gates.length), `gates of ${n(D.gateTypes)} types`),
+    card(n(D.gates.length), `gates, of ${n(D.gateTypes)} types`),
     card(n(D.selectors), "selector columns"),
-    card(n(copied), "wires in several cells"),
+    card(n(copied), "signals in several cells"),
     card(n(D.publicBindings.length), "public values"),
   ].join("");
 
   $("content").innerHTML = `
     <h2>Trace</h2>
-    <p class="legend">One square per stage-one cell, coloured by the gate whose constraint covers it; empty squares are unused cells. A dot marks a public value's cell. Hover a cell for its wire; click it to highlight every cell of that wire, which the permutation argument makes equal.</p>
+    <p class="legend">One box per cell, coloured by the gate (constraint) that covers it, with the signal it holds;
+      "Overview" shrinks the boxes to see the whole trace. A dot marks a public value. Hover for details; click a cell, or search a signal, to outline every cell holding it:
+      the permutation argument makes those cells equal.</p>
+    <div class="bar">
+      <input type="search" id="find" list="names" placeholder="Find a signal, e.g. ${esc(wireName(D.cells.find((w) => w) || 1))}">
+      <datalist id="names">${[...byName.keys()].slice(0, 5000).map((s) => `<option value="${esc(s)}">`).join("")}</datalist>
+      <span class="grow"></span>
+      <button id="mode"></button>
+      <button id="zoomOut" title="Smaller cells">−</button><span class="legend" id="zoomLabel"></span><button id="zoomIn" title="Larger cells">+</button>
+    </div>
     <div class="grid-wrap" id="wrap"><canvas id="grid"></canvas></div>
-    <p class="legend"><span class="swatch" style="background:var(--select)"></span>selected wire
-      <span class="swatch" style="background:var(--accent);margin-left:12px"></span>selected equation</p>
-    <div class="panel" id="wire" style="margin-top:8px">Click a cell to see its wire.</div>
+    <p class="legend" style="margin-top:6px"><span class="swatch" style="background:var(--select)"></span>selected signal
+      <span class="swatch" style="background:var(--accent);margin-left:12px"></span>selected equation or gate</p>
+    <div class="panel" id="wire">Click a cell or search a signal to see where it is used.</div>
+
+    <h2>Rows</h2>
+    <p class="legend">What each row holds: the equations placed on it, written with signal names, and the signal in each cell.
+      Click a signal to select it.</p>
+    <div class="bar"><button id="rowsPrev">←</button><span class="legend" id="rowsLabel"></span><button id="rowsNext">→</button>
+      <span class="grow"></span><span class="legend">Go to row</span><input type="number" id="rowGo" min="0" max="${R - 1}"></div>
+    <div class="panel" style="padding:0;max-height:70vh;overflow:auto" id="rowsWrap"><table id="rows"></table></div>
+
     <h2>Equations</h2>
-    <p class="legend">How one source equation was compiled: split with auxiliary wires so that each part uses at most <code>width</code> wires, then each part placed on one row as a gate.</p>
-    <div class="row"><button id="prev">←</button><input type="number" id="pick" min="0" max="${D.equations.length - 1}" value="0"><button id="next">→</button><span class="legend" id="count"></span></div>
+    <p class="legend">How one source equation was compiled: split with auxiliary wires so that no part uses more than
+      <code>width</code> signals, then each part placed on one row, where a gate enforces it.</p>
+    <div class="bar"><button id="prev">←</button><input type="number" id="pick" min="0" max="${D.equations.length - 1}" value="0"><button id="next">→</button><span class="legend" id="count"></span></div>
     <div id="explain"></div>
+
     <div class="two">
-      <div><h2>Gates</h2><p class="legend">A gate is a gate type on fixed columns, active on the rows its selector marks. Click one to highlight its cells.</p>
-        <div class="panel" style="max-height:420px;overflow:auto"><table id="gates"></table></div></div>
-      <div><h2>Most copied wires</h2><p class="legend">Wires in the most cells; each extra cell is a copy the permutation argument must tie.</p>
-        <div class="panel" style="max-height:420px;overflow:auto"><table id="copies"></table></div></div>
+      <div><h2>Gates</h2><p class="legend">A gate is a gate type on fixed columns, active on the rows its selector marks. Click one to outline its cells.</p>
+        <div class="panel" style="max-height:420px;overflow:auto;padding:0"><table id="gates"></table></div></div>
+      <div><h2>Most copied signals</h2><p class="legend">Signals in the most cells; each extra cell is a copy the permutation argument ties.</p>
+        <div class="panel" style="max-height:420px;overflow:auto;padding:0"><table id="copies"></table></div></div>
     </div>`;
 
-  // Grid drawing.
-  const canvas = $("grid"), ctx = canvas.getContext("2d");
-  const size = Math.max(2, Math.min(14, Math.floor(($("wrap").clientWidth - 2) / W)));
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = W * size * dpr; canvas.height = R * size * dpr;
-  canvas.style.width = W * size + "px"; canvas.style.height = R * size + "px";
-  ctx.scale(dpr, dpr);
+  // ---- trace
+  const canvas = $("grid"), ctx = canvas.getContext("2d"), wrap = $("wrap");
   const css = getComputedStyle(document.documentElement);
   const color = (v) => css.getPropertyValue(v).trim();
   const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-  const gateColor = (g) => `hsl(${(g * 137.508) % 360} 55% ${dark ? 45 : 64}%)`;
+  const gateColor = (g) => `hsl(${(g * 137.508) % 360} 55% ${dark ? 40 : 70}%)`;
+  // Two views: names, with wide cells that hold a signal name, and an
+  // overview, with square cells sized to fit the width. A canvas side may not
+  // exceed about 32 000 pixels.
+  const LIMIT = 30000;
+  const nameWidths = [64, 96, 140, 200].filter((w) => w * W <= LIMIT);
+  const nameHeight = 20;
+  const canName = nameWidths.length > 0 && R * nameHeight <= LIMIT;
+  const maxSquare = Math.max(2, Math.min(48, Math.floor(LIMIT / R), Math.floor(LIMIT / W)));
+  let square = Math.max(2, Math.min(maxSquare, Math.floor((wrap.clientWidth - 2) / W)));
+  let nameStep = Math.min(1, nameWidths.length - 1);
+  let names = canName && W * 64 <= 4 * wrap.clientWidth;
+  let cw = 0, ch = 0;
   let selectedWire = 0, highlighted = new Set();
 
+  function resize() {
+    [cw, ch] = names ? [nameWidths[nameStep], nameHeight] : [square, square];
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = W * cw * dpr; canvas.height = R * ch * dpr;
+    canvas.style.width = W * cw + "px"; canvas.style.height = R * ch + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    $("mode").textContent = names ? "Overview" : "Show names";
+    $("mode").disabled = !canName;
+    $("zoomLabel").textContent = names ? `${cw} px wide` : `${square} px`;
+    $("zoomOut").disabled = names ? nameStep === 0 : square <= 2;
+    $("zoomIn").disabled = names ? nameStep === nameWidths.length - 1 : square >= maxSquare;
+    draw();
+  }
+  function fit(text, width) {
+    if (ctx.measureText(text).width <= width) return text;
+    let lo = 0, hi = text.length;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (ctx.measureText(text.slice(0, mid) + "…").width <= width) lo = mid; else hi = mid - 1; }
+    return lo ? text.slice(0, lo) + "…" : "";
+  }
   function draw() {
-    ctx.fillStyle = color("--panel"); ctx.fillRect(0, 0, W * size, R * size);
-    const gap = size >= 6 ? 1 : 0;
+    ctx.fillStyle = color("--panel"); ctx.fillRect(0, 0, W * cw, R * ch);
+    const gap = ch >= 6 ? 1 : 0;
+    // Only the rows in view, plus a margin, get text.
+    const first = Math.max(0, Math.floor(wrap.scrollTop / ch) - 2);
+    const last = Math.min(R, Math.ceil((wrap.scrollTop + wrap.clientHeight) / ch) + 2);
+    if (names) { ctx.font = "11.5px ui-monospace, Menlo, Consolas, monospace"; ctx.textBaseline = "middle"; }
     for (let cell = 0; cell < R * W; cell++) {
-      const r = (cell / W) | 0, c = cell % W;
-      const g = D.cellGate[cell];
-      ctx.fillStyle = D.cells[cell] ? (g >= 0 ? gateColor(g) : color("--muted")) : color("--empty");
-      ctx.fillRect(c * size, r * size, size - gap, size - gap);
-      if (publicAt.has(cell) && size >= 4) {
-        ctx.fillStyle = color("--text");
-        ctx.beginPath(); ctx.arc(c * size + size / 2 - gap / 2, r * size + size / 2 - gap / 2, Math.max(1, size / 5), 0, 7); ctx.fill();
+      const r = (cell / W) | 0, c = cell % W, w = D.cells[cell], g = D.cellGate[cell];
+      ctx.fillStyle = w ? (g >= 0 ? gateColor(g) : color("--muted")) : color("--empty");
+      ctx.fillRect(c * cw, r * ch, cw - gap, ch - gap);
+      const dot = publicAt.has(cell) && ch >= 4;
+      if (dot) {
+        ctx.fillStyle = color("--on-cell");
+        ctx.beginPath(); ctx.arc(c * cw + Math.max(3, ch / 6), r * ch + ch / 2, Math.max(1, ch / 7), 0, 7); ctx.fill();
+      }
+      if (names && w && r >= first && r < last) {
+        const left = dot ? 9 : 4;
+        ctx.fillStyle = color("--on-cell");
+        ctx.fillText(fit(wireName(w), cw - left - 3), c * cw + left, r * ch + ch / 2);
       }
     }
     const outline = (cells, style) => {
-      ctx.strokeStyle = style; ctx.lineWidth = Math.max(1.5, size / 5);
+      ctx.strokeStyle = style; ctx.lineWidth = Math.max(1.5, Math.min(3, ch / 6));
       for (const cell of cells) {
         const r = (cell / W) | 0, c = cell % W;
-        ctx.strokeRect(c * size + 0.75, r * size + 0.75, size - 1.5 - gap, size - 1.5 - gap);
+        ctx.strokeRect(c * cw + 1, r * ch + 1, cw - 2 - gap, ch - 2 - gap);
       }
     };
     outline(highlighted, color("--accent"));
     if (selectedWire) outline(cellsOf.get(selectedWire) || [], color("--select"));
   }
-  const scrollTo = (cell) => {
-    const r = (cell / W) | 0;
-    $("wrap").scrollTop = Math.max(0, r * size - $("wrap").clientHeight / 3);
+  let pending = false;
+  wrap.onscroll = () => { if (names && !pending) { pending = true; requestAnimationFrame(() => { pending = false; draw(); }); } };
+  const scrollGridTo = (cell) => {
+    wrap.scrollTop = Math.max(0, ((cell / W) | 0) * ch - wrap.clientHeight / 3);
+    wrap.scrollLeft = Math.max(0, (cell % W) * cw - wrap.clientWidth / 3);
+  };
+  $("mode").onclick = () => { names = !names; resize(); };
+  $("zoomIn").onclick = () => {
+    if (names) nameStep = Math.min(nameWidths.length - 1, nameStep + 1);
+    else square = Math.min(maxSquare, Math.max(square + 1, Math.round(square * 1.5)));
+    resize();
+  };
+  $("zoomOut").onclick = () => {
+    if (names) nameStep = Math.max(0, nameStep - 1);
+    else square = Math.max(2, Math.min(square - 1, Math.round(square / 1.5)));
+    resize();
   };
 
   const at = (event) => {
     const box = canvas.getBoundingClientRect();
-    const c = Math.floor((event.clientX - box.left) / size), r = Math.floor((event.clientY - box.top) / size);
+    const c = Math.floor((event.clientX - box.left) / cw), r = Math.floor((event.clientY - box.top) / ch);
     return r >= 0 && r < R && c >= 0 && c < W ? r * W + c : -1;
   };
   const usesOf = (cell) => {
@@ -249,17 +343,25 @@ function packed() {
     const cell = at(event), tip = $("tip");
     if (cell < 0) { tip.style.display = "none"; return; }
     const w = D.cells[cell], r = (cell / W) | 0, c = cell % W;
-    const uses = usesOf(cell).map((p) => placementName(p[0]));
-    const pub = publicAt.has(cell) ? `<br>public value ${publicAt.get(cell)}` : "";
-    tip.innerHTML = `row ${r}, column ${c}<br>` + (w
-      ? `<b>${esc(wireName(w))}</b> (wire ${w}), ${cellsOf.get(w).length} cell(s)${pub}<br>gate ${D.cellGate[cell]}: ${esc(uses.join(", "))}`
-      : "unused");
+    const uses = usesOf(cell).map((p) => `${esc(placementName(p[0]))}: <span class="mono">${esc(placementText(p[0]))}</span>`);
+    const pub = publicAt.has(cell) ? ` · public value ${publicAt.get(cell)}` : "";
+    tip.innerHTML = `row ${r}, column ${c}` + (w
+      ? `<br><b class="mono">${esc(wireName(w))}</b> · ${cellsOf.get(w).length} cell(s)${pub}<br>${uses.join("<br>")}`
+      : "<br>unused");
     tip.style.display = "block";
-    tip.style.left = Math.min(event.clientX + 14, innerWidth - 370) + "px";
+    tip.style.left = Math.min(event.clientX + 14, innerWidth - 430) + "px";
     tip.style.top = event.clientY + 14 + "px";
   };
   canvas.onmouseleave = () => { $("tip").style.display = "none"; };
-  canvas.onclick = (event) => { const cell = at(event); if (cell >= 0 && D.cells[cell]) selectWire(D.cells[cell]); };
+  canvas.onclick = (event) => {
+    const cell = at(event);
+    if (cell >= 0 && D.cells[cell]) { selectWire(D.cells[cell]); showRows(rowIndexOf((cell / W) | 0)); }
+  };
+  $("find").onchange = () => {
+    const query = $("find").value.trim();
+    const w = byName.get(query) ?? (/^\d+$/.test(query) ? +query : undefined);
+    if (w && cellsOf.has(w)) { selectWire(w); scrollGridTo(cellsOf.get(w)[0]); showRows(rowIndexOf((cellsOf.get(w)[0] / W) | 0)); }
+  };
 
   function selectWire(w) {
     selectedWire = w;
@@ -267,33 +369,58 @@ function packed() {
     const placements = new Map();
     for (const cell of cells) for (const p of usesOf(cell)) placements.set(p[0], p);
     const list = [...placements.values()].sort((a, b) => a[0] - b[0]).map((p) => {
-      const link = p[0] >= nAux ? `<a data-eq="${p[0] - nAux}">${placementName(p[0])}</a>` : esc(placementName(p[0]));
-      return `<li>${link}, row ${p[2]}</li>`;
+      const name = p[0] >= nAux ? `<a data-eq="${p[0] - nAux}">${placementName(p[0])}</a>` : esc(placementName(p[0]));
+      return `<div class="placed">${name}, row ${p[2]}: <span class="mono">${esc(placementText(p[0]))}</span></div>`;
     }).join("");
-    $("wire").innerHTML = `<b><code>${esc(wireName(w))}</code></b> (wire ${w}) is in ${cells.length} cell(s): `
-      + cells.slice(0, 40).map((cell) => `(${(cell / W) | 0}, ${cell % W})`).join(" ")
-      + (cells.length > 40 ? " …" : "")
-      + `<div class="label" style="margin-top:8px">Used by</div><ul style="margin:4px 0">${list}</ul>`;
+    $("wire").innerHTML = `<b class="mono">${esc(wireName(w))}</b> <span class="legend">(wire ${w})</span> is in ${cells.length} cell(s): `
+      + `<span class="mono">${cells.slice(0, 40).map((cell) => `(${(cell / W) | 0}, ${cell % W})`).join(" ")}${cells.length > 40 ? " …" : ""}</span>`
+      + `<div class="label" style="margin-top:8px">Used by</div>${list || "<div class='legend'>no equation (a public value only)</div>"}`;
     $("wire").querySelectorAll("a[data-eq]").forEach((a) => { a.onclick = () => show(+a.dataset.eq); });
     draw();
+    renderRows();
   }
 
-  // Equation explorer.
+  // ---- rows
+  const PAGE = 40;
+  let rowStart = 0;
+  const rowIndexOf = (row) => { const i = usedRows.findIndex((r) => r >= row); return i < 0 ? usedRows.length - 1 : i; };
+  function showRows(index) { rowStart = Math.max(0, Math.min(usedRows.length - 1, index)); renderRows(); }
+  function renderRows() {
+    const slice = usedRows.slice(rowStart, rowStart + PAGE);
+    $("rowsLabel").textContent = `rows ${slice[0] ?? 0}–${slice[slice.length - 1] ?? 0} (${rowStart + 1}–${rowStart + slice.length} of ${n(usedRows.length)} used rows)`;
+    $("rowsPrev").disabled = rowStart === 0; $("rowsNext").disabled = rowStart + PAGE >= usedRows.length;
+    $("rows").innerHTML = `<tr><th>Row</th><th>Equations placed</th><th>Cells (column signal)</th></tr>` + slice.map((r) => {
+      const placed = (byRow.get(r) || []).map((p) => {
+        const name = p[0] >= nAux ? `<a data-eq="${p[0] - nAux}">${placementName(p[0])}</a>` : esc(placementName(p[0]));
+        return `<div class="placed"><span class="swatch" style="background:${gateColor(p[1])}"></span>${name}: <span class="mono">${esc(placementText(p[0]))}</span></div>`;
+      }).join("");
+      const chips = [];
+      for (let c = 0; c < W; c++) {
+        const cell = r * W + c, w = D.cells[cell];
+        if (!w) continue;
+        const g = D.cellGate[cell];
+        const pub = publicAt.has(cell) ? " ●" : "";
+        chips.push(`<span class="chip mono${w === selectedWire ? " on" : ""}" data-wire="${w}" style="border-left-color:${g >= 0 ? gateColor(g) : "var(--muted)"}"><span class="col">${c}</span>${esc(wireName(w))}${pub}</span>`);
+      }
+      return `<tr${highlightedRows.has(r) ? ' class="focus"' : ""}><td class="mono">${r}</td><td>${placed || "<span class='legend'>public value cells only</span>"}</td><td>${chips.join("")}</td></tr>`;
+    }).join("");
+    $("rows").querySelectorAll("a[data-eq]").forEach((a) => { a.onclick = () => show(+a.dataset.eq); });
+    $("rows").querySelectorAll(".chip").forEach((chip) => { chip.onclick = () => selectWire(+chip.dataset.wire); });
+  }
+  let highlightedRows = new Set();
+  $("rowsPrev").onclick = () => showRows(rowStart - PAGE);
+  $("rowsNext").onclick = () => showRows(rowStart + PAGE);
+  $("rowGo").onchange = () => showRows(rowIndexOf(+$("rowGo").value));
+
+  // ---- equations
   function auxiliariesOf(terms, seen = new Set()) {
     for (const side of terms) for (const [w] of side) {
-      if (w >= D.originalWires && !seen.has(w)) {
-        seen.add(w);
-        auxiliariesOf([D.auxiliaries[auxPos.get(w)][1]], seen);
-      }
+      if (w >= D.originalWires && !seen.has(w)) { seen.add(w); auxiliariesOf([D.auxiliaries[auxPos.get(w)][1]], seen); }
     }
     return seen;
   }
-  function place(p) {
-    if (!p) return "not placed";
-    const cols = p[3];
-    return `row ${p[2]}, columns ${cols.join(", ")}, gate ${p[1]}`;
-  }
-  function show(i) {
+  const where = (p) => (p ? `row <a data-row="${p[2]}">${p[2]}</a>, columns ${p[3].join(", ")}, gate ${p[1]}` : "not placed");
+  function show(i, follow = true) {
     i = Math.max(0, Math.min(D.equations.length - 1, i | 0));
     $("pick").value = i;
     $("count").textContent = `of ${n(D.equations.length)}`;
@@ -302,47 +429,56 @@ function packed() {
     const own = byIndex.get(nAux + i);
     const parts = [own, ...aux.map((id) => byIndex.get(auxPos.get(id)))].filter(Boolean);
     highlighted = new Set(parts.flatMap((p) => p[3].map((c) => p[2] * W + c)));
+    highlightedRows = new Set(parts.map((p) => p[2]));
+    const same = JSON.stringify(rewritten) === JSON.stringify(D.equations[i]);
     const auxRows = aux.map((id) => {
-      const terms = D.auxiliaries[auxPos.get(id)][1];
-      return `<tr><td><code>${esc(wireName(id))}</code></td><td><code>${esc(lc(terms))}</code></td><td>${place(byIndex.get(auxPos.get(id)))}</td></tr>`;
+      const p = byIndex.get(auxPos.get(id));
+      return `<tr><td class="mono">${esc(wireName(id))}</td><td class="mono">${esc(lc(D.auxiliaries[auxPos.get(id)][1]))}</td><td>${where(p)}</td></tr>`;
     }).join("");
     $("explain").innerHTML = `
       <div class="label">Source equation ${i}</div><div class="eq">${esc(equation(D.equations[i]))}</div>
-      <div class="label">Rewritten</div><div class="eq">${esc(equation(rewritten))}</div>
-      <div class="label">Placed</div><div class="eq">${place(own)}</div>
-      ${aux.length ? `<div class="label">Auxiliary wires it uses (${aux.length}), each placed as 0 · 0 = terms − wire</div>
-        <div class="panel" style="max-height:260px;overflow:auto;margin:4px 0 10px"><table>
-        <tr><th>Wire</th><th>Defined as</th><th>Placed</th></tr>${auxRows}</table></div>`
-        : `<p class="legend">No auxiliary wires: the source equation fits in one row as it is.</p>`}`;
+      ${same ? "" : `<div class="label">Rewritten with auxiliary wires</div><div class="eq">${esc(equation(rewritten))}</div>`}
+      <div class="label">Placed at</div><div class="eq">${where(own)}</div>
+      ${aux.length ? `<div class="label">Auxiliary wires it uses (${aux.length}); each is placed as its own equation</div>
+        <div class="panel" style="max-height:280px;overflow:auto;padding:0;margin:4px 0 10px"><table>
+        <tr><th>Wire</th><th>Defined as</th><th>Placed at</th></tr>${auxRows}</table></div>`
+        : `<p class="legend">No auxiliary wires: the equation fits in one row as it is.</p>`}`;
+    $("explain").querySelectorAll("a[data-row]").forEach((a) => {
+      a.onclick = () => { scrollGridTo(+a.dataset.row * W); showRows(rowIndexOf(+a.dataset.row)); };
+    });
     draw();
-    if (own) scrollTo(own[2] * W + own[3][0]);
+    if (own && follow) { scrollGridTo(own[2] * W + own[3][0]); showRows(rowIndexOf(own[2])); } else renderRows();
   }
   $("prev").onclick = () => show(+$("pick").value - 1);
   $("next").onclick = () => show(+$("pick").value + 1);
   $("pick").onchange = () => show(+$("pick").value);
 
-  // Gates and copies tables.
-  $("gates").innerHTML = `<tr><th>Gate</th><th>Type (wires)</th><th>Columns</th><th>Rows</th><th>Selector</th></tr>`
+  // ---- gates and copies
+  $("gates").innerHTML = `<tr><th>Gate</th><th>Type (signals)</th><th>Columns</th><th>Rows</th><th>Selector</th></tr>`
     + D.gates.map(([type, width, cols, count, first, selector], g) =>
       `<tr class="click" data-gate="${g}"><td><span class="swatch" style="background:${gateColor(g)}"></span>${g}</td><td>${type} (${width})</td>`
-      + `<td>${cols.length > 6 ? cols.slice(0, 6).join(", ") + ", …" : cols.join(", ")}</td><td>${n(count)} from ${first}</td><td>E${selector}</td></tr>`).join("");
+      + `<td class="mono">${cols.length > 6 ? cols.slice(0, 6).join(", ") + ", …" : cols.join(", ")}</td><td>${n(count)} from row ${first}</td><td class="mono">E${selector}</td></tr>`).join("");
   $("gates").querySelectorAll("tr[data-gate]").forEach((tr) => {
     tr.onclick = () => {
       const g = +tr.dataset.gate;
-      highlighted = new Set(D.cellGate.flatMap((x, cell) => (x === g ? [cell] : [])));
+      highlighted = new Set();
+      D.cellGate.forEach((x, cell) => { if (x === g) highlighted.add(cell); });
+      highlightedRows = new Set([...highlighted].map((cell) => (cell / W) | 0));
       draw();
-      scrollTo([...highlighted][0] || 0);
+      const first = [...highlighted][0] || 0;
+      scrollGridTo(first); showRows(rowIndexOf((first / W) | 0));
     };
   });
   const top = [...cellsOf.entries()].filter(([, c]) => c.length > 1).sort((a, b) => b[1].length - a[1].length).slice(0, 50);
-  $("copies").innerHTML = `<tr><th>Wire</th><th>Cells</th></tr>` + (top.length
-    ? top.map(([w, c]) => `<tr class="click" data-wire="${w}"><td><code>${esc(wireName(w))}</code></td><td>${c.length}</td></tr>`).join("")
-    : `<tr><td colspan="2">Every wire has one cell, so there is no permutation argument.</td></tr>`);
+  $("copies").innerHTML = `<tr><th>Signal</th><th>Cells</th></tr>` + (top.length
+    ? top.map(([w, c]) => `<tr class="click" data-wire="${w}"><td class="mono">${esc(wireName(w))}</td><td>${c.length}</td></tr>`).join("")
+    : `<tr><td colspan="2">Every signal has one cell, so there is no permutation argument.</td></tr>`);
   $("copies").querySelectorAll("tr[data-wire]").forEach((tr) => {
-    tr.onclick = () => { selectWire(+tr.dataset.wire); scrollTo(cellsOf.get(+tr.dataset.wire)[0]); };
+    tr.onclick = () => { const w = +tr.dataset.wire; selectWire(w); scrollGridTo(cellsOf.get(w)[0]); showRows(rowIndexOf((cellsOf.get(w)[0] / W) | 0)); };
   });
 
-  show(0);
+  resize();
+  show(0, false);
 }
 </script>
 </body>

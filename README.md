@@ -68,9 +68,9 @@ cargo run --bin air -- check fixtures/xor/kernel.r1cs out/packed/kernel.pilout o
 cargo run --bin air -- plan fixtures/xor/kernel.r1cs out/plan
 cargo run --bin air -- witness fixtures/xor/kernel.r1cs out/packed fixtures/xor/input.wtns out/witness
 
-# Optional: a page showing how the circuit was placed (out/packed/explain.html).
-# --sym adds the Circom signal names written by the optional step above.
-tools/explain/explain.py fixtures/xor/kernel.r1cs out/packed --sym build/kernel.sym --open
+# Optional: a page showing how the circuit was placed (out/packed/explain.html),
+# with the signal names of fixtures/xor/kernel.sym.
+tools/explain/explain.py fixtures/xor/kernel.r1cs out/packed --open
 ```
 
 Each command prints one JSON report. [The CLI reference](docs/CLI.md) describes
@@ -143,7 +143,9 @@ It does not cover the permutation argument itself, which
 ## Fixtures
 
 Each directory in `fixtures/` holds a Circom source (`kernel.circom`), its R1CS
-and WTNS files, a layout file and the SHA-256 hashes of every expected output
+and WTNS files, its symbol file (`kernel.sym`, signal names for
+[`tools/explain`](tools/explain/README.md); not for `sha256`, where it would be
+12 MB), a layout file and the SHA-256 hashes of every expected output
 (`expected.json`):
 
 | Fixture | Circuit |

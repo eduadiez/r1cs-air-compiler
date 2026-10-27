@@ -32,8 +32,9 @@ def fail(message):
 
 
 def read_r1cs(path):
-    """The prime, wire count, public wire count and equations of an R1CS
-    version 1 file, each side a list of [wire, coefficient]."""
+    """The prime, the counts of wires, outputs, public inputs and private
+    inputs, and the equations of an R1CS version 1 file, each side a list of
+    [wire, coefficient]."""
     data = Path(path).read_bytes()
     if data[:4] != b"r1cs" or struct.unpack_from("<I", data, 4)[0] != 1:
         fail(f"{path}: not an R1CS version 1 file")
@@ -46,7 +47,7 @@ def read_r1cs(path):
     header = sections[1]
     (size,) = struct.unpack_from("<I", data, header)
     prime = int.from_bytes(data[header + 4 : header + 4 + size], "little")
-    wires, outputs, inputs, _, _, constraints = struct.unpack_from(
+    wires, outputs, inputs, private, _, constraints = struct.unpack_from(
         "<IIIIQI", data, header + 4 + size
     )
     at, equations = sections[2], []
@@ -62,7 +63,7 @@ def read_r1cs(path):
                 at += 4 + size
             sides.append(side)
         equations.append(sides)
-    return prime, wires, outputs + inputs, equations
+    return prime, (wires, outputs, inputs, private), equations
 
 
 def read_names(path):
@@ -77,9 +78,24 @@ def read_names(path):
 
 
 def signed(value, prime):
-    """A field element as a small signed integer when it is one, else as is."""
+    """A field element for display: a small signed integer when it is one;
+    else a power of two or a small multiple of a negative power of two, which
+    is how Circom writes bit decompositions (8589934590 is -1/2^31 in
+    Goldilocks); else the integer nearest to zero, as a string beyond 2^53,
+    where JavaScript numbers lose precision."""
     value %= prime
-    return value - prime if value > prime // 2 else value
+    nearest = value - prime if value > prime // 2 else value
+    if abs(nearest) < 2**16:
+        return nearest
+    for e in range(1, 192):
+        power = pow(2, e, prime)
+        if value in (power, prime - power):
+            return f"{'-' if value != power else ''}2^{e}"
+        scaled = value * power % prime
+        scaled = scaled - prime if scaled > prime // 2 else scaled
+        if abs(scaled) < 2**16:
+            return f"{scaled}/2" if e == 1 else f"{scaled}/2^{e}"
+    return nearest if abs(nearest) < 2**53 else str(nearest)
 
 
 def side(terms, prime):
@@ -156,12 +172,14 @@ def main():
     sym = Path(args.sym) if args.sym else source.with_suffix(".sym")
     if args.sym and not sym.is_file():
         fail(f"{sym}: no such symbol file")
-    prime, wires, publics, equations = read_r1cs(source)
+    prime, (wires, outputs, inputs, private), equations = read_r1cs(source)
     data = {
         "source": source.name,
         "relation": certificate.get("relation", "unknown"),
         "wires": wires,
-        "publics": publics,
+        "outputs": outputs,
+        "publicInputs": inputs,
+        "privateInputs": private,
         "names": {str(w): n for w, n in read_names(sym).items()} if sym.is_file() else {},
         "equations": [[side(s, prime) for s in eq] for eq in equations],
     }
@@ -182,8 +200,12 @@ def main():
     page = TEMPLATE.read_text().replace("/*DATA*/null", payload)
     output = Path(args.output) if args.output else artifact / "explain.html"
     output.write_text(page)
-    names = f", signal names from {sym}" if data["names"] else ""
-    print(f"wrote {output} ({len(page) // 1024} KiB, {data['kind']} artifact{names})")
+    names = (
+        f"signal names from {sym}"
+        if data["names"]
+        else "no signal names: pass --sym with the file of circom --sym"
+    )
+    print(f"wrote {output} ({len(page) // 1024} KiB, {data['kind']} artifact, {names})")
     if args.open:
         webbrowser.open(output.resolve().as_uri())
 

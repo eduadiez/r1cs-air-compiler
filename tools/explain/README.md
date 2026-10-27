@@ -28,24 +28,35 @@ compiled from a different R1CS file.
 
 For a **packed** artifact:
 
-- a summary: equations, auxiliary wires, trace size, cells used, gates,
-  selectors, copied wires and public values;
-- the trace, one square per stage-one cell, coloured by the gate whose
-  constraint covers it, with the cells of public values marked. Hovering a
-  cell shows its wire and the equations placed there; clicking it highlights
-  every cell of that wire, which the permutation argument makes equal;
-- for each source equation: the equation, its rewritten form, the auxiliary
-  wires it uses with their definitions, and the row, columns and gate of each
-  part, highlighted in the trace;
-- the gates (type, columns, rows and selector) and the wires with the most
+- **Summary:** equations, auxiliary wires added, trace size, cells used,
+  gates, selector columns, signals in several cells and public values.
+- **Trace:** one box per cell, coloured by the gate (constraint) that covers
+  it, with the signal it holds; a dot marks a public value. "Overview" shrinks
+  the boxes to see the whole trace, and the buttons beside it zoom. Hovering a
+  cell shows its signal and the equations placed on it; clicking it, or
+  typing a signal name in the search box, outlines every cell that holds the
+  signal, which the permutation argument makes equal.
+- **Rows:** for each row, the equations placed on it, written with signal
+  names, and the signal in each cell, 40 rows at a time.
+- **Equations:** for each source equation, the equation, its form rewritten
+  with auxiliary wires, the definition of each auxiliary wire, and where each
+  part is placed, outlined in the trace.
+- **Gates** (type, columns, rows and selector) and the signals with the most
   cells.
 
-For a **reference** or **module** artifact: the column of each wire, the
-public or exported wires, and each equation over wires and over columns.
+For a **reference** or **module** artifact: each equation over signals and
+over columns, and the column of each signal.
+
+Signals are named from the symbol file; without one, by role from the R1CS
+header: `out[i]` outputs, `pub[i]` public inputs, `in[i]` private inputs and
+`wN` other wires (`auxN` for auxiliary wires). The fixtures, except `sha256`,
+include their `kernel.sym`. Coefficients are written as small integers, powers
+of two or fractions over a power of two where they are one: Circom writes a
+bit decomposition with coefficients such as `-1/2^31`, which is
+`8589934590` in the Goldilocks field.
 
 ## Limits
 
 The page displays the certificate and the map; it does not check them. Run
-`air check` for that. Coefficients are shown as signed integers when they are
-small, so `-1` stands for `P - 1`. For the `sha256` fixture the page is about
-8 MB and draws 107 520 cells.
+`air check` for that. For the `sha256` fixture the page is about 8 MB and
+draws 107 520 cells.
