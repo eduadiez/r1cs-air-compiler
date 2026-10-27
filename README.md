@@ -36,12 +36,20 @@ Add `--offline` once the locked dependencies are in the local Cargo cache.
 
 ## Example
 
-Run from the repository root. `air` creates each output directory and fails if
-it already exists, so run `rm -rf out` before running the example again.
+`air` reads R1CS and WTNS files, not Circom source. Every fixture includes
+both, so the Circom step below is optional: it shows how `fixtures/xor`'s files
+are made from its `kernel.circom`, and reproduces them byte for byte. Run from
+the repository root. `air` creates each output directory and fails if it
+already exists, so run `rm -rf build out` before running the example again.
 
 ```sh
-mkdir -p out
+mkdir -p build out
 cargo run --bin air -- --help
+
+# Optional: the R1CS and a witness from Circom source, with either generator.
+circom fixtures/xor/kernel.circom --r1cs --wasm --c --prime goldilocks --O2 -o build
+node build/kernel_js/generate_witness.js build/kernel_js/kernel.wasm fixtures/xor/input.json build/input.wtns
+# or: make -C build/kernel_cpp && build/kernel_cpp/kernel fixtures/xor/input.json build/input.wtns
 
 # Reference layout: 64 rows, one column per wire.
 cargo run --bin air -- compile fixtures/xor/kernel.r1cs out/reference --rows 64
@@ -57,38 +65,17 @@ cargo run --bin air -- witness fixtures/xor/kernel.r1cs out/packed fixtures/xor/
 Each command prints one JSON report. [The CLI reference](docs/CLI.md) describes
 every argument, output file, layout setting and report field.
 
-## From a Circom circuit
-
-`air` reads compiled R1CS files, not Circom source. Compile the circuit with
-Circom first, over the Goldilocks field, then compute a witness with one of the
-witness generators it writes:
-
-```sh
-mkdir -p build out
-circom circuit.circom --r1cs --wasm --c --prime goldilocks --O2 -o build
-
-# Either the WebAssembly generator, which needs Node.js...
-node build/circuit_js/generate_witness.js build/circuit_js/circuit.wasm input.json build/input.wtns
-# ...or the C++ generator, which needs a C++ compiler, GMP and make.
-make -C build/circuit_cpp
-build/circuit_cpp/circuit input.json build/input.wtns
-
-cargo run --bin air -- compile build/circuit.r1cs out/circuit --layout layout.json
-cargo run --bin air -- witness build/circuit.r1cs out/circuit build/input.wtns out/trace
-```
+For your own circuit:
 
 - `--prime goldilocks` is required: Circom's default field is BN254, and `air`
-  rejects R1CS and WTNS files over any other field.
+  rejects files over any other field.
 - The Circom optimization level (`--O0`, `--O1`, `--O2`) changes the
-  constraints, and so the PILout and certificate. The fixtures use `--O2`.
-- `input.json` holds the circuit's input signals; only `witness` needs the
-  WTNS file.
-- Both generators write the same WTNS file. The WebAssembly one runs anywhere
-  Node.js does; the C++ one is native code, much faster on large circuits,
-  and is built once per platform. Pass only `--wasm` or `--c` to Circom to
-  write just one of them.
+  constraints, and so the PILout. The fixtures use `--O2`.
+- Both witness generators write the same WTNS file. The WebAssembly one needs
+  Node.js; the C++ one needs a C++ compiler, GMP and make, and is much faster
+  on large circuits. Pass only `--wasm` or `--c` to write just one.
 - Any other tool that writes R1CS version 1 and WTNS version 2 files over
-  Goldilocks can be used instead of Circom.
+  Goldilocks works as well.
 
 ## Choosing a layout
 
