@@ -320,3 +320,58 @@ fn without_closure_the_running_product_is_not_determined() {
         assert_eq!(evaluate_changed(&pilout, &trace, change), Ok(()));
     }
 }
+
+/// A broken copy that satisfies every gate: w1 · w2 = w3 and w1 · w4 = w5 at
+/// width 3 sit in different row groups, so w1 has two cells. Changing the
+/// second cell of w1, and w5 to match, keeps both equations true on their
+/// rows; only the permutation argument rejects the trace, and without its
+/// constraints the trace is accepted.
+#[test]
+fn only_the_permutation_argument_rejects_a_broken_copy() {
+    use crate::api;
+    let source = super::r1cs_bytes([6, 0, 0, 5], &[[1, 2, 3], [1, 4, 5]]);
+    let values = [1, 3, 5, 15, 7, 21];
+    let artifact = api::compile_packed(&source, &super::packed::config(3)).unwrap();
+    let witness = api::project_witness(
+        &source,
+        &artifact.pilout,
+        &artifact.certificate,
+        &super::wtns_bytes(&values),
+    )
+    .unwrap();
+    let width = artifact.certificate.layout.width;
+    let row_of = |wire: u32| artifact.map.iter().position(|w| *w == wire).unwrap() / width;
+    let cell = |wire: u32, row: usize| {
+        (row * width..(row + 1) * width)
+            .find(|cell| artifact.map[*cell] == wire)
+            .unwrap()
+    };
+    let row = row_of(5);
+    assert_ne!(row, row_of(3), "the equations share a row");
+    let mut stage_one = witness.trace.clone();
+    stage_one[cell(1, row)] = 4;
+    stage_one[cell(5, row)] = mul(4, 7);
+    let mut pilout = <pb::PilOut as prost::Message>::decode(&artifact.pilout[..]).unwrap();
+    let trace = Trace {
+        stage_one: &stage_one,
+        publics: &[],
+        challenges: [0x1234_5678_9abc_def0, 0x0fed_cba9_8765_4321],
+    };
+    assert!(matches!(
+        evaluate(&pilout, &trace),
+        Err(Failure::Violated { .. })
+    ));
+    let permutation = [
+        "permutation ratio",
+        "permutation recurrence",
+        "permutation closure",
+    ];
+    pilout.air_groups[0].airs[0].constraints.retain(|c| {
+        let label = match &c.constraint {
+            Some(Constraint::EveryRow(c)) => c.debug_line.as_deref(),
+            _ => None,
+        };
+        !label.is_some_and(|label| permutation.contains(&label))
+    });
+    assert_eq!(evaluate(&pilout, &trace), Ok(()));
+}

@@ -565,7 +565,10 @@ struct Joins {
 /// already, `b` may have no partners, the joined width must fit in
 /// `max_width`, and each row group is used at most once per pattern (if `b` was
 /// used, `a` still counts as used). So a row group takes at most one partner per
-/// pattern, and each partner joins one row group.
+/// pattern, and each partner joins one row group. Releasing `a` when `b` is used
+/// allows more joins, but did not prove faster: of the circuits in
+/// `docs/SCALE.md` only the SHA-256 ones changed, by -3% to +5% in estimated
+/// proof time, slower for the largest.
 ///
 /// Costs are tracked per group: a key followed by the patterns taken so far.
 /// This assumes the row groups of a group end up with the same key; they usually

@@ -17,6 +17,7 @@ witness_library!(WitnessLib, Goldilocks);
 fn words(name: &str) -> Vec<u64> {
     let dir = std::env::var("R1CS_AIR_WITNESS").expect("R1CS_AIR_WITNESS");
     let bytes = std::fs::read(format!("{dir}/{name}")).expect(name);
+    assert_eq!(bytes.len() % 8, 0, "{name} is not a whole number of 8-byte words");
     bytes
         .chunks_exact(8)
         .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
@@ -64,7 +65,9 @@ impl<F: PrimeField64> WitnessComponent<F> for Kernel {
         _sctx: Arc<SetupCtx<F>>,
         ids: &RwLock<Vec<usize>>,
     ) -> ProofmanResult<()> {
-        for (i, v) in words("public.bin").into_iter().enumerate() {
+        let publics = words("public.bin");
+        assert_eq!(publics.len(), pctx.global_info.n_publics, "public value count");
+        for (i, v) in publics.into_iter().enumerate() {
             pctx.set_public_value(v, i);
         }
         let id = pctx.add_instance(0, 0)?;
@@ -87,13 +90,9 @@ impl<F: PrimeField64> WitnessComponent<F> for Kernel {
         let setup = sctx.get_setup(0, 0)?;
         if stage == 1 {
             let cols = setup.stark_info.map_sections_n["cm1"] as usize;
+            let rows = 1 << setup.stark_info.stark_struct.n_bits;
             let values: Vec<F> = words("trace.bin").into_iter().map(F::from_u64).collect();
-            let rows = values.len() / cols;
-            assert_eq!(
-                rows,
-                1 << setup.stark_info.stark_struct.n_bits,
-                "trace rows"
-            );
+            assert_eq!(values.len(), rows * cols, "trace words (rows × columns)");
             let mut trace = Stage1 { rows, cols, values };
             pctx.add_air_instance(AirInstance::new_from_trace(FromTrace::new(&mut trace)), id);
         } else if stage == 2 {
