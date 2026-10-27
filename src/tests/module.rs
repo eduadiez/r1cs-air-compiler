@@ -655,3 +655,115 @@ fn undeclared_operands_in_module_fragments_are_rejected() {
         "only addition, subtraction and multiplication are allowed",
     );
 }
+
+/// Host operands are told apart by kind and by every identifying field: a
+/// constraint `equation + (x - y)` enforces the equation only when `x` and `y`
+/// are the same operand.
+#[test]
+fn host_operand_identities_are_kept_apart() {
+    use pb::operand::{
+        AirGroupValue, AirValue, Challenge, CustomCol, FixedCol, PeriodicCol, ProofValue,
+        PublicValue, WitnessCol,
+    };
+    let witness = |stage, col_idx, row_offset| {
+        Operand::WitnessCol(WitnessCol {
+            stage,
+            col_idx,
+            row_offset,
+        })
+    };
+    let fixed = |idx, row_offset| Operand::FixedCol(FixedCol { idx, row_offset });
+    let periodic = |idx, row_offset| Operand::PeriodicCol(PeriodicCol { idx, row_offset });
+    let challenge = |stage, idx| Operand::Challenge(Challenge { stage, idx });
+    let proof = |stage, idx| Operand::ProofValue(ProofValue { stage, idx });
+    let custom = |commit_id, stage, col_idx, row_offset| {
+        Operand::CustomCol(CustomCol {
+            commit_id,
+            stage,
+            col_idx,
+            row_offset,
+        })
+    };
+    let public = |idx| Operand::PublicValue(PublicValue { idx });
+    let air_value = |idx| Operand::AirValue(AirValue { idx });
+    let group_value = |idx| Operand::AirGroupValue(AirGroupValue { idx });
+    // Each operand, and operands that differ from it in one field or in kind.
+    let table = [
+        (
+            witness(1, 7, 0),
+            vec![witness(1, 8, 0), witness(2, 7, 0), witness(1, 7, 1)],
+        ),
+        (
+            witness(1, 7, 1),
+            vec![
+                witness(1, 7, -1),
+                witness(1, 8, 1),
+                witness(2, 7, 1),
+                fixed(7, 1),
+            ],
+        ),
+        (
+            witness(2, 0, 0),
+            vec![witness(2, 1, 0), witness(3, 0, 0), witness(2, 0, -1)],
+        ),
+        (
+            fixed(0, 0),
+            vec![fixed(1, 0), fixed(0, 1), periodic(0, 0), witness(1, 0, 1)],
+        ),
+        (
+            periodic(0, 1),
+            vec![periodic(1, 1), periodic(0, 0), fixed(0, 1)],
+        ),
+        (
+            challenge(2, 0),
+            vec![challenge(2, 1), challenge(3, 0), proof(2, 0)],
+        ),
+        (proof(1, 0), vec![proof(1, 1), proof(2, 0), air_value(0)]),
+        (public(0), vec![public(1), air_value(0), group_value(0)]),
+        (air_value(0), vec![air_value(1), group_value(0)]),
+        (group_value(0), vec![group_value(1), proof(0, 0)]),
+        (
+            custom(0, 1, 0, 0),
+            vec![
+                custom(1, 1, 0, 0),
+                custom(0, 2, 0, 0),
+                custom(0, 1, 1, 0),
+                custom(0, 1, 0, 1),
+                witness(1, 0, 0),
+            ],
+        ),
+    ];
+    let artifact = module(false);
+    let binding = CompositionBinding::with_offset(&artifact.certificate, 0, 0, 0);
+    let with_difference = |x: &Operand, y: &Operand| {
+        let mut host = host(&artifact, 0, 4);
+        let air = &mut host.air_groups[0].airs[0];
+        let Some(Constraint::EveryRow(row)) = &air.constraints[1].constraint else {
+            unreachable!()
+        };
+        let root = row.expression_idx.unwrap().idx;
+        let operand = |o: &Operand| pb::Operand {
+            operand: Some(o.clone()),
+        };
+        let expression = |idx| pb::Operand {
+            operand: Some(Operand::Expression(pb::operand::Expression { idx })),
+        };
+        let difference = air.expressions.len() as u32;
+        air.expressions
+            .push(binary(Op::Sub, operand(x), operand(y)));
+        air.expressions.push(pb::Expression {
+            operation: Some(Operation::Add(pb::expression::Add {
+                lhs: Some(expression(root)),
+                rhs: Some(expression(difference)),
+            })),
+        });
+        air.constraints[1] = every_row(difference + 1);
+        check(&artifact, &host, &binding)
+    };
+    for (x, others) in &table {
+        assert!(with_difference(x, x).is_ok(), "{x:?} - {x:?} should cancel");
+        for y in others {
+            assert_rejected(with_difference(x, y), "source equation 1 is not enforced");
+        }
+    }
+}
