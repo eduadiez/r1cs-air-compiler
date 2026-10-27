@@ -106,20 +106,21 @@ The circuits are built like the SHA-256 ones above:
 - 16 Poseidon Merkle paths of depth 24 with `MultiMux1` (93 312 constraints);
 - 64 `Multiplexer(8, 64)` (36 864 constraints).
 
-Each layout is the one `air compile --packed` chooses, with the default
-`width` 64 and `auxiliaryTerms` 32:
+Each layout is the one `air compile --packed` chooses (`auxiliaryTerms` is
+half of `width`). The last column is the proof time with `width` fixed at 64,
+where the search chooses another width:
 
-| Circuit | `minRows` | `rowGroupWidth` | Proof time |
-| --- | --- | --- | --- |
-| SHA-256, 256 bits (fixture) | 512 | 64 | 19 |
-| SHA-256, 1024 bits | 1024 | 128 | 35 |
-| SHA-256, 4096 bits | 2048 | 128 | 70 |
-| Poseidon chain | 512 | 128 | 22 |
-| MiMC7 chain | 1024 | 64 | 13 |
-| `LessThan(32)` batch | 512 | 64 | 10 |
-| Pedersen hashes | 512 | 64 | 10 |
-| Poseidon Merkle paths | 512 | 128 | 17 |
-| Multiplexers | 1024 | 64 | 19 |
+| Circuit | `width` | `minRows` | `rowGroupWidth` | Proof time | With `width` 64 |
+| --- | --- | --- | --- | --- | --- |
+| SHA-256, 256 bits (fixture) | 16 | 1024 | 32 | 19 | 19 |
+| SHA-256, 1024 bits | 32 | 1024 | 64 | 31 | 35 |
+| SHA-256, 4096 bits | 32 | 2048 | 64 | 70 | 70 |
+| Poseidon chain | 64 | 512 | 128 | 22 | |
+| MiMC7 chain | 64 | 1024 | 64 | 13 | |
+| `LessThan(32)` batch | 64 | 512 | 64 | 10 | |
+| Pedersen hashes | 32 | 512 | 32 | 9 | 10 |
+| Poseidon Merkle paths | 128 | 512 | 256 | 12 | 17 |
+| Multiplexers | 32 | 1024 | 32 | 19 | 19 |
 
 Notes on the table:
 
@@ -131,11 +132,14 @@ Notes on the table:
   no permutation argument.
 - At these sizes the proof-of-work search takes longer than the rest of the
   proof.
-- For the Pedersen hashes the estimate prefers 512 rows to 128 (9.9 against
-  10.3 ms), but 128 rows proved in 9 ms: a difference within the model's
-  error.
-- Choosing the layout took from 0.5 s (Pedersen) to 16 s and 1 GB of memory
-  (SHA-256 of 4096 bits).
+- The Poseidon Merkle paths gain most from the width: at 128 the trace is
+  512 × 245 instead of 512 × 277, and the proof 12 ms instead of 17 (17–18
+  and 11–12 in two separate rounds of 5 proofs). For the SHA-256 fixture the
+  estimate predicted 10% from width 16, but the measured difference is within
+  1 ms.
+- Choosing the layout took from 1.4 s (Pedersen) to 52 s and 1 GB of memory
+  (SHA-256 of 4096 bits), most of it trying several widths; a layout file
+  with the chosen settings skips the search.
 
 ### What the time depends on
 

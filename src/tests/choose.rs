@@ -1,6 +1,6 @@
 //! Layout settings: their defaults, and the search for a missing row count or
 //! row group width.
-use super::{assert_limit, packed::config, r1cs_bytes};
+use super::{assert_limit, assert_rejected, packed::config, r1cs_bytes};
 use crate::{
     certificate::Layout,
     choose::{self, cell_map, estimate},
@@ -17,20 +17,69 @@ const XOR_LAYOUT: &[u8] = include_bytes!("../../fixtures/xor/layout.json");
 fn missing_settings_take_their_defaults() {
     let artifact = packed::compile(XOR, &LayoutConfig::default()).unwrap();
     let config = &artifact.config;
+    let width = config.width.unwrap();
+    assert!([4, 8, 16, 32, 64, 128].contains(&width));
     assert_eq!(
         (
-            config.width,
             config.auxiliary_terms,
             config.reuse_auxiliaries,
             config.fold_constants
         ),
-        (Some(64), Some(32), Some(Reuse::Available), Some(true))
+        (Some((width / 2).max(2)), Some(Reuse::Available), Some(true))
     );
-    assert!(matches!(config.row_group_width, Some(64 | 128)));
+    assert!(config.row_group_width == Some(width) || config.row_group_width == Some(2 * width));
     assert_eq!(config.min_rows, Some(artifact.certificate.layout.min_rows));
     packed_check::check(XOR, &artifact.pilout, &artifact.certificate).unwrap();
     // The settings used, given back, build the same artifact.
     assert_eq!(packed::compile(XOR, config).unwrap(), artifact);
+}
+
+/// `xor` has three equations of 33 signals: at the starting width, 64, they
+/// fill long rows and make the trace 36 columns wide, while narrow widths
+/// split them and stack everything into a few columns.
+#[test]
+fn the_search_narrows_the_width_when_that_is_cheaper() {
+    let circuit = r1cs::read(XOR).unwrap();
+    let cost = |config: &LayoutConfig| {
+        let (_, rewritten, layout) = choose::layout(&circuit, config).unwrap();
+        estimate(&packed::build_pilout(&rewritten, &layout, &cell_map(&layout)).unwrap())
+    };
+    let (chosen, _, layout) = choose::layout(&circuit, &LayoutConfig::default()).unwrap();
+    let at_64 = LayoutConfig {
+        width: Some(64),
+        ..LayoutConfig::default()
+    };
+    assert!(chosen.width.unwrap() < 64, "{chosen:?}");
+    assert!(layout.width < choose::layout(&circuit, &at_64).unwrap().2.width);
+    assert!(cost(&chosen) < cost(&at_64));
+}
+
+#[test]
+fn given_settings_limit_the_widths_tried() {
+    let circuit = r1cs::read(XOR).unwrap();
+    let chosen = |config: LayoutConfig| choose::layout(&circuit, &config).unwrap().0.width.unwrap();
+    // auxiliaryTerms must be below the width, and the width at most rowGroupWidth.
+    assert!(
+        chosen(LayoutConfig {
+            auxiliary_terms: Some(20),
+            ..LayoutConfig::default()
+        }) > 20
+    );
+    assert!(
+        chosen(LayoutConfig {
+            row_group_width: Some(8),
+            ..LayoutConfig::default()
+        }) <= 8
+    );
+    let impossible = LayoutConfig {
+        auxiliary_terms: Some(100),
+        row_group_width: Some(100),
+        ..LayoutConfig::default()
+    };
+    assert_rejected(
+        choose::layout(&circuit, &impossible),
+        "no width fits the given auxiliaryTerms and rowGroupWidth",
+    );
 }
 
 #[test]

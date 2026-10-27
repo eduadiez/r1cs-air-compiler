@@ -99,7 +99,7 @@ rejected.
 
 | Field | Values | Default | Meaning |
 | --- | --- | --- | --- |
-| `width` | 3 to 1024 | 64 | The most distinct wires one equation may use |
+| `width` | 3 to 1024 | chosen | The most distinct wires one equation may use |
 | `auxiliaryTerms` | 2 to `width - 1` | half of `width`, at least 2 | Terms replaced by each new auxiliary wire |
 | `reuseAuxiliaries` | `none`, `prefix`, `available` | `available` | When an existing auxiliary wire may stand in for terms of a later equation (see below) |
 | `foldConstants` | `true`, `false` | `true` | If `A` or `B` in `A · B = C` is a constant `k`, rewrite the equation as the linear `0 = C - k · (other factor)` first |
@@ -134,23 +134,31 @@ Placement:
 
 A layout may have at most 65536 rows and 4 000 000 cells.
 
-**Chosen settings.** When `minRows` or `rowGroupWidth` is left out, the
-compiler builds the PILout of each candidate and keeps the one with the lowest
-estimated proving time with pil2-proofman:
+**Chosen settings.** When `width`, `minRows` or `rowGroupWidth` is left out,
+the compiler builds the PILout of each candidate and keeps the one with the
+lowest estimated proving time with pil2-proofman:
 
-- `minRows`: 64, 128, … rows. Candidates whose trace exceeds a size limit are
-  skipped; once one fits, the search stops when a candidate no longer fits or
-  the estimate has risen twice in a row.
-- `rowGroupWidth`: `width` and `2 · width` (up to 1024), each with its own
-  search over `minRows`.
+- `width`: starting at 64, narrower widths (32, 16, 8, 4) until the estimate
+  rises; if none is better, wider ones (128) instead. A narrow width splits
+  long equations into more auxiliary wires but packs them into fewer
+  columns; which is cheaper depends on the circuit. Only widths above a given
+  `auxiliaryTerms` and up to a given `rowGroupWidth` are tried.
+- `minRows`, for each width: 64, 128, … rows. Candidates whose trace exceeds a
+  size limit are skipped; once one fits, the search stops when a candidate no
+  longer fits or the estimate has risen twice in a row.
+- `rowGroupWidth`, for each width: `width` and `2 · width` (up to 1024), each
+  with its own search over `minRows`.
+
+The search takes from milliseconds for small circuits to about a minute and
+1 GB of memory for the largest measured in [Scale](SCALE.md#prover-time). The
+report's `layout` field gives the settings used; a layout file holding them
+builds the same artifact without searching.
 
 The estimate is a model of the prover's time without the FRI query phase,
 fitted to 90 timed proofs of six circuits (median error 10%). It uses the
 counts the prover's setup derives from the PILout: rows, committed and fixed
 columns, and constraint operations. It ranks layouts and is not a measured
-time; [Scale](SCALE.md#prover-time) compares it with measurements. The
-`layout` field of the report gives the settings used, so a file holding it
-builds the same artifact.
+time; [Scale](SCALE.md#prover-time) compares it with measurements.
 
 ## Reports
 

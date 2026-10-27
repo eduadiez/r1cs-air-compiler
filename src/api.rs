@@ -156,11 +156,11 @@ pub fn plan_layout(source: &[u8], config: &LayoutConfig) -> Result<LayoutPlan> {
 
 /// Compile `source` to a packed PILout and check the result.
 ///
-/// Settings that `config` leaves out take their defaults (`width` 64,
-/// `auxiliaryTerms` half of it, `available` reuse, constant folding). A missing
-/// `minRows` or `rowGroupWidth` is chosen by building the PILout of each
-/// candidate and estimating its proving time with pil2-proofman; the
-/// artifact's `config` holds the settings used.
+/// A missing `width`, `minRows` or `rowGroupWidth` is chosen by building the
+/// PILout of each candidate and estimating its proving time with
+/// pil2-proofman; the other settings take their defaults (`auxiliaryTerms`
+/// half of `width`, `available` reuse, constant folding). The artifact's
+/// `config` holds the settings used.
 ///
 /// # Errors
 /// Fails on malformed R1CS or invalid settings, and if the checker rejects any

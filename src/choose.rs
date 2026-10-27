@@ -1,11 +1,11 @@
-//! Completes a layout configuration. Settings left out of a [`LayoutConfig`]
-//! take their defaults; a missing `minRows` or `rowGroupWidth` is chosen by
-//! building the PILout of each candidate and estimating how long pil2-proofman
-//! takes to prove it. The checkers do not use this module.
+//! Completes a layout configuration. A missing `width`, `minRows` or
+//! `rowGroupWidth` is chosen by building the PILout of each candidate and
+//! estimating how long pil2-proofman takes to prove it; the other settings
+//! take their defaults. The checkers do not use this module.
 use crate::{
     certificate::{Layout, RewrittenCircuit},
     contract::{MAX_ROWS, MAX_WIDTH, MIN_ROWS},
-    ensure_within_limit,
+    ensure, ensure_within_limit,
     layout::{self, LayoutConfig},
     packed, proto as pb,
     r1cs::Circuit,
@@ -14,24 +14,98 @@ use crate::{
 };
 use std::collections::BTreeSet;
 
-/// Equation width when the configuration leaves it out.
-const DEFAULT_WIDTH: usize = 64;
+/// Equation widths the search may try when the configuration leaves `width`
+/// out. A narrow width splits long equations into more auxiliary wires but
+/// packs them into fewer columns; which is cheaper depends on the circuit.
+const WIDTHS: [usize; 6] = [4, 8, 16, 32, 64, 128];
+/// The width the search starts from.
+const FIRST_WIDTH: usize = 64;
 
 /// The rewritten circuit and layout of `circuit` for `config`, and the
 /// settings they were built with, every field filled in.
 ///
-/// Without `minRows`, the candidates are 64, 128, … rows, skipping those whose
-/// trace exceeds a size limit and stopping, once one fits, when a candidate
-/// no longer fits or the estimate has risen twice in a row. Without
-/// `rowGroupWidth`, each of `width` and `2 · width` (up to `MAX_WIDTH`) gets
-/// its own sweep, and the sweeps run in parallel. The candidate with the
-/// lowest estimate wins; ties go to the smaller row group width, then to the
-/// fewer rows.
+/// Without `width`, the search starts at `FIRST_WIDTH` and moves to narrower
+/// widths of `WIDTHS` until the estimate rises; if no narrower width is
+/// better, it moves to wider ones instead, again until the estimate rises. Only widths compatible with the
+/// given `auxiliaryTerms` and `rowGroupWidth` are tried. For each width,
+/// without `minRows`, the candidates are 64, 128, … rows, skipping those whose
+/// trace exceeds a size limit and stopping, once one fits, when a candidate no
+/// longer fits or the estimate has risen twice in a row; without
+/// `rowGroupWidth`, each of `width` and `2 · width` (up to `MAX_WIDTH`) gets its
+/// own sweep, and the sweeps run in parallel. The candidate with the lowest
+/// estimate wins; ties go to the first tried.
 pub fn layout(
     circuit: &Circuit,
     config: &LayoutConfig,
 ) -> Result<(LayoutConfig, RewrittenCircuit, Layout)> {
-    let width = config.width.unwrap_or(DEFAULT_WIDTH);
+    let widths: Vec<usize> = match config.width {
+        Some(width) => vec![width],
+        None => WIDTHS
+            .into_iter()
+            .filter(|w| config.auxiliary_terms.is_none_or(|t| t < *w))
+            .filter(|w| config.row_group_width.is_none_or(|g| g >= *w))
+            .collect(),
+    };
+    ensure(
+        !widths.is_empty(),
+        "layout options: no width fits the given auxiliaryTerms and rowGroupWidth; set width",
+    )?;
+    // Start at FIRST_WIDTH, or the allowed width nearest below it.
+    let start = widths.iter().rposition(|w| *w <= FIRST_WIDTH).unwrap_or(0);
+    let mut best: Option<Found> = None;
+    let mut too_large = None;
+    let mut try_width = |width: usize| -> Result<Option<f64>> {
+        let (found, error) = with_width(circuit, config, width)?;
+        too_large = too_large.take().or(error);
+        Ok(found.map(|(cost, settings, rewritten, layout)| {
+            if best.as_ref().is_none_or(|(lowest, ..)| cost < *lowest) {
+                best = Some((cost, settings, rewritten, layout));
+            }
+            cost
+        }))
+    };
+    let first = try_width(widths[start])?;
+    // Narrower widths while the estimate falls (or no width fits yet).
+    let mut previous = first;
+    let mut improved = false;
+    for &width in widths[..start].iter().rev() {
+        let cost = try_width(width)?;
+        match (previous, cost) {
+            (Some(p), Some(c)) if c > p => break,
+            (Some(p), Some(c)) if c < p => improved = true,
+            (None, Some(_)) => improved = true,
+            _ => {}
+        }
+        previous = cost.or(previous);
+    }
+    // Wider widths only if no narrower one did better.
+    if !improved {
+        let mut previous = first;
+        for &width in &widths[start + 1..] {
+            let cost = try_width(width)?;
+            if let (Some(p), Some(c)) = (previous, cost) {
+                if c > p {
+                    break;
+                }
+            }
+            previous = cost.or(previous);
+        }
+    }
+    match (best, too_large) {
+        (Some((_, settings, rewritten, layout)), _) => Ok((settings, rewritten, layout)),
+        (None, Some(error)) => Err(error).context("layout geometry"),
+        (None, None) => unreachable!("every width tries at least one candidate"),
+    }
+}
+
+/// The best layout for one equation width, with its estimated cost (0 when
+/// every setting is given, as nothing is compared), and the size limit error
+/// of a candidate that did not fit, if any.
+fn with_width(
+    circuit: &Circuit,
+    config: &LayoutConfig,
+    width: usize,
+) -> Result<(Option<Found>, Option<Error>)> {
     let options = RewriteOptions {
         width,
         auxiliary_terms: config.auxiliary_terms.unwrap_or((width / 2).max(2)),
@@ -47,10 +121,13 @@ pub fn layout(
         min_rows: Some(min_rows),
         row_group_width: Some(row_group_width),
     };
-    if let (Some(min_rows), Some(row_group_width)) = (config.min_rows, config.row_group_width) {
+    if let (Some(_), Some(min_rows), Some(row_group_width)) =
+        (config.width, config.min_rows, config.row_group_width)
+    {
         let layout = layout::pack(&rewritten, width, min_rows, row_group_width)
             .context("layout geometry")?;
-        return Ok((settings(min_rows, row_group_width), rewritten, layout));
+        let settings = settings(min_rows, row_group_width);
+        return Ok((Some((0.0, settings, rewritten, layout)), None));
     }
     let row_group_widths = match config.row_group_width {
         Some(row_group_width) => vec![row_group_width],
@@ -133,15 +210,16 @@ pub fn layout(
             }
         }
     }
-    match (best, too_large) {
-        (Some((_, settings, layout)), _) => Ok((settings, rewritten, layout)),
-        (None, Some(error)) => Err(error).context("layout geometry"),
-        (None, None) => unreachable!("every sweep tries at least one candidate"),
-    }
+    Ok((
+        best.map(|(cost, settings, layout)| (cost, settings, rewritten, layout)),
+        too_large,
+    ))
 }
 
 /// A layout with its estimated cost and settings.
 type Candidate = (f64, LayoutConfig, Layout);
+/// A candidate with the rewritten circuit it places.
+type Found = (f64, LayoutConfig, RewrittenCircuit, Layout);
 /// The best candidate of a sweep, and the size limit error of a candidate
 /// that did not fit, if any.
 type Sweep = (Option<Candidate>, Option<Error>);

@@ -27,7 +27,7 @@ All modules are in `src/`.
 | `module` | compiler | Module fragment: the reference equations without row count, stage two or public values |
 | `rewrite` | compiler | Auxiliary wires, and the gate type of each equation |
 | `layout` | compiler | Placement of equations in cells: row groups and stacks |
-| `choose` | compiler | Default layout settings, and the search for a missing row count or row group width by estimated proving time |
+| `choose` | compiler | Default layout settings, and the search for a missing width, row count or row group width by estimated proving time |
 | `packed` | compiler | Packed PILout: gate constraints, public bindings and the permutation argument, in that order |
 | `polynomial` | checker | Exact polynomials and the expression evaluator |
 | `pilout_check` | checker | Checks shared by both checkers: decoding, common PILout fields, symbols and hint layout |

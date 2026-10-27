@@ -10,14 +10,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Settings for building a packed layout. Every field may be left out: the
-/// rewriting settings then take their defaults, and the compiler chooses a
-/// missing `minRows` or `rowGroupWidth` by estimating the proving time of each
-/// candidate (see `choose.rs`).
+/// compiler chooses a missing `width`, `minRows` or `rowGroupWidth` by
+/// estimating the proving time of each candidate (see `choose.rs`), and the
+/// other settings take their defaults.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LayoutConfig {
-    /// Most distinct wires one equation may use, from 3 to `MAX_WIDTH`
-    /// (default 64); longer equations are split with auxiliary wires.
+    /// Most distinct wires one equation may use, from 3 to `MAX_WIDTH`;
+    /// longer equations are split with auxiliary wires.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width: Option<usize>,
     /// Terms replaced by each new auxiliary wire, from 2 to `width - 1`

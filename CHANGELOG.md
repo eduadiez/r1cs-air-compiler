@@ -41,9 +41,9 @@ First version.
   several cells. Other columns get no `S` column, no factors and no share of
   the ratio columns.
 - Packed layout settings are all optional (`LayoutConfig::default()`, or
-  `air compile --packed`): missing rewriting settings take their defaults, and
-  a missing row count or row group width is chosen by the estimated proving
-  time of each candidate with pil2-proofman.
+  `air compile --packed`): a missing equation width, row count or row group
+  width is chosen by the estimated proving time of each candidate with
+  pil2-proofman, and the other settings take their defaults.
 - Optional scripts in `tools/backend-check` that prove every fixture with
   pil2-proofman (`run.sh`) and time the prover on one artifact
   (`prove-time.sh`).
