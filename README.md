@@ -57,6 +57,30 @@ cargo run --bin air -- witness fixtures/xor/kernel.r1cs out/packed fixtures/xor/
 Each command prints one JSON report. [The CLI reference](docs/CLI.md) describes
 every argument, output file, layout setting and report field.
 
+## From a Circom circuit
+
+`air` reads compiled R1CS files, not Circom source. Compile the circuit with
+Circom first, over the Goldilocks field, then compute a witness with the
+generated WebAssembly program:
+
+```sh
+mkdir -p build out
+circom circuit.circom --r1cs --wasm --prime goldilocks --O2 -o build
+node build/circuit_js/generate_witness.js build/circuit_js/circuit.wasm input.json build/input.wtns
+
+cargo run --bin air -- compile build/circuit.r1cs out/circuit --layout layout.json
+cargo run --bin air -- witness build/circuit.r1cs out/circuit build/input.wtns out/trace
+```
+
+- `--prime goldilocks` is required: Circom's default field is BN254, and `air`
+  rejects R1CS and WTNS files over any other field.
+- The Circom optimization level (`--O0`, `--O1`, `--O2`) changes the
+  constraints, and so the PILout and certificate. The fixtures use `--O2`.
+- `input.json` holds the circuit's input signals; only `witness` needs the
+  WTNS file.
+- Any other tool that writes R1CS version 1 and WTNS version 2 files over
+  Goldilocks can be used instead of Circom.
+
 ## Choosing a layout
 
 A packed layout is set by a JSON file, such as `fixtures/sha256/layout.json`:
