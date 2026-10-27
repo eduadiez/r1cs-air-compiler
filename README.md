@@ -108,6 +108,22 @@ tools/backend-check/prove-time.sh WORK_DIR circuit.r1cs input.wtns layout.json
 For small proofs, the prover's proof-of-work setting can matter more than the
 layout; see [Proof-of-work bits](docs/SCALE.md#proof-of-work-bits).
 
+## Checking a packed artifact independently
+
+[`tools/smt-check`](tools/smt-check/README.md) is a separate Python program
+that shares no code with the compiler or its checkers. For one packed
+artifact, it proves that every trace satisfying the PILout's gate and public
+constraints, with all copies of a wire equal, satisfies every equation and
+public binding of the R1CS. It settles most goals by linear algebra and sends
+the rest to an SMT solver with finite-field support (cvc5):
+
+```sh
+tools/smt-check/check.py fixtures/xor/kernel.r1cs out/packed --solver "docker run --rm -i IMAGE timeout 60 cvc5"
+```
+
+It does not cover the permutation argument itself, which
+[the specification](SPEC.md#packed-relation) argues on paper.
+
 ## Fixtures
 
 Each directory in `fixtures/` holds a Circom source (`kernel.circom`), its R1CS
@@ -136,12 +152,14 @@ them and checks that they are identical byte for byte;
 ## Rust API
 
 ```rust
-use r1cs_air_compiler::{compile_reference, Result};
+use r1cs_air_compiler::{compile_packed, compile_reference, LayoutConfig, Result};
 
 fn main() -> Result<()> {
     let source = std::fs::read("fixtures/xor/kernel.r1cs")?;
-    let artifact = compile_reference(&source, 64)?;
-    println!("{} PILout bytes", artifact.pilout.len());
+    let reference = compile_reference(&source, 64)?;
+    // Every layout setting left to the compiler; `packed.config` holds those it chose.
+    let packed = compile_packed(&source, &LayoutConfig::default())?;
+    println!("{} and {} PILout bytes", reference.pilout.len(), packed.pilout.len());
     Ok(())
 }
 ```
@@ -156,8 +174,8 @@ Every compile function runs the checker before it returns. See
   8-byte field elements. Custom gates and other fields are rejected.
 - **Reference layout** (the default; `--rows N`, 64 if not given): one column
   per nonconstant wire, every constraint of the circuit on every row, and the
-  public values bound on row 0.
-  Large circuits exceed the checker's size limits and need a packed layout.
+  public values bound on row 0. Large circuits exceed the checker's size
+  limits and need a packed layout.
 - **Optimized reference** (`--optimize`): the same, with expressions
   simplified by identities that hold for every field value (such as `x · 1 = x`)
   and repeated subexpressions reused.
@@ -185,7 +203,8 @@ Limits:
   no buses or lookups.
 - The checks are run by a program, not proved formally.
   [The specification](SPEC.md) argues on paper that every accepted artifact is
-  sound and complete.
+  sound and complete; the SMT check above proves the stage-one part of that
+  argument for one packed artifact at a time.
 - Some components are trusted rather than checked: the R1CS and WTNS parser,
   the field arithmetic, the protobuf schema and decoder, SHA-256, the Rust
   toolchain and the proving backend.
