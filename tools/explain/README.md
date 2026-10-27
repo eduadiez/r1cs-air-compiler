@@ -10,7 +10,8 @@ From the repository root:
 
 ```sh
 cargo run --bin air -- compile fixtures/xor/kernel.r1cs out/packed --packed
-tools/explain/explain.py fixtures/xor/kernel.r1cs out/packed --open
+cargo run --bin air -- witness fixtures/xor/kernel.r1cs out/packed fixtures/xor/input.wtns out/witness
+tools/explain/explain.py fixtures/xor/kernel.r1cs out/packed --witness out/witness --open
 ```
 
 This writes `out/packed/explain.html` and opens it. The arguments are the R1CS
@@ -21,6 +22,7 @@ compiled from a different R1CS file.
 | Option | Meaning |
 | --- | --- |
 | `--sym FILE` | Circom symbol file, so the page shows signal names (`aa.bit[6]`) instead of wire numbers (`w41`). By default, the R1CS path with the `.sym` extension, if that file exists, which is where `circom --r1cs --sym` puts it. It must come from the same Circom run as the R1CS file, since optimization renumbers the wires. |
+| `--witness DIR` | The output directory of `air witness` for this artifact, so the page shows the value in each cell |
 | `-o FILE` | Where to write the page (default `ARTIFACT_DIR/explain.html`) |
 | `--open` | Open the page in a browser |
 
@@ -31,18 +33,26 @@ For a **packed** artifact:
 - **Summary:** equations, auxiliary wires added, trace size, cells used,
   gates, selector columns, signals in several cells and public values.
 - **Trace:** one box per cell, coloured by the gate (constraint) that covers
-  it, with the signal it holds; a dot marks a public value. "Overview" shrinks
-  the boxes to see the whole trace, and the buttons beside it zoom. Hovering a
-  cell shows its signal and the equations placed on it; clicking it, or
-  typing a signal name in the search box, outlines every cell that holds the
-  signal, which the permutation argument makes equal.
+  it, with row and column numbers; a dot marks a public value and a line marks
+  where the padding rows start. The overview fits the whole trace in view and
+  shows short values, such as bits; "Show names" widens the boxes to hold each
+  cell's signal and value. Hovering a cell shows its signal, value and the
+  equations placed on it.
+- **Copy cycles:** clicking a cell, or typing a signal name in the search box,
+  selects the signal and draws the numbered cycle through its cells: the
+  cycle of labels along which the permutation argument makes them equal (the
+  dashed link closes it).
+- **Equations:** for each source equation, a diagram of how it is compiled:
+  the equation, the parts it becomes (its rewritten form and each auxiliary
+  wire, with the auxiliary wires each part uses), and the row and cells where
+  each part is placed, outlined in the trace.
 - **Rows:** for each row, the equations placed on it, written with signal
-  names, and the signal in each cell, 40 rows at a time.
-- **Equations:** for each source equation, the equation, its form rewritten
-  with auxiliary wires, the definition of each auxiliary wire, and where each
-  part is placed, outlined in the trace.
+  names, and the signal and value in each cell, 40 rows at a time.
 - **Gates** (type, columns, rows and selector) and the signals with the most
   cells.
+
+An address ending in `#equation=31`, `#signal=both[2]` or `#view=names` opens
+the page on that equation, signal or view.
 
 For a **reference** or **module** artifact: each equation over signals and
 over columns, and the column of each signal.

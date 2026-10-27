@@ -69,8 +69,8 @@ cargo run --bin air -- plan fixtures/xor/kernel.r1cs out/plan
 cargo run --bin air -- witness fixtures/xor/kernel.r1cs out/packed fixtures/xor/input.wtns out/witness
 
 # Optional: a page showing how the circuit was placed (out/packed/explain.html),
-# with the signal names of fixtures/xor/kernel.sym.
-tools/explain/explain.py fixtures/xor/kernel.r1cs out/packed --open
+# with the signal names of fixtures/xor/kernel.sym and the witness values.
+tools/explain/explain.py fixtures/xor/kernel.r1cs out/packed --witness out/witness --open
 ```
 
 Each command prints one JSON report. [The CLI reference](docs/CLI.md) describes

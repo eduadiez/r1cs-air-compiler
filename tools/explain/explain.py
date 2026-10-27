@@ -10,8 +10,10 @@ The page is for reading, not for checking: it trusts the certificate and the
 map, which `air check` verifies. This program reads only the documented file
 formats and shares no code with the compiler.
 
-Usage: explain.py SOURCE.r1cs ARTIFACT_DIR [--sym FILE.sym] [-o OUT.html] [--open]
-ARTIFACT_DIR is the output directory of `air compile` or `air module`. The
+Usage: explain.py SOURCE.r1cs ARTIFACT_DIR [--sym FILE.sym] [--witness DIR] [-o OUT.html] [--open]
+ARTIFACT_DIR is the output directory of `air compile` or `air module`. With
+--witness, the output directory of `air witness` for a packed artifact, the
+page also shows the value in each cell. The
 page is written to ARTIFACT_DIR/explain.html unless -o says otherwise. Signal
 names come from the symbol file of `circom --sym`: by default SOURCE with the
 .sym extension, if it exists.
@@ -102,6 +104,29 @@ def side(terms, prime):
     return [[int(wire), signed(int(k), prime)] for wire, k in terms]
 
 
+def plain(value, prime):
+    """A trace value as the integer nearest to zero, as a string beyond 2^53."""
+    value %= prime
+    value = value - prime if value > prime // 2 else value
+    return value if abs(value) < 2**53 else str(value)
+
+
+def witness_values(directory, rows, width, publics, prime):
+    """The stage-one trace and public values written by `air witness`."""
+    trace, public = Path(directory) / "trace.bin", Path(directory) / "public.bin"
+    for path in (trace, public):
+        if not path.is_file():
+            fail(f"{path}: missing; air witness SOURCE ARTIFACT_DIR INPUT.wtns {directory} writes it")
+    data = trace.read_bytes()
+    if len(data) != 8 * rows * width:
+        fail(f"{trace} does not hold {rows} x {width} values; was it projected for this artifact?")
+    values = public.read_bytes()
+    if len(values) != 8 * publics:
+        fail(f"{public} does not hold {publics} public values")
+    cells = [plain(v, prime) for v in struct.unpack(f"<{rows * width}Q", data)]
+    return cells, [plain(v, prime) for v in struct.unpack(f"<{publics}Q", values)]
+
+
 def packed_data(certificate, prime, artifact):
     layout, rewritten = certificate["layout"], certificate["rewrittenCircuit"]
     rows, width = layout["rows"], layout["width"]
@@ -152,6 +177,7 @@ def main():
     parser.add_argument("artifact")
     parser.add_argument("--sym", help="Circom symbol file (default: SOURCE with .sym)")
     parser.add_argument("-o", "--output", help="page to write (default: ARTIFACT_DIR/explain.html)")
+    parser.add_argument("--witness", help="output directory of air witness, to show cell values")
     parser.add_argument("--open", action="store_true", help="open the page in a browser")
     args = parser.parse_args()
 
@@ -186,6 +212,10 @@ def main():
     if "layout" in certificate:
         data["kind"] = "packed"
         data.update(packed_data(certificate, prime, artifact))
+        if args.witness:
+            data["values"], data["publicValues"] = witness_values(
+                args.witness, data["rows"], data["width"], outputs + inputs, prime
+            )
     elif "wireColumns" in certificate:
         data["kind"] = "module" if "exports" in certificate else "reference"
         data["wireColumns"] = certificate["wireColumns"]
@@ -193,6 +223,8 @@ def main():
         data["rows"] = certificate.get("rows")
         data["publicWires"] = certificate.get("publicWires", [])
         data["exports"] = certificate.get("exports", [])
+        if args.witness:
+            fail("--witness needs a packed artifact: air witness projects only packed traces")
     else:
         fail("certificate.json is not a reference, packed or module certificate")
 
