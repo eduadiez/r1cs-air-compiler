@@ -290,9 +290,13 @@ equation stay unconstrained.
 - no stage two, challenges, public values, fixed or periodic columns, AIR
   values, custom commits or hints, and only the stage-one symbol `a`.
 
-The module checker evaluates the fragment's expressions to exact polynomials
-and requires constraint `i` to equal equation `i`, and checks every other field
-as above.
+The module checker first requires every operand of every expression, used by
+a constraint or not, to be a constant, an expression or a stage-one column
+below `width` at row offset 0, and every operation to be an addition,
+subtraction or multiplication: an undeclared operand could otherwise cancel out
+of a constraint (`z - z`). It then evaluates the expressions to exact
+polynomials, requires constraint `i` to equal equation `i`, and checks every
+other field as above.
 
 **Composition binding.** A JSON file chosen by the integrator:
 

@@ -113,6 +113,7 @@ pub fn check_module(
         air.constraints.len() == circuit.equations.len(),
         "one constraint per source equation",
     )?;
+    check_fragment_operands(air, certificate.width)?;
     let mut interpreter = Interpreter::new(air, certificate.width, 0);
     interpreter.evaluate_until(air.expressions.len())?;
     for (index, (constraint, equation)) in
@@ -331,6 +332,44 @@ fn check_fragment_envelope(pilout: &pb::PilOut, width: u32) -> Result<&pb::Air> 
         "too many expressions",
     )?;
     Ok(air)
+}
+
+/// Every operand of every fragment expression, referenced by a constraint or
+/// not, is a constant, another expression or a stage-one column below `width`
+/// at row offset 0. Checked before evaluation, since an operand the fragment
+/// does not declare could cancel out of a constraint polynomial (`z - z`).
+fn check_fragment_operands(air: &pb::Air, width: u32) -> Result<()> {
+    use pb::{expression::Operation, operand::Operand};
+    for (index, expression) in air.expressions.iter().enumerate() {
+        let operands = match expression.operation.as_ref() {
+            Some(Operation::Add(x)) => [&x.lhs, &x.rhs],
+            Some(Operation::Sub(x)) => [&x.lhs, &x.rhs],
+            Some(Operation::Mul(x)) => [&x.lhs, &x.rhs],
+            Some(Operation::Neg(_)) | None => {
+                return Err(format!(
+                    "expression {index}: only addition, subtraction and multiplication are allowed"
+                )
+                .into())
+            }
+        };
+        for operand in operands {
+            let allowed = match operand.as_ref().and_then(|o| o.operand.as_ref()) {
+                Some(Operand::Constant(_) | Operand::Expression(_)) => true,
+                Some(Operand::WitnessCol(x)) => {
+                    x.stage == STAGE_ONE && x.col_idx < width && x.row_offset == 0
+                }
+                _ => false,
+            };
+            ensure(
+                allowed,
+                format_args!(
+                    "expression {index}: a module may only use constants, expressions and its \
+                     stage-one columns at row offset 0"
+                ),
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// The host column of each wire (`None` for wire 0), from a binding that maps

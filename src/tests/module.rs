@@ -573,3 +573,85 @@ fn malformed_and_negated_host_expressions() {
         "field element not below P",
     );
 }
+
+/// Operands a fragment does not declare are rejected even when they cancel
+/// out of a constraint polynomial, and even when no constraint uses them.
+#[test]
+fn undeclared_operands_in_module_fragments_are_rejected() {
+    let artifact = module(false);
+    let witness = |stage, col_idx, row_offset| pb::Operand {
+        operand: Some(Operand::WitnessCol(pb::operand::WitnessCol {
+            stage,
+            col_idx,
+            row_offset,
+        })),
+    };
+    let alpha = pb::Operand {
+        operand: Some(Operand::Challenge(pb::operand::Challenge {
+            stage: 2,
+            idx: 0,
+        })),
+    };
+    let fixed = pb::Operand {
+        operand: Some(Operand::FixedCol(pb::operand::FixedCol {
+            idx: 0,
+            row_offset: 0,
+        })),
+    };
+    let public = pb::Operand {
+        operand: Some(Operand::PublicValue(pb::operand::PublicValue { idx: 0 })),
+    };
+    let message = "a module may only use constants, expressions and its stage-one columns";
+    let rejects = |message: &str, operand: pb::Operand, cancel: bool| {
+        let mut pilout = pb::PilOut::decode(&artifact.pilout[..]).unwrap();
+        let air = &mut pilout.air_groups[0].airs[0];
+        // operand - operand, then (equation 0) + (operand - operand) when cancelled.
+        let difference = air.expressions.len() as u32;
+        air.expressions
+            .push(binary(Op::Sub, operand.clone(), operand));
+        if cancel {
+            let Some(Constraint::EveryRow(row)) = &air.constraints[0].constraint else {
+                unreachable!()
+            };
+            let root = row.expression_idx.unwrap().idx;
+            let expression = |idx| pb::Operand {
+                operand: Some(Operand::Expression(pb::operand::Expression { idx })),
+            };
+            air.expressions.push(pb::Expression {
+                operation: Some(Operation::Add(pb::expression::Add {
+                    lhs: Some(expression(root)),
+                    rhs: Some(expression(difference)),
+                })),
+            });
+            air.constraints[0] = every_row(difference + 1);
+        }
+        let bytes = pilout.encode_to_vec();
+        let mut certificate = artifact.certificate.clone();
+        certificate.pilout_sha256 = crate::sha256_hex(&bytes);
+        assert_rejected(api::check_module(&source(), &bytes, &certificate), message);
+    };
+    for cancel in [true, false] {
+        rejects(message, witness(2, 0, 0), cancel);
+        rejects(message, alpha.clone(), cancel);
+        rejects(message, fixed.clone(), cancel);
+        rejects(message, public.clone(), cancel);
+        rejects(message, witness(STAGE_ONE, 5, 0), cancel);
+        rejects(message, witness(STAGE_ONE, 0, 1), cancel);
+    }
+    // Negation is never generated.
+    let mut pilout = pb::PilOut::decode(&artifact.pilout[..]).unwrap();
+    pilout.air_groups[0].airs[0]
+        .expressions
+        .push(pb::Expression {
+            operation: Some(Operation::Neg(pb::expression::Neg {
+                value: Some(witness(STAGE_ONE, 0, 0)),
+            })),
+        });
+    let bytes = pilout.encode_to_vec();
+    let mut certificate = artifact.certificate.clone();
+    certificate.pilout_sha256 = crate::sha256_hex(&bytes);
+    assert_rejected(
+        api::check_module(&source(), &bytes, &certificate),
+        "only addition, subtraction and multiplication are allowed",
+    );
+}
