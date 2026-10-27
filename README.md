@@ -60,13 +60,18 @@ every argument, output file, layout setting and report field.
 ## From a Circom circuit
 
 `air` reads compiled R1CS files, not Circom source. Compile the circuit with
-Circom first, over the Goldilocks field, then compute a witness with the
-generated WebAssembly program:
+Circom first, over the Goldilocks field, then compute a witness with one of the
+witness generators it writes:
 
 ```sh
 mkdir -p build out
-circom circuit.circom --r1cs --wasm --prime goldilocks --O2 -o build
+circom circuit.circom --r1cs --wasm --c --prime goldilocks --O2 -o build
+
+# Either the WebAssembly generator, which needs Node.js...
 node build/circuit_js/generate_witness.js build/circuit_js/circuit.wasm input.json build/input.wtns
+# ...or the C++ generator, which needs a C++ compiler, GMP and make.
+make -C build/circuit_cpp
+build/circuit_cpp/circuit input.json build/input.wtns
 
 cargo run --bin air -- compile build/circuit.r1cs out/circuit --layout layout.json
 cargo run --bin air -- witness build/circuit.r1cs out/circuit build/input.wtns out/trace
@@ -78,6 +83,10 @@ cargo run --bin air -- witness build/circuit.r1cs out/circuit build/input.wtns o
   constraints, and so the PILout and certificate. The fixtures use `--O2`.
 - `input.json` holds the circuit's input signals; only `witness` needs the
   WTNS file.
+- Both generators write the same WTNS file. The WebAssembly one runs anywhere
+  Node.js does; the C++ one is native code, much faster on large circuits,
+  and is built once per platform. Pass only `--wasm` or `--c` to Circom to
+  write just one of them.
 - Any other tool that writes R1CS version 1 and WTNS version 2 files over
   Goldilocks can be used instead of Circom.
 
