@@ -411,10 +411,12 @@ const MAX_HOLDERS: usize = 16;
 const GATES_PER_COLUMN: f64 = 22.0;
 const GATES_PER_SELECTOR: f64 = 0.5;
 
-/// Relative cost of a column outside and inside the permutation argument, used to
-/// choose between the two packings. A permutation column
-/// also brings about 1.5 committed stage-two columns and a fixed column of
-/// labels, so it costs about 2.6 times a column without copies.
+/// Relative cost of a column outside and inside the permutation argument, used
+/// to choose between the two packings. A permutation column also brings about
+/// 1.5 committed stage-two columns and a fixed column of labels, so it costs
+/// about 2.6 times a column without copies. Gates and selectors are left out:
+/// on the circuits of `docs/SCALE.md` the two packings differ in them by much
+/// less than in the cost of their columns, so counting them changes no choice.
 const COLUMN_COST: usize = 5;
 const PERMUTATION_COLUMN_COST: usize = 13;
 

@@ -348,6 +348,16 @@ fn reports_have_the_documented_fields() {
     ] {
         assert!(!plan[key].is_null(), "plan report lacks {key}");
     }
+    // plan.json holds the certificate's rewrittenCircuit and layout, and nothing else.
+    let read = |path: &str| -> Value {
+        serde_json::from_slice(&fs::read(cli.path(path)).unwrap()).unwrap()
+    };
+    let (plan_file, certificate) = (read("plan/plan.json"), read("packed/certificate.json"));
+    let keys: Vec<&String> = plan_file.as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["layout", "rewrittenCircuit"]);
+    for key in keys {
+        assert_eq!(plan_file[key], certificate[key], "plan.json {key}");
+    }
     let width = plan["width"].as_u64().unwrap();
     let rows = plan["rows"].as_u64().unwrap();
     let witness = cli.ok(&[

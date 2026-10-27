@@ -5,17 +5,18 @@
 # (constraint operations, committed and fixed columns, extended rows) into an
 # estimate. Prints one JSON line per candidate, best first.
 #
-# Candidates, all with width WIDTH and auxiliaryTerms half of it: rowGroupWidth
-# WIDTH and 2 * WIDTH, at minRows 64, 128, ... 65536; each sweep stops when the
-# estimate has risen twice in a row or a candidate no longer fits.
+# Candidates, all with width WIDTH and auxiliaryTerms half of it (at least 2):
+# rowGroupWidth WIDTH and 2 * WIDTH (only up to 1024), at minRows 64, 128, ...
+# 65536; each sweep stops when the estimate has risen twice in a row or a
+# candidate no longer fits.
 # Needs a WORK_DIR in which run.sh has already built pil2-proofman.
 #
 # The estimate ranks layouts; it is not a measured time. Time the best few
 # with prove-time.sh before relying on them.
 #
 # Usage: tools/backend-check/choose-layout.sh WORK_DIR SOURCE.r1cs [WIDTH]
-# WIDTH (default 64) is options.width of the columns candidates: the most
-# distinct wires one equation may use.
+# WIDTH (default 64, from 3 to 1024) is options.width of the candidates: the
+# most distinct wires one equation may use.
 set -eu
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
     echo "usage: $0 WORK_DIR SOURCE.r1cs [WIDTH]" >&2
@@ -26,6 +27,13 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 work=$(cd "$1" && pwd)
 source=$2
 width=${3:-64}
+case $width in
+'' | *[!0-9]*) width=0 ;;
+esac
+if [ "$width" -lt 3 ] || [ "$width" -gt 1024 ]; then
+    echo "WIDTH must be a number from 3 to 1024" >&2
+    exit 2
+fi
 setup="$work/pil2-proofman/target/release/proofman-setup"
 if [ ! -e "$setup" ]; then
     echo "$setup is missing; run tools/backend-check/run.sh $work first" >&2
@@ -66,7 +74,7 @@ sections = stark["mapSectionsN"]
 committed = sum(n for name, n in sections.items() if name.startswith("cm"))
 extended = 2 ** stark["starkStruct"]["nBitsExt"] / 1e6
 # Fitted to 90 prove-time.sh runs of six circuits (median error 10%), in
-# milliseconds; the proof-of-work search is left out. The first terms are per
+# milliseconds of withoutFriQueries (see prove-time.sh). The first terms are per
 # million (item × extended row), the last ones per proof and per column.
 columns = committed + sections["const"]
 estimate = (
@@ -87,15 +95,20 @@ print(json.dumps({
 EOF
 }
 
+# auxiliaryTerms is half the width, but at least 2.
 options() {
-    echo "{\"width\":$1,\"auxiliaryTerms\":$(($1 / 2)),\"reuseAuxiliaries\":\"available\",\"foldConstants\":true}"
+    terms=$(($1 / 2))
+    [ "$terms" -ge 2 ] || terms=2
+    echo "{\"width\":$1,\"auxiliaryTerms\":$terms,\"reuseAuxiliaries\":\"available\",\"foldConstants\":true}"
 }
 
 # Larger minRows give narrower traces. Too few rows make the trace wider than
 # the limit; past the first minRows that fits, stop once the estimate has
 # risen twice in a row or a candidate no longer fits. Each row group width
 # (WIDTH and twice WIDTH) gets its own sweep.
-for row_group in "$width" $((2 * width)); do
+row_groups=$width
+[ $((2 * width)) -gt 1024 ] || row_groups="$width $((2 * width))"
+for row_group in $row_groups; do
     rows=64
     rises=0
     previous=""

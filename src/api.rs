@@ -30,9 +30,11 @@ pub struct PackedArtifact {
     pub certificate: PackedCertificate,
 }
 
-/// A checked packed layout without PILout. Serializes to JSON with its auxiliary wire
-/// rewritten and placement; the cell map is available through [`LayoutPlan::map`].
+/// A checked packed layout without PILout. Serializes to JSON as the
+/// `rewrittenCircuit` and `layout` fields a packed certificate would have; the
+/// cell map is available through [`LayoutPlan::map`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LayoutPlan {
     rewritten_circuit: certificate::RewrittenCircuit,
     layout: certificate::Layout,

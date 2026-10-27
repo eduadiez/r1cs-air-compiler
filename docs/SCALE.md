@@ -90,8 +90,9 @@ To reproduce a row:
 
 Proof times with pil2-proofman, in milliseconds, measured with
 `tools/backend-check/prove-time.sh` (median of 7 proofs). They leave out the
-proof-of-work search, which took 20–400 ms per proof whatever the layout (see
-[Proof-of-work bits](#proof-of-work-bits)).
+FRI query phase: the proof-of-work search, which took 20–400 ms per proof
+whatever the layout, and the query openings, which the prover does not time
+apart from it (see [Proof-of-work bits](#proof-of-work-bits)).
 
 The circuits are built like the SHA-256 ones above:
 

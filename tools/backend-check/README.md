@@ -56,9 +56,12 @@ the R1CS file `SOURCE` with the layout file `LAYOUT`, projects the witness
 `gates` and `selectors`, the prover's `powBits` and `queries`, and the median
 time of each prover phase in `milliseconds`.
 
-Compare layouts by `withoutGrinding`: the proof time minus the FRI query
-phase. That phase includes a proof-of-work search ("grinding") whose length
-depends on the transcript, so it varies between artifacts by chance.
+Compare layouts by `withoutFriQueries`: the proof time minus the FRI query
+phase, computed for each proof before the median. That phase includes a
+proof-of-work search ("grinding") whose length depends on the transcript, so it
+varies between artifacts by chance. The prover does not time the search alone,
+so the metric also leaves out the query openings (about 16 ms on the
+4096-bit SHA-256 circuit, see [Scale](../../docs/SCALE.md#proof-of-work-bits)).
 
 `STARK_STRUCTS` is an optional `starkstructs.json` for the setup that sets the
 prover's parameters for the AIR, which is named `Kernel`. The one that matters
@@ -70,15 +73,16 @@ shows the effect.
 ## `choose-layout.sh`
 
 `choose-layout.sh WORK_DIR SOURCE [WIDTH]` compiles candidate layouts with
-`options.width` `WIDTH` (default 64), `auxiliaryTerms` half of it, `available`
-reuse and folding: `rowGroupWidth` `WIDTH` and `2 × WIDTH`, each at `minRows`
+`options.width` `WIDTH` (3 to 1024, default 64), `auxiliaryTerms` half of it
+(at least 2), `available` reuse and folding: `rowGroupWidth` `WIDTH` and
+`2 × WIDTH` (only up to 1024), each at `minRows`
 64, 128, … up to 65536. Each sweep skips sizes that do not fit and stops when
 the estimate has risen twice in a row or a candidate no longer fits. Any
 other failure (a missing or invalid source, a failed setup) stops the script
 with an error, and so does a search in which no candidate fits.
 
-It runs only the prover's setup on each candidate and estimates the proof time
-(without the proof-of-work search) from the counts the setup reports:
+It runs only the prover's setup on each candidate and estimates
+`withoutFriQueries` from the counts the setup reports:
 constraint operations, committed and fixed columns, and extended rows. The cost
 model was fitted to 90 `prove-time.sh` runs of six circuits, with a median
 error of 10%. It prints one JSON line per candidate, best first, with

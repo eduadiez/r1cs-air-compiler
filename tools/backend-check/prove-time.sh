@@ -4,10 +4,11 @@
 # proofs (default 3), and print the median time of each prover phase as JSON.
 # Needs a WORK_DIR in which run.sh has already built pil2-proofman.
 #
-# Compare layouts by "withoutGrinding", the proof time minus the FRI query
-# phase. That phase includes a proof-of-work search whose length depends on the
-# transcript: the same on every run of one artifact, but different between
-# artifacts.
+# Compare layouts by "withoutFriQueries", the proof time minus the FRI query
+# phase, computed for each proof and then the median taken. That phase includes
+# a proof-of-work search whose length depends on the transcript: the same on
+# every run of one artifact, but different between artifacts. The prover does
+# not time the search alone, so the metric also leaves out the query openings.
 #
 # STARK_STRUCTS, if given, is a starkstructs.json file for the setup, for
 # example {"Kernel": {"powBits": 20}} to set the proof-of-work bits of the AIR
@@ -74,8 +75,10 @@ for run in range(1, runs + 1):
     for name, timer in phases.items():
         match = re.search(rf"<-- {timer} done: ([0-9.]+) s", log)
         times[name].append(float(match.group(1)) * 1000)
+times["withoutFriQueries"] = [
+    proof - queries for proof, queries in zip(times["proof"], times["friQueries"])
+]
 median = {name: round(statistics.median(values)) for name, values in times.items()}
-median["withoutGrinding"] = median["proof"] - median["friQueries"]
 layout = json.load(open(f"{out}/artifact/certificate.json"))["layout"]
 (info,) = glob.glob(f"{out}/build/provingKey/*/*/airs/*/air/*.starkinfo.json")
 stark = json.load(open(info))["starkStruct"]

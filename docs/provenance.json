@@ -94,7 +94,7 @@
   },
   "fixtures": {
     "fixtures/adder/expected.json": {
-      "sha256": "3c443a5be5aa2ddea0017d1e42b095d747f269eb0f087b6ae7ee8a3be896c7b1"
+      "sha256": "604899d08e0efcb41c4e61c4098955b17d0dfa524b53b1a55404ff679b288897"
     },
     "fixtures/adder/input.json": {
       "sha256": "5e5c507dcf80530e860babbc56fad73fbdabb074d0c057b5886e55389ad5127f"
@@ -112,7 +112,7 @@
       "sha256": "82d89fbdf12cf1521e9aa5fb7da9c4fd2517db60761ceb4320bad364b74c7968"
     },
     "fixtures/mux/expected.json": {
-      "sha256": "f0f5cb1d4007941cbd0ea7ce70b27aa67076c2747196747132ab1ac84e093030"
+      "sha256": "66da35c9a983ac930e15f0491d9b36fd5750f40f067dd7f8b3840d769fd568e0"
     },
     "fixtures/mux/input.json": {
       "sha256": "fa851d090163a212842b128901fa32d274f6eff34f2a7ce4d6ae063104a177a4"
@@ -130,7 +130,7 @@
       "sha256": "4b9cb2391518bd75d7dace82e4eda314d0a60752747200898bc0daf89794c3a2"
     },
     "fixtures/range/expected.json": {
-      "sha256": "67af9c56e656b13247d6690bdb31fdcde720e8873d4c403f5debaee3f2beff27"
+      "sha256": "35096849bec3c8376d4001b51f93a309f6a9046304a51687cedd977dce021f91"
     },
     "fixtures/range/input.json": {
       "sha256": "9f65a19a644115e197a3838c034c4f42a84ed1d1dd017b59dbde72fa43fd48d2"
@@ -148,7 +148,7 @@
       "sha256": "cc7e89b850b35a06ac1a1202c8832ae4552f8df43def2bad42b4be97174086c5"
     },
     "fixtures/sha256/expected.json": {
-      "sha256": "112bee1fde6cbc57bf9d1e0511f08f59aafeb8e54619e19e545a91b67064ec5f"
+      "sha256": "d6700a590b7e58dd9639c6d4ddf3af060950e6cd9418b70bbae9ba4b9a6e7937"
     },
     "fixtures/sha256/input.json": {
       "sha256": "07b31128c4ad004eb3552c19c7273dfd8f5f3935c8aaeab39768b5e12f1f770c"
@@ -166,7 +166,7 @@
       "sha256": "86515c5e687ed2923b6bc0193180f5afefd5824d85afa3269e9aab177cb14f35"
     },
     "fixtures/xor/expected.json": {
-      "sha256": "2adc770bf71218438422811e2fac7a94732d658b971f5e07cb6038258a0ca0ff"
+      "sha256": "6a46a7a26fb014c0eb79a2f6daf0a9d8cc1620acc2d649dffaf0f39cd78d4bc1"
     },
     "fixtures/xor/input.json": {
       "sha256": "613f4cb430084bc42313be0e834a97c04bccf50793a00c809e9391535128f399"

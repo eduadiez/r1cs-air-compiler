@@ -14,7 +14,7 @@ use crate::{
     layout::LayoutConfig,
     packed, packed_check, proto as pb, r1cs,
     rewrite::{Reuse, RewriteOptions},
-    sha256_hex, P,
+    sha256_hex, PackedCertificate, P,
 };
 use proptest::prelude::*;
 use proptest::sample::subsequence;
@@ -698,8 +698,17 @@ proptest! {
         };
         let index = position % file.len();
         file[index] = byte;
-        let _ = checker::check(&changed_source, &reference_pilout, &reference.1);
-        if let Ok(certificate) = serde_json::from_slice(&certificate_json) {
+        // Matching digests let the change reach the decoders and checks behind
+        // the binding check; the digest checks have tests of their own.
+        let mut reference_certificate = reference.1;
+        reference_certificate.source_sha256 = sha256_hex(&changed_source);
+        reference_certificate.pilout_sha256 = sha256_hex(&reference_pilout);
+        let _ = checker::check(&changed_source, &reference_pilout, &reference_certificate);
+        if let Ok(mut certificate) = serde_json::from_slice::<PackedCertificate>(&certificate_json) {
+            if target != 3 {
+                certificate.source_sha256 = sha256_hex(&changed_source);
+                certificate.pilout_sha256 = sha256_hex(&packed_pilout);
+            }
             let _ = packed_check::check(&changed_source, &packed_pilout, &certificate);
             let _ = crate::witness::project(&changed_source, &certificate, &[]);
         }
