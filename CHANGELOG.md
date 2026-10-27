@@ -47,6 +47,10 @@ First version.
 - Optional scripts in `tools/backend-check` that prove every fixture with
   pil2-proofman (`run.sh`) and time the prover on one artifact
   (`prove-time.sh`).
+- An optional program, `tools/smt-check/check.py`, independent of the crate,
+  that proves for one packed artifact that its stage-one constraints and copy
+  cycles imply every equation and public binding of its R1CS, by linear
+  elimination and an SMT solver.
 - `Error::kind` tells an invalid input (`ErrorKind::Invalid`) from one that
   exceeds a size limit (`ErrorKind::Limit`).
 - The types that only the library builds (artifacts, reports, `Witness`) and

@@ -172,3 +172,16 @@ packed one when the fixture has no reference outputs) it runs the prover's
 setup, verifies every constraint on the witness, and generates and verifies a
 STARK proof. It needs network access and a C++ toolchain, so it is not part of
 `cargo test` or CI.
+
+## SMT check
+
+[`tools/smt-check`](../tools/smt-check/README.md) is an optional program, run
+by hand, that proves for one packed artifact that its stage-one constraints,
+with the copy cycles of its `ID` and `S` columns held constant, imply every
+equation and public binding of its R1CS. It shares no code with the compiler
+or the checkers: it reads both files itself, proves most goals by linear
+elimination, and sends the rest to an SMT solver with finite-field support
+(cvc5). It does not cover the permutation argument itself or completeness.
+The packed artifacts of `xor`, `adder`, `range` and `mux`, with their own
+layouts and with `--packed`, are proved by linear elimination alone, each in
+under a second.

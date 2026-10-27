@@ -200,8 +200,8 @@ Limits:
 - [Architecture](docs/ARCHITECTURE.md): modules and how they depend on each other.
 - [Specification](SPEC.md): the relations, the certificates and the
   correctness argument.
-- [Testing](docs/TESTING.md): the test suite, mutation testing and the optional
-  check against a real prover.
+- [Testing](docs/TESTING.md): the test suite, mutation testing, the SMT check
+  of packed artifacts and the optional check against a real prover.
 - [Scale](docs/SCALE.md): sizes, run times and prover times.
 - [Changelog](CHANGELOG.md): changes and the versioning policy.
 - [Provenance](docs/provenance.json): hashes of the schema, the vendored
