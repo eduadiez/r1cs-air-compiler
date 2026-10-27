@@ -54,7 +54,7 @@ mkdir -p build out
 cargo run --bin air -- --help
 
 # Optional: the R1CS and a witness from Circom source, with either generator.
-circom fixtures/xor/kernel.circom --r1cs --wasm --c --prime goldilocks --O2 -o build
+circom fixtures/xor/kernel.circom --r1cs --sym --wasm --c --prime goldilocks --O2 -o build
 node build/kernel_js/generate_witness.js build/kernel_js/kernel.wasm fixtures/xor/input.json build/input.wtns
 # or: make -C build/kernel_cpp && build/kernel_cpp/kernel fixtures/xor/input.json build/input.wtns
 
@@ -67,6 +67,10 @@ cargo run --bin air -- compile fixtures/xor/kernel.r1cs out/packed --packed
 cargo run --bin air -- check fixtures/xor/kernel.r1cs out/packed/kernel.pilout out/packed/certificate.json
 cargo run --bin air -- plan fixtures/xor/kernel.r1cs out/plan
 cargo run --bin air -- witness fixtures/xor/kernel.r1cs out/packed fixtures/xor/input.wtns out/witness
+
+# Optional: a page showing how the circuit was placed (out/packed/explain.html).
+# --sym adds the Circom signal names written by the optional step above.
+tools/explain/explain.py fixtures/xor/kernel.r1cs out/packed --sym build/kernel.sym --open
 ```
 
 Each command prints one JSON report. [The CLI reference](docs/CLI.md) describes
@@ -115,13 +119,10 @@ tools/backend-check/prove-time.sh WORK_DIR circuit.r1cs input.wtns layout.json
 For small proofs, the prover's proof-of-work setting can matter more than the
 layout; see [Proof-of-work bits](docs/SCALE.md#proof-of-work-bits).
 
-To see how a circuit was laid out, [`tools/explain`](tools/explain/README.md)
+To see how a layout places the circuit, [`tools/explain`](tools/explain/README.md)
 writes an HTML page for an artifact: the trace cell by cell, coloured by gate,
-and for each equation its auxiliary wires and where each part is placed.
-
-```sh
-tools/explain/explain.py fixtures/xor/kernel.r1cs out/packed -o xor.html
-```
+and for each equation its auxiliary wires and where each part is placed (the
+last command of the [example](#example)).
 
 ## Checking a packed artifact independently
 

@@ -6,15 +6,23 @@ is not part of the build, the tests or CI. It is written in Python with only
 the standard library, reads only the documented file formats, and shares no
 code with the compiler.
 
+From the repository root:
+
 ```sh
-air compile circuit.r1cs out/circuit --packed
-tools/explain/explain.py circuit.r1cs out/circuit --sym circuit.sym -o circuit.html
+cargo run --bin air -- compile fixtures/xor/kernel.r1cs out/packed --packed
+tools/explain/explain.py fixtures/xor/kernel.r1cs out/packed --open
 ```
 
-`--sym` is optional: it takes the symbol file that `circom --sym` writes, so
-that the page shows signal names (`aa.bit[6]`) instead of wire numbers
-(`w41`). Write it in the same Circom run as the R1CS file, with the same
-`--O` level, since optimization renumbers the wires.
+This writes `out/packed/explain.html` and opens it. The arguments are the R1CS
+file and the directory that `air compile` (or `air module`) wrote; the program
+stops with a message if that directory holds no artifact, or holds one
+compiled from a different R1CS file.
+
+| Option | Meaning |
+| --- | --- |
+| `--sym FILE` | Circom symbol file, so the page shows signal names (`aa.bit[6]`) instead of wire numbers (`w41`). By default, the R1CS path with the `.sym` extension, if that file exists, which is where `circom --r1cs --sym` puts it. It must come from the same Circom run as the R1CS file, since optimization renumbers the wires. |
+| `-o FILE` | Where to write the page (default `ARTIFACT_DIR/explain.html`) |
+| `--open` | Open the page in a browser |
 
 ## What the page shows
 

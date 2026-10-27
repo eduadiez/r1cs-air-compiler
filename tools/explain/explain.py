@@ -10,14 +10,18 @@ The page is for reading, not for checking: it trusts the certificate and the
 map, which `air check` verifies. This program reads only the documented file
 formats and shares no code with the compiler.
 
-Usage: explain.py SOURCE.r1cs ARTIFACT_DIR [--sym KERNEL.sym] [-o OUT.html]
-ARTIFACT_DIR holds certificate.json, and map.bin for a packed artifact.
---sym takes the symbol file of `circom --sym`, to show signal names.
+Usage: explain.py SOURCE.r1cs ARTIFACT_DIR [--sym FILE.sym] [-o OUT.html] [--open]
+ARTIFACT_DIR is the output directory of `air compile` or `air module`. The
+page is written to ARTIFACT_DIR/explain.html unless -o says otherwise. Signal
+names come from the symbol file of `circom --sym`: by default SOURCE with the
+.sym extension, if it exists.
 """
 import argparse
+import hashlib
 import json
 import struct
 import sys
+import webbrowser
 from pathlib import Path
 
 TEMPLATE = Path(__file__).with_name("page.html")
@@ -85,6 +89,8 @@ def side(terms, prime):
 def packed_data(certificate, prime, artifact):
     layout, rewritten = certificate["layout"], certificate["rewrittenCircuit"]
     rows, width = layout["rows"], layout["width"]
+    if not (artifact / "map.bin").is_file():
+        fail(f"{artifact} holds no map.bin; it is written by air compile with --packed or --layout")
     raw = (artifact / "map.bin").read_bytes()
     if len(raw) != 4 * rows * width:
         fail("map.bin does not match the certificate's rows and width")
@@ -128,19 +134,35 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("source")
     parser.add_argument("artifact")
-    parser.add_argument("--sym")
-    parser.add_argument("-o", "--output", default="explain.html")
+    parser.add_argument("--sym", help="Circom symbol file (default: SOURCE with .sym)")
+    parser.add_argument("-o", "--output", help="page to write (default: ARTIFACT_DIR/explain.html)")
+    parser.add_argument("--open", action="store_true", help="open the page in a browser")
     args = parser.parse_args()
 
-    artifact = Path(args.artifact)
-    certificate = json.loads((artifact / "certificate.json").read_text())
-    prime, wires, publics, equations = read_r1cs(args.source)
+    source, artifact = Path(args.source), Path(args.artifact)
+    if not source.is_file():
+        fail(f"{source}: no such R1CS file")
+    if not (artifact / "certificate.json").is_file():
+        fail(
+            f"{artifact} holds no certificate.json; create the artifact first, for example "
+            f"with: air compile {source} {artifact} --packed"
+        )
+    try:
+        certificate = json.loads((artifact / "certificate.json").read_text())
+    except ValueError as error:
+        fail(f"{artifact}/certificate.json: {error}")
+    if certificate.get("sourceSha256") != hashlib.sha256(source.read_bytes()).hexdigest():
+        fail(f"{artifact} was compiled from a different R1CS file than {source}")
+    sym = Path(args.sym) if args.sym else source.with_suffix(".sym")
+    if args.sym and not sym.is_file():
+        fail(f"{sym}: no such symbol file")
+    prime, wires, publics, equations = read_r1cs(source)
     data = {
-        "source": Path(args.source).name,
+        "source": source.name,
         "relation": certificate.get("relation", "unknown"),
         "wires": wires,
         "publics": publics,
-        "names": {str(w): n for w, n in read_names(args.sym).items()} if args.sym else {},
+        "names": {str(w): n for w, n in read_names(sym).items()} if sym.is_file() else {},
         "equations": [[side(s, prime) for s in eq] for eq in equations],
     }
     if "layout" in certificate:
@@ -158,8 +180,12 @@ def main():
 
     payload = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
     page = TEMPLATE.read_text().replace("/*DATA*/null", payload)
-    Path(args.output).write_text(page)
-    print(f"wrote {args.output} ({len(page) // 1024} KiB)")
+    output = Path(args.output) if args.output else artifact / "explain.html"
+    output.write_text(page)
+    names = f", signal names from {sym}" if data["names"] else ""
+    print(f"wrote {output} ({len(page) // 1024} KiB, {data['kind']} artifact{names})")
+    if args.open:
+        webbrowser.open(output.resolve().as_uri())
 
 
 if __name__ == "__main__":
