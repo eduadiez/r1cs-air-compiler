@@ -115,6 +115,14 @@ tools/backend-check/prove-time.sh WORK_DIR circuit.r1cs input.wtns layout.json
 For small proofs, the prover's proof-of-work setting can matter more than the
 layout; see [Proof-of-work bits](docs/SCALE.md#proof-of-work-bits).
 
+To see how a circuit was laid out, [`tools/explain`](tools/explain/README.md)
+writes an HTML page for an artifact: the trace cell by cell, coloured by gate,
+and for each equation its auxiliary wires and where each part is placed.
+
+```sh
+tools/explain/explain.py fixtures/xor/kernel.r1cs out/packed -o xor.html
+```
+
 ## Checking a packed artifact independently
 
 [`tools/smt-check`](tools/smt-check/README.md) is a separate Python program

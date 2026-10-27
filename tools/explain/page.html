@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Circuit layout</title>
+<style>
+:root {
+  --bg: #fbfbfa; --panel: #ffffff; --text: #1d1f23; --muted: #646a73;
+  --line: #e2e4e8; --empty: #f0f1f3; --accent: #2457d6; --select: #d6392f;
+  --code: #f4f5f7;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171a; --panel: #1d2024; --text: #e6e8eb; --muted: #9aa1ab;
+    --line: #2e3238; --empty: #24272c; --accent: #7aa2ff; --select: #ff7a6e;
+    --code: #262a30;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 32px 0 8px; }
+p.lead { color: var(--muted); margin: 0 0 20px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.card b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+.card span { color: var(--muted); font-size: 12px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.grid-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); position: relative; }
+canvas { display: block; image-rendering: pixelated; cursor: crosshair; }
+#tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.15);
+  display: none; max-width: 360px; z-index: 10; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+button, input { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 10px; }
+button { cursor: pointer; }
+input[type=number] { width: 110px; }
+code, .eq { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+.eq { background: var(--code); border-radius: 6px; padding: 8px 10px; margin: 4px 0 10px;
+  overflow-wrap: anywhere; }
+.label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+tr.click { cursor: pointer; }
+tr.click:hover td { background: var(--code); }
+a { color: var(--accent); cursor: pointer; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
+.legend { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Circuit layout</h1>
+  <p class="lead" id="lead"></p>
+  <div class="cards" id="cards"></div>
+  <div id="content"></div>
+</main>
+<div id="tip"></div>
+<script id="data" type="application/json">/*DATA*/null</script>
+<script>
+const D = JSON.parse(document.getElementById("data").textContent);
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const n = (x) => Number(x).toLocaleString("en-US");
+
+// Wire names: Circom signal names when a .sym file was given.
+function wireName(w) {
+  if (w === 0) return "1";
+  if (D.names[w]) return D.names[w];
+  if (D.kind === "packed" && w >= D.originalWires) return "aux" + w;
+  return "w" + w;
+}
+// A linear combination, at most `max` terms.
+function lc(terms, name = wireName, max = 8) {
+  if (!terms.length) return "0";
+  const parts = terms.slice(0, max).map(([w, k], i) => {
+    const neg = k < 0, a = Math.abs(k);
+    const coef = w === 0 ? String(a) : (a === 1 ? "" : a + "·");
+    const body = w === 0 ? coef : coef + name(w);
+    return (i === 0 ? (neg ? "−" : "") : (neg ? " − " : " + ")) + body;
+  });
+  const more = terms.length > max ? ` + … (${terms.length - max} more terms)` : "";
+  return parts.join("") + more;
+}
+function equation([a, b, c], name = wireName) {
+  return `(${lc(a, name)}) · (${lc(b, name)}) = ${lc(c, name)}`;
+}
+function card(value, label) {
+  return `<div class="card"><b>${value}</b><span>${label}</span></div>`;
+}
+
+$("title").textContent = `${D.source}: ${D.kind} artifact`;
+$("lead").textContent = `Relation ${D.relation}. Read from the certificate and map, which "air check" verifies; this page does not check them.`;
+
+if (D.kind === "packed") packed(); else columns();
+
+// ------------------------------------------------------------- reference / module
+function columns() {
+  const column = (w) => (w === 0 ? "1" : `a[${D.wireColumns[w]}]`);
+  const cards = [
+    card(n(D.equations.length), "source equations"),
+    card(n(D.wires), "wires (incl. constant 1)"),
+    card(n(D.width), "stage-one columns"),
+  ];
+  if (D.rows) cards.push(card(n(D.rows), "rows, one instance each"));
+  cards.push(card(n(D.kind === "module" ? D.exports.length : D.publicWires.length),
+    D.kind === "module" ? "exported wires" : "public values"));
+  $("cards").innerHTML = cards.join("");
+  const tags = (w) => {
+    const t = [];
+    const p = D.publicWires.indexOf(w);
+    if (p >= 0) t.push(`public[${p}] on row 0`);
+    if (D.exports.includes(w)) t.push("exported");
+    return t.join(", ");
+  };
+  const rows = D.wireColumns.map((c, w) => (c === null ? "" :
+    `<tr><td>a[${c}]</td><td><code>${esc(wireName(w))}</code></td><td>${w}</td><td>${tags(w)}</td></tr>`)).join("");
+  $("content").innerHTML = `
+    <h2>Columns</h2>
+    <p class="legend">Every row holds a whole assignment: wire <i>w</i> in column <code>a[w − 1]</code>; the constant wire 1 has no column.</p>
+    <div class="panel" style="max-height:50vh;overflow:auto"><table>
+      <tr><th>Column</th><th>Wire</th><th>Id</th><th></th></tr>${rows}</table></div>
+    <h2>Equations</h2>
+    <p class="legend">Each source equation is one constraint <code>A·B − C = 0</code> over the columns, enforced on every row.</p>
+    <div class="row"><button id="prev">←</button><input type="number" id="pick" min="0" max="${D.equations.length - 1}" value="0"><button id="next">→</button><span class="legend" id="count"></span></div>
+    <div class="label">Over wires</div><div class="eq" id="eqw"></div>
+    <div class="label">Over columns</div><div class="eq" id="eqc"></div>`;
+  const show = (i) => {
+    i = Math.max(0, Math.min(D.equations.length - 1, i | 0));
+    $("pick").value = i;
+    $("count").textContent = `of ${n(D.equations.length)}`;
+    $("eqw").textContent = equation(D.equations[i]);
+    $("eqc").textContent = equation(D.equations[i], column);
+  };
+  $("prev").onclick = () => show(+$("pick").value - 1);
+  $("next").onclick = () => show(+$("pick").value + 1);
+  $("pick").onchange = () => show(+$("pick").value);
+  show(0);
+}
+
+// ------------------------------------------------------------------- packed
+function packed() {
+  const W = D.width, R = D.rows, nAux = D.auxiliaries.length;
+  const cellsOf = new Map();
+  D.cells.forEach((w, cell) => { if (w) { if (!cellsOf.has(w)) cellsOf.set(w, []); cellsOf.get(w).push(cell); } });
+  const copied = [...cellsOf.values()].filter((c) => c.length > 1).length;
+  const used = D.cells.filter((w) => w).length;
+  const byRow = new Map(), byIndex = new Map();
+  D.placements.forEach((p) => {
+    if (!byRow.has(p[2])) byRow.set(p[2], []);
+    byRow.get(p[2]).push(p);
+    byIndex.set(p[0], p);
+  });
+  const auxPos = new Map(D.auxiliaries.map(([id], i) => [id, i]));
+  const publicAt = new Map(D.publicBindings.map(([j, w, r, c]) => [r * W + c, j]));
+  const placementName = (index) => (index < nAux
+    ? `auxiliary ${wireName(D.auxiliaries[index][0])}`
+    : `equation ${index - nAux}`);
+
+  $("cards").innerHTML = [
+    card(n(D.equations.length), "source equations"),
+    card(n(nAux), "auxiliary wires"),
+    card(n(D.placements.length), "placed equations"),
+    card(`${n(R)} × ${n(W)}`, "rows × columns"),
+    card(`${Math.round((100 * used) / (R * W))}%`, `cells used (${n(used)})`),
+    card(n(D.gates.length), `gates of ${n(D.gateTypes)} types`),
+    card(n(D.selectors), "selector columns"),
+    card(n(copied), "wires in several cells"),
+    card(n(D.publicBindings.length), "public values"),
+  ].join("");
+
+  $("content").innerHTML = `
+    <h2>Trace</h2>
+    <p class="legend">One square per stage-one cell, coloured by the gate whose constraint covers it; empty squares are unused cells. A dot marks a public value's cell. Hover a cell for its wire; click it to highlight every cell of that wire, which the permutation argument makes equal.</p>
+    <div class="grid-wrap" id="wrap"><canvas id="grid"></canvas></div>
+    <p class="legend"><span class="swatch" style="background:var(--select)"></span>selected wire
+      <span class="swatch" style="background:var(--accent);margin-left:12px"></span>selected equation</p>
+    <div class="panel" id="wire" style="margin-top:8px">Click a cell to see its wire.</div>
+    <h2>Equations</h2>
+    <p class="legend">How one source equation was compiled: split with auxiliary wires so that each part uses at most <code>width</code> wires, then each part placed on one row as a gate.</p>
+    <div class="row"><button id="prev">←</button><input type="number" id="pick" min="0" max="${D.equations.length - 1}" value="0"><button id="next">→</button><span class="legend" id="count"></span></div>
+    <div id="explain"></div>
+    <div class="two">
+      <div><h2>Gates</h2><p class="legend">A gate is a gate type on fixed columns, active on the rows its selector marks. Click one to highlight its cells.</p>
+        <div class="panel" style="max-height:420px;overflow:auto"><table id="gates"></table></div></div>
+      <div><h2>Most copied wires</h2><p class="legend">Wires in the most cells; each extra cell is a copy the permutation argument must tie.</p>
+        <div class="panel" style="max-height:420px;overflow:auto"><table id="copies"></table></div></div>
+    </div>`;
+
+  // Grid drawing.
+  const canvas = $("grid"), ctx = canvas.getContext("2d");
+  const size = Math.max(2, Math.min(14, Math.floor(($("wrap").clientWidth - 2) / W)));
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = W * size * dpr; canvas.height = R * size * dpr;
+  canvas.style.width = W * size + "px"; canvas.style.height = R * size + "px";
+  ctx.scale(dpr, dpr);
+  const css = getComputedStyle(document.documentElement);
+  const color = (v) => css.getPropertyValue(v).trim();
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const gateColor = (g) => `hsl(${(g * 137.508) % 360} 55% ${dark ? 45 : 64}%)`;
+  let selectedWire = 0, highlighted = new Set();
+
+  function draw() {
+    ctx.fillStyle = color("--panel"); ctx.fillRect(0, 0, W * size, R * size);
+    const gap = size >= 6 ? 1 : 0;
+    for (let cell = 0; cell < R * W; cell++) {
+      const r = (cell / W) | 0, c = cell % W;
+      const g = D.cellGate[cell];
+      ctx.fillStyle = D.cells[cell] ? (g >= 0 ? gateColor(g) : color("--muted")) : color("--empty");
+      ctx.fillRect(c * size, r * size, size - gap, size - gap);
+      if (publicAt.has(cell) && size >= 4) {
+        ctx.fillStyle = color("--text");
+        ctx.beginPath(); ctx.arc(c * size + size / 2 - gap / 2, r * size + size / 2 - gap / 2, Math.max(1, size / 5), 0, 7); ctx.fill();
+      }
+    }
+    const outline = (cells, style) => {
+      ctx.strokeStyle = style; ctx.lineWidth = Math.max(1.5, size / 5);
+      for (const cell of cells) {
+        const r = (cell / W) | 0, c = cell % W;
+        ctx.strokeRect(c * size + 0.75, r * size + 0.75, size - 1.5 - gap, size - 1.5 - gap);
+      }
+    };
+    outline(highlighted, color("--accent"));
+    if (selectedWire) outline(cellsOf.get(selectedWire) || [], color("--select"));
+  }
+  const scrollTo = (cell) => {
+    const r = (cell / W) | 0;
+    $("wrap").scrollTop = Math.max(0, r * size - $("wrap").clientHeight / 3);
+  };
+
+  const at = (event) => {
+    const box = canvas.getBoundingClientRect();
+    const c = Math.floor((event.clientX - box.left) / size), r = Math.floor((event.clientY - box.top) / size);
+    return r >= 0 && r < R && c >= 0 && c < W ? r * W + c : -1;
+  };
+  const usesOf = (cell) => {
+    const r = (cell / W) | 0, c = cell % W;
+    return (byRow.get(r) || []).filter((p) => p[3].includes(c));
+  };
+  canvas.onmousemove = (event) => {
+    const cell = at(event), tip = $("tip");
+    if (cell < 0) { tip.style.display = "none"; return; }
+    const w = D.cells[cell], r = (cell / W) | 0, c = cell % W;
+    const uses = usesOf(cell).map((p) => placementName(p[0]));
+    const pub = publicAt.has(cell) ? `<br>public value ${publicAt.get(cell)}` : "";
+    tip.innerHTML = `row ${r}, column ${c}<br>` + (w
+      ? `<b>${esc(wireName(w))}</b> (wire ${w}), ${cellsOf.get(w).length} cell(s)${pub}<br>gate ${D.cellGate[cell]}: ${esc(uses.join(", "))}`
+      : "unused");
+    tip.style.display = "block";
+    tip.style.left = Math.min(event.clientX + 14, innerWidth - 370) + "px";
+    tip.style.top = event.clientY + 14 + "px";
+  };
+  canvas.onmouseleave = () => { $("tip").style.display = "none"; };
+  canvas.onclick = (event) => { const cell = at(event); if (cell >= 0 && D.cells[cell]) selectWire(D.cells[cell]); };
+
+  function selectWire(w) {
+    selectedWire = w;
+    const cells = cellsOf.get(w) || [];
+    const placements = new Map();
+    for (const cell of cells) for (const p of usesOf(cell)) placements.set(p[0], p);
+    const list = [...placements.values()].sort((a, b) => a[0] - b[0]).map((p) => {
+      const link = p[0] >= nAux ? `<a data-eq="${p[0] - nAux}">${placementName(p[0])}</a>` : esc(placementName(p[0]));
+      return `<li>${link}, row ${p[2]}</li>`;
+    }).join("");
+    $("wire").innerHTML = `<b><code>${esc(wireName(w))}</code></b> (wire ${w}) is in ${cells.length} cell(s): `
+      + cells.slice(0, 40).map((cell) => `(${(cell / W) | 0}, ${cell % W})`).join(" ")
+      + (cells.length > 40 ? " …" : "")
+      + `<div class="label" style="margin-top:8px">Used by</div><ul style="margin:4px 0">${list}</ul>`;
+    $("wire").querySelectorAll("a[data-eq]").forEach((a) => { a.onclick = () => show(+a.dataset.eq); });
+    draw();
+  }
+
+  // Equation explorer.
+  function auxiliariesOf(terms, seen = new Set()) {
+    for (const side of terms) for (const [w] of side) {
+      if (w >= D.originalWires && !seen.has(w)) {
+        seen.add(w);
+        auxiliariesOf([D.auxiliaries[auxPos.get(w)][1]], seen);
+      }
+    }
+    return seen;
+  }
+  function place(p) {
+    if (!p) return "not placed";
+    const cols = p[3];
+    return `row ${p[2]}, columns ${cols.join(", ")}, gate ${p[1]}`;
+  }
+  function show(i) {
+    i = Math.max(0, Math.min(D.equations.length - 1, i | 0));
+    $("pick").value = i;
+    $("count").textContent = `of ${n(D.equations.length)}`;
+    const rewritten = D.rewritten[i];
+    const aux = [...auxiliariesOf(rewritten)].sort((a, b) => a - b);
+    const own = byIndex.get(nAux + i);
+    const parts = [own, ...aux.map((id) => byIndex.get(auxPos.get(id)))].filter(Boolean);
+    highlighted = new Set(parts.flatMap((p) => p[3].map((c) => p[2] * W + c)));
+    const auxRows = aux.map((id) => {
+      const terms = D.auxiliaries[auxPos.get(id)][1];
+      return `<tr><td><code>${esc(wireName(id))}</code></td><td><code>${esc(lc(terms))}</code></td><td>${place(byIndex.get(auxPos.get(id)))}</td></tr>`;
+    }).join("");
+    $("explain").innerHTML = `
+      <div class="label">Source equation ${i}</div><div class="eq">${esc(equation(D.equations[i]))}</div>
+      <div class="label">Rewritten</div><div class="eq">${esc(equation(rewritten))}</div>
+      <div class="label">Placed</div><div class="eq">${place(own)}</div>
+      ${aux.length ? `<div class="label">Auxiliary wires it uses (${aux.length}), each placed as 0 · 0 = terms − wire</div>
+        <div class="panel" style="max-height:260px;overflow:auto;margin:4px 0 10px"><table>
+        <tr><th>Wire</th><th>Defined as</th><th>Placed</th></tr>${auxRows}</table></div>`
+        : `<p class="legend">No auxiliary wires: the source equation fits in one row as it is.</p>`}`;
+    draw();
+    if (own) scrollTo(own[2] * W + own[3][0]);
+  }
+  $("prev").onclick = () => show(+$("pick").value - 1);
+  $("next").onclick = () => show(+$("pick").value + 1);
+  $("pick").onchange = () => show(+$("pick").value);
+
+  // Gates and copies tables.
+  $("gates").innerHTML = `<tr><th>Gate</th><th>Type (wires)</th><th>Columns</th><th>Rows</th><th>Selector</th></tr>`
+    + D.gates.map(([type, width, cols, count, first, selector], g) =>
+      `<tr class="click" data-gate="${g}"><td><span class="swatch" style="background:${gateColor(g)}"></span>${g}</td><td>${type} (${width})</td>`
+      + `<td>${cols.length > 6 ? cols.slice(0, 6).join(", ") + ", …" : cols.join(", ")}</td><td>${n(count)} from ${first}</td><td>E${selector}</td></tr>`).join("");
+  $("gates").querySelectorAll("tr[data-gate]").forEach((tr) => {
+    tr.onclick = () => {
+      const g = +tr.dataset.gate;
+      highlighted = new Set(D.cellGate.flatMap((x, cell) => (x === g ? [cell] : [])));
+      draw();
+      scrollTo([...highlighted][0] || 0);
+    };
+  });
+  const top = [...cellsOf.entries()].filter(([, c]) => c.length > 1).sort((a, b) => b[1].length - a[1].length).slice(0, 50);
+  $("copies").innerHTML = `<tr><th>Wire</th><th>Cells</th></tr>` + (top.length
+    ? top.map(([w, c]) => `<tr class="click" data-wire="${w}"><td><code>${esc(wireName(w))}</code></td><td>${c.length}</td></tr>`).join("")
+    : `<tr><td colspan="2">Every wire has one cell, so there is no permutation argument.</td></tr>`);
+  $("copies").querySelectorAll("tr[data-wire]").forEach((tr) => {
+    tr.onclick = () => { selectWire(+tr.dataset.wire); scrollTo(cellsOf.get(+tr.dataset.wire)[0]); };
+  });
+
+  show(0);
+}
+</script>
+</body>
+</html>
