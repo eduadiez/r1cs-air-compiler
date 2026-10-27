@@ -1,6 +1,9 @@
 //! The `air` command. It parses arguments, calls the public library API and
 //! prints one JSON report; it contains no compilation or checking logic.
-use r1cs_air_compiler::{self as air, LayoutConfig, PackedCertificate, ReferenceCertificate};
+use r1cs_air_compiler::{
+    self as air, CompositionBinding, LayoutConfig, ModuleCertificate, PackedCertificate,
+    ReferenceCertificate,
+};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -67,6 +70,11 @@ const COMMANDS: &[(&str, &[&str])] = &[
     ("check", &["SOURCE KERNEL.pilout CERTIFICATE.json"]),
     ("plan", &["SOURCE OUT --layout CONFIG.json"]),
     ("witness", &["SOURCE ARTIFACT_DIR INPUT.wtns OUT"]),
+    ("module", &["SOURCE OUT --export WIRES [--optimize]"]),
+    (
+        "check-composition",
+        &["SOURCE HOST.pilout CERTIFICATE.json BINDING.json"],
+    ),
 ];
 
 /// Run the command named by the process arguments and exit with status 1 on error.
@@ -101,9 +109,13 @@ pub fn run() {
         "check" => check(&args),
         "plan" => plan(&args),
         "witness" => witness(&args),
+        "module" => module(&args),
+        "check-composition" => check_composition(&args),
         _ => Err(Failure::new(
             Kind::Usage,
-            "expected a command: compile, check, plan, witness; use --help".into(),
+            "expected a command: compile, check, plan, witness, module, check-composition; \
+             use --help"
+                .into(),
         )),
     };
     match result {
@@ -311,6 +323,11 @@ fn check(args: &[String]) -> CommandResult<Value> {
             let report = air::check_packed(&source_bytes, &pilout_bytes, &parsed);
             serde_json::to_value(report.map_err(library_error(context))?)
         }
+        air::MODULE_RELATION => {
+            let parsed: ModuleCertificate = parse_json(certificate, &certificate_bytes)?;
+            let report = air::check_module(&source_bytes, &pilout_bytes, &parsed);
+            serde_json::to_value(report.map_err(library_error(context))?)
+        }
         _ => return Err(format!("certificate '{certificate}': unknown relation").into()),
     };
     Ok(report.map_err(|e| e.to_string())?)
@@ -367,4 +384,50 @@ fn witness(args: &[String]) -> CommandResult<Value> {
         "traceWords": witness.trace.len(),
         "publicWords": witness.publics.len(),
     }))
+}
+
+fn module(args: &[String]) -> CommandResult<Value> {
+    let (source, output, wires, optimize) = match args {
+        [source, output, flag, wires] if flag == "--export" => (source, output, wires, false),
+        [source, output, flag, wires, optimize]
+            if flag == "--export" && optimize == "--optimize" =>
+        {
+            (source, output, wires, true)
+        }
+        _ => return usage("module"),
+    };
+    let exports = wires
+        .split(',')
+        .map(|wire| {
+            wire.trim()
+                .parse::<u32>()
+                .map_err(|e| format!("export '{wire}': {e}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let artifact = air::compile_module(&read(source)?, &exports, optimize)
+        .map_err(library_error(format!("source '{source}'")))?;
+    let out = fresh(output)?;
+    write(out.join("module.pilout"), &artifact.pilout)?;
+    write_json(out.join("certificate.json"), &artifact.certificate)?;
+    let certificate = &artifact.certificate;
+    Ok(json!({
+        "relation": certificate.relation(),
+        "width": certificate.width(),
+        "exports": certificate.exports(),
+        "piloutBytes": artifact.pilout.len(),
+        "piloutSha256": certificate.pilout_sha256(),
+    }))
+}
+
+fn check_composition(args: &[String]) -> CommandResult<Value> {
+    let [source, host, certificate, binding] = args else {
+        return usage("check-composition");
+    };
+    let parsed: ModuleCertificate = read_json(certificate)?;
+    let parsed_binding: CompositionBinding = read_json(binding)?;
+    let report = air::check_composition(&read(source)?, &read(host)?, &parsed, &parsed_binding)
+        .map_err(library_error(format!(
+            "checking '{host}' against '{source}', '{certificate}' and '{binding}'"
+        )))?;
+    Ok(serde_json::to_value(report).map_err(|e| e.to_string())?)
 }

@@ -72,6 +72,28 @@ impl Builder {
         }
     }
 
+    /// A module fragment: `width` stage-one columns, no row count, no stage two,
+    /// no fixed columns and no public values. With `optimize`, expressions are
+    /// simplified.
+    pub fn module(width: u32, optimize: bool) -> Self {
+        Self {
+            air: pb::Air {
+                name: Some(AIR_NAME.into()),
+                stage_widths: vec![width],
+                ..Default::default()
+            },
+            dag: Dag::new(optimize),
+            symbols: vec![symbol(
+                TRACE_SYMBOL,
+                SymbolType::WitnessCol,
+                0,
+                Some(STAGE_ONE),
+                vec![width],
+            )],
+            hints: vec![],
+        }
+    }
+
     /// Constrain stage-two column 0 to zero and add its `gsum_col` hint.
     /// Artifacts without a permutation argument use this column (`stage2_zero`), so
     /// both artifact kinds have a stage two. The hint numerator is written as
@@ -129,7 +151,12 @@ impl Builder {
     /// Constrain `expression` to zero on every row. An operand that is not an
     /// expression is first wrapped as `operand + 0`, since a constraint must
     /// reference an expression.
-    pub fn constrain(&mut self, mut expression: pb::Operand, label: String) {
+    pub fn constrain(&mut self, expression: pb::Operand, label: String) {
+        self.constrain_labeled(expression, Some(label));
+    }
+
+    /// [`Builder::constrain`] with an optional label.
+    pub fn constrain_labeled(&mut self, mut expression: pb::Operand, label: Option<String>) {
         if !matches!(expression.operand, Some(Operand::Expression(_))) {
             expression = self.dag.raw(Op::Add, expression, constant(0));
         }
@@ -140,7 +167,7 @@ impl Builder {
             constraint: Some(pb::constraint::Constraint::EveryRow(
                 pb::constraint::EveryRow {
                     expression_idx: Some(expression),
-                    debug_line: Some(label),
+                    debug_line: label,
                 },
             )),
         });
@@ -201,6 +228,24 @@ impl Builder {
         };
         output.encode_to_vec()
     }
+}
+
+/// Encode a module fragment built with [`Builder::module`]: the AIR and its
+/// trace symbol only, with no challenges, public values or hints.
+pub fn finish_module(mut builder: Builder) -> Vec<u8> {
+    builder.air.expressions = builder.dag.nodes;
+    pb::PilOut {
+        name: Some(PILOUT_NAME.into()),
+        base_field: P.to_be_bytes().to_vec(),
+        air_groups: vec![pb::AirGroup {
+            name: Some(AIR_NAME.into()),
+            airs: vec![builder.air],
+            ..Default::default()
+        }],
+        symbols: builder.symbols,
+        ..Default::default()
+    }
+    .encode_to_vec()
 }
 
 /// A hint of the single AIR with one array field of named operands.

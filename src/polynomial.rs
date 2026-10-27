@@ -14,10 +14,23 @@ use std::collections::BTreeMap;
 /// A polynomial variable.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Var {
-    Witness { stage: u32, column: u32 },
+    Witness {
+        stage: u32,
+        column: u32,
+    },
     Public(u32),
     Fixed(u32),
-    Challenge { stage: u32, index: u32 },
+    Challenge {
+        stage: u32,
+        index: u32,
+    },
+    /// Any other operand of a host AIR (see `module_check.rs`), told apart by
+    /// its kind, its identifying fields and its row offset.
+    Host {
+        kind: u8,
+        ids: [u32; 3],
+        offset: i32,
+    },
 }
 impl Var {
     /// Stage-one column `column`.

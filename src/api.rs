@@ -1,9 +1,10 @@
 //! Public operations. Each compile function builds an artifact, then checks it
 //! with the independent checker before returning it.
 use crate::{
-    certificate, checker, compiler, packed, packed_check, r1cs, witness, Context, LayoutConfig,
-    PackedCertificate, PackedCheckReport, ReferenceCertificate, ReferenceCheckReport, Result,
-    Witness,
+    certificate, checker, compiler, module, module_check, packed, packed_check, r1cs, witness,
+    CompositionBinding, CompositionReport, Context, LayoutConfig, ModuleCertificate,
+    ModuleCheckReport, PackedCertificate, PackedCheckReport, ReferenceCertificate,
+    ReferenceCheckReport, Result, Witness,
 };
 use serde::Serialize;
 
@@ -15,6 +16,17 @@ pub struct ReferenceArtifact {
     pub pilout: Vec<u8>,
     /// Certificate binding the PILout to its source.
     pub certificate: ReferenceCertificate,
+}
+
+/// A module fragment and its certificate, both already checked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ModuleArtifact {
+    /// Encoded module fragment: a PILout message with one AIR, not provable on
+    /// its own. Constraint `i` is source equation `i`.
+    pub pilout: Vec<u8>,
+    /// Certificate binding the fragment to its source.
+    pub certificate: ModuleCertificate,
 }
 
 /// A packed PILout file, its certificate, and the wire held by each cell (row
@@ -172,4 +184,59 @@ pub fn project_witness(
 ) -> Result<Witness> {
     check_packed(source, pilout, certificate)?;
     witness::project(source, certificate, wtns).context("witness projection")
+}
+
+/// Compile `source` to a module fragment for embedding in a host AIR, with
+/// `exports` the wires the host may constrain, and check the result. Every
+/// source equation becomes one constraint over one stage-one column per
+/// nonconstant wire; the circuit's public values are not bound to anything.
+/// With `optimize`, expressions are simplified as in
+/// [`compile_optimized_reference`].
+///
+/// # Errors
+/// Fails on malformed or unsupported R1CS, on an export that is not a
+/// nonconstant wire or is listed twice, and on circuits beyond the checker's
+/// size limits.
+pub fn compile_module(source: &[u8], exports: &[u32], optimize: bool) -> Result<ModuleArtifact> {
+    let circuit = r1cs::read(source).context("module source")?;
+    let (pilout, certificate) =
+        module::compile(source, &circuit, exports, optimize).context("module compilation")?;
+    check_module(source, &pilout, &certificate)?;
+    Ok(ModuleArtifact {
+        pilout,
+        certificate,
+    })
+}
+
+/// Check that a module fragment encodes every equation of `source` as
+/// described by `certificate`.
+///
+/// # Errors
+/// Fails if a hash does not match, if the fragment contains anything a module
+/// may not have, or if any constraint differs from its source equation.
+pub fn check_module(
+    source: &[u8],
+    pilout: &[u8],
+    certificate: &ModuleCertificate,
+) -> Result<ModuleCheckReport> {
+    module_check::check_module(source, pilout, certificate).context("module validation")
+}
+
+/// Check that the host PILout `host` preserves the module of `source` under
+/// `binding`: the selected AIR enforces every source equation on every row
+/// over the bound stage-one columns. Nothing is checked about the host's other
+/// constraints, which may only restrict the trace further.
+///
+/// # Errors
+/// Fails on an invalid certificate or binding, on a binding that misses a
+/// wire, repeats one or gives two wires the same column, and when some source
+/// equation is not exactly the polynomial of an every-row constraint.
+pub fn check_composition(
+    source: &[u8],
+    host: &[u8],
+    certificate: &ModuleCertificate,
+    binding: &CompositionBinding,
+) -> Result<CompositionReport> {
+    module_check::check_composition(source, host, certificate, binding)
+        .context("composition validation")
 }

@@ -5,8 +5,8 @@ and the checkers (which accept or reject them). Witness projection runs only
 on a packed artifact the packed checker has accepted.
 
 ```text
-api ──→ compiler side: compiler, dag, emit, rewrite, layout, packed
-  └──→ checker side:  checker, packed_check, placement_check, pilout_check, polynomial, witness
+api ──→ compiler side: compiler, dag, emit, module, rewrite, layout, packed
+  └──→ checker side:  checker, module_check, packed_check, placement_check, pilout_check, polynomial, witness
 shared by both:       r1cs, field, contract, certificate, error, protobuf schema
 ```
 
@@ -21,15 +21,17 @@ All modules are in `src/`.
 | `r1cs` | shared | R1CS and WTNS parser |
 | `field` | shared | Goldilocks arithmetic, the field element type and the two constants that define permutation labels |
 | `contract` | shared | Constants only: relation, symbol, hint and constraint names, stages and size limits |
-| `certificate` | shared | Certificate data (rewritten circuit, layout, both certificate types) and accessors; no building or checking |
+| `certificate` | shared | Certificate data (rewritten circuit, layout, the three certificate types, the composition binding) and accessors; no building or checking |
 | `compiler`, `dag` | compiler | Reference PILout, with optional expression simplification and reuse (`dag`) |
-| `emit` | compiler | PILout building blocks shared by both compilers: symbols, hints, encoding |
-| `rewrittenCircuit` | compiler | Auxiliary wire wires, and the gate type of each equation |
+| `emit` | compiler | PILout building blocks shared by the compilers: symbols, hints, encoding |
+| `module` | compiler | Module fragment: the reference equations without row count, stage two or public values |
+| `rewrite` | compiler | Auxiliary wires, and the gate type of each equation |
 | `layout` | compiler | Placement of equations in cells: row groups and stacks |
 | `packed` | compiler | Packed PILout: gate constraints, public bindings and the permutation argument, in that order |
 | `polynomial` | checker | Exact polynomials and the expression evaluator |
 | `pilout_check` | checker | Checks shared by both checkers: decoding, common PILout fields, symbols and hint layout |
 | `checker` | checker | Reference checker |
+| `module_check` | checker | Module checker, and the composition check of a host PILout |
 | `placement_check` | checker | Checks that the auxiliary wires and the placement preserve the source equations and public order |
 | `packed_check` | checker | Packed checker: rebuilds the expected PILout contents and compares |
 | `witness` | checker | Checks a Circom witness and copies its values into the trace cells |

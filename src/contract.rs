@@ -7,6 +7,9 @@ pub const CERTIFICATE_VERSION: u32 = 1;
 pub const REFERENCE_RELATION: &str = "r1cs-per-row-publics-at-row-zero";
 /// Relation certified by packed artifacts.
 pub const PACKED_RELATION: &str = "r1cs-packed-static-copy";
+/// Relation certified by module artifacts: every source equation on every row
+/// of a host AIR, with no public values.
+pub const MODULE_RELATION: &str = "r1cs-module-per-row";
 
 /// Name of the PILout.
 pub const PILOUT_NAME: &str = "kernel";

@@ -7,7 +7,7 @@
 | Tests | Where | What they check |
 | --- | --- | --- |
 | Unit tests | `src/field.rs`, `src/dag.rs` | Field arithmetic and expression simplification |
-| Internal tests | `src/tests/parser.rs`, `reference.rs`, `placement.rs`, `packed.rs` | Most change one field of a source, PILout or certificate and require the check to fail with a specific message, after checking that the unchanged artifact is accepted |
+| Internal tests | `src/tests/parser.rs`, `reference.rs`, `placement.rs`, `packed.rs`, `module.rs` | Most change one field of a source, PILout or certificate and require the check to fail with a specific message, after checking that the unchanged artifact is accepted |
 | Independence | `src/tests/mod.rs` | No checker uses a compiler module |
 | Property tests | `src/tests/properties.rs` | See [Property tests](#property-tests) |
 | Public API | `tests/api.rs` | The library interface |
@@ -45,7 +45,10 @@ them and checks that they are identical byte for byte.
 equations, up to 3 public values, nonzero coefficients) and random packed
 layout settings. It checks that:
 
-- every reference and packed artifact compiled from them passes its checker;
+- every reference, packed and module artifact compiled from them passes its
+  checker, and each module is preserved both when its fragment is embedded in
+  a host AIR at a random column offset and with the reference artifact of the
+  same circuit as the host;
 - every witness of a satisfiable circuit projects, with each source wire's
   value in its cells;
 - a PILout with one changed constant, stage-one column reference or
@@ -53,7 +56,8 @@ layout settings. It checks that:
   polynomial as it was (for example a column whose terms cancel in
   `A · B - C`);
 - arbitrary bytes, and single changed bytes in valid sources, PILout files and
-  certificates, never make the parsers or checkers panic.
+  certificates, never make the parsers or checkers (the composition check
+  included) panic.
 
 Completeness and soundness (as defined in `SPEC.md`) are tested with
 `src/tests/air.rs`, an evaluator that reads only the PILout. Like a prover, it
@@ -69,7 +73,16 @@ every row for random challenges. On random satisfiable circuits (2–6 inputs,
   certificate satisfy the circuit, and the public values match.
 
 A case where a permutation denominator is zero for the drawn challenges is skipped,
-as the specification allows. A unit test checks that the evaluator rejects
+as the specification allows. `src/tests/module.rs` builds host AIRs the way an integration would: the
+fragment's expressions are copied into a larger AIR, with the module's columns
+moved, extra columns, a stage-two column and an adapter constraint on an
+exported wire. It requires such hosts to be preserved (also with the
+expressions reversed and wrapped), and a missing equation, a changed
+coefficient, an equation on the first row only, a module column read at
+another row, a wrong or aliased binding and a cancelling host operand to be
+rejected.
+
+A unit test checks that the evaluator rejects
 each kind of change on the xor fixture, so these properties cannot pass by
 accepting every trace.
 
@@ -131,7 +144,8 @@ tests; a mutant "survives" if all tests still pass:
 
 ```sh
 cargo mutants -f src/checker.rs -f src/packed_check.rs -f src/placement_check.rs \
-    -f src/pilout_check.rs -f src/polynomial.rs -f src/r1cs.rs -f src/field.rs
+    -f src/module_check.rs -f src/pilout_check.rs -f src/polynomial.rs -f src/r1cs.rs \
+    -f src/field.rs
 ```
 
 Every mutant should be caught except these known survivors, which do not
@@ -139,7 +153,7 @@ change the behavior:
 
 | Location | Mutation | Why it survives |
 | --- | --- | --- |
-| `pilout_check.rs`, `scalar` | `\|` → `^` when appending a byte | Same result: the shifted value has a zero low byte. |
+| `pilout_check.rs`, `scalar`, and `module_check.rs`, `host_scalar` | `\|` → `^` when appending a byte | Same result: the shifted value has a zero low byte. |
 | `packed_check.rs`, `add_permutation_columns` | `(P - 1) / n` → `(P + 1) / n` or `P / n` | Same result for every power of two `n ≥ 64`. |
 | `r1cs.rs`, `linear_combination` and the equation count in `read` | looser bound on the size check before allocation | Same result: truncated input is still rejected while reading. |
 

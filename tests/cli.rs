@@ -1,6 +1,6 @@
 //! Tests of the `air` executable, run from a temporary directory outside the
 //! repository.
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -286,7 +286,14 @@ fn help_and_version_are_available() {
         format!("air {}\n", env!("CARGO_PKG_VERSION"))
     );
     let all = stdout(&["--help"]);
-    for command in ["compile", "check", "plan", "witness"] {
+    for command in [
+        "compile",
+        "check",
+        "plan",
+        "witness",
+        "module",
+        "check-composition",
+    ] {
         assert!(all.contains(&format!("Usage: air {command}")));
         let help = stdout(&[command, "--help"]);
         assert!(help.contains(&format!("Usage: air {command}")));
@@ -435,6 +442,9 @@ fn only_documented_argument_forms_are_accepted() {
         &["plan", source.as_str(), layout.as_str(), "out"][..],
         &["check", source.as_str()][..],
         &["witness", source.as_str(), "packed"][..],
+        &["module", source.as_str(), "out", "1"][..],
+        &["module", source.as_str(), "out", "--export", "1", "--rows"][..],
+        &["check-composition", source.as_str(), "host.pilout"][..],
     ] {
         cli.fails("usage", args, "invalid arguments");
     }
@@ -461,4 +471,80 @@ fn arguments_that_are_not_utf8_get_a_json_error() {
         .as_str()
         .unwrap()
         .contains("not valid UTF-8"));
+}
+
+#[test]
+fn modules_compile_check_and_compose() {
+    let cli = Cli::new();
+    let source = fixture("xor", "kernel.r1cs");
+    let compiled = cli.ok(&["module", &source, "module", "--export", "1,2", "--optimize"]);
+    assert_eq!(compiled["relation"], "r1cs-module-per-row");
+    assert_eq!(compiled["exports"], json!([1, 2]));
+    assert_eq!(
+        compiled["piloutSha256"],
+        sha256(cli.path("module/module.pilout"))
+    );
+    let checked = cli.ok(&[
+        "check",
+        &source,
+        "module/module.pilout",
+        "module/certificate.json",
+    ]);
+    assert_eq!(checked["accepted"], true);
+    assert_eq!(checked["relation"], "r1cs-module-per-row");
+    // The reference artifact of the same source constrains every equation on
+    // every row with wire w in column w - 1, so it is a host for the module.
+    cli.ok(&["compile", &source, "reference", "--rows", "64"]);
+    let certificate: Value =
+        serde_json::from_slice(&fs::read(cli.path("module/certificate.json")).unwrap()).unwrap();
+    let binding = |offset: u64| {
+        let columns: Vec<Value> = certificate["wireColumns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .filter_map(|(wire, column)| {
+                column
+                    .as_u64()
+                    .map(|column| json!({"wire": wire, "column": column + offset}))
+            })
+            .collect();
+        json!({"airGroup": 0, "air": 0, "columns": columns}).to_string()
+    };
+    fs::write(cli.path("binding.json"), binding(0)).unwrap();
+    let composed = cli.ok(&[
+        "check-composition",
+        &source,
+        "reference/kernel.pilout",
+        "module/certificate.json",
+        "binding.json",
+    ]);
+    assert_eq!(composed["preserved"], true);
+    assert_eq!(composed["formallyVerified"], false);
+    assert_eq!(
+        composed["exports"],
+        json!([{"wire": 1, "column": 0}, {"wire": 2, "column": 1}])
+    );
+    fs::write(cli.path("shifted.json"), binding(1)).unwrap();
+    cli.fails(
+        "invalid",
+        &[
+            "check-composition",
+            &source,
+            "reference/kernel.pilout",
+            "module/certificate.json",
+            "shifted.json",
+        ],
+        "is not a stage-one column of the AIR",
+    );
+    cli.fails(
+        "invalid",
+        &["module", &source, "other", "--export", "0"],
+        "export 0: not a nonconstant wire of the circuit",
+    );
+    cli.fails(
+        "invalid",
+        &["module", &source, "other", "--export", "1,x"],
+        "export 'x'",
+    );
 }

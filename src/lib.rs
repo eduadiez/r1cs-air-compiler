@@ -26,6 +26,8 @@ mod emit;
 mod error;
 mod field;
 mod layout;
+mod module;
+mod module_check;
 mod packed;
 mod packed_check;
 mod pilout_check;
@@ -42,15 +44,19 @@ mod proto {
 }
 
 pub use api::{
-    check_packed, check_reference, compile_optimized_reference, compile_packed, compile_reference,
-    plan_layout, project_witness, LayoutPlan, PackedArtifact, ReferenceArtifact,
+    check_composition, check_module, check_packed, check_reference, compile_module,
+    compile_optimized_reference, compile_packed, compile_reference, plan_layout, project_witness,
+    LayoutPlan, ModuleArtifact, PackedArtifact, ReferenceArtifact,
 };
-pub use certificate::{PackedCertificate, ReferenceCertificate};
+pub use certificate::{
+    CompositionBinding, ModuleCertificate, PackedCertificate, ReferenceCertificate, WireColumn,
+};
 pub use checker::ReferenceCheckReport;
-pub use contract::{PACKED_RELATION, REFERENCE_RELATION};
+pub use contract::{MODULE_RELATION, PACKED_RELATION, REFERENCE_RELATION};
 pub use error::{Error, ErrorKind, Result};
 pub use field::GOLDILOCKS_PRIME;
 pub use layout::LayoutConfig;
+pub use module_check::{CompositionReport, ModuleCheckReport, COMPOSITION_CLAIM};
 pub use packed_check::PackedCheckReport;
 pub use rewrite::{Reuse, RewriteOptions};
 pub use witness::Witness;

@@ -9,6 +9,8 @@ air compile SOURCE OUT --layout CONFIG.json
 air check SOURCE KERNEL.pilout CERTIFICATE.json
 air plan SOURCE OUT --layout CONFIG.json
 air witness SOURCE ARTIFACT_DIR INPUT.wtns OUT
+air module SOURCE OUT --export WIRES [--optimize]
+air check-composition SOURCE HOST.pilout CERTIFICATE.json BINDING.json
 ```
 
 Arguments must appear exactly in these forms and in this order; anything else
@@ -19,10 +21,16 @@ fails with kind `usage`. `SOURCE` is an R1CS file.
   existing directory.
 - `--rows N` sets the row count of a reference artifact: a power of two from
   64 to 65536.
-- `check` chooses the reference or packed checker from the certificate's
-  `relation` field.
+- `check` chooses the reference, packed or module checker from the
+  certificate's `relation` field.
 - `witness` reads `kernel.pilout` and `certificate.json` from `ARTIFACT_DIR`,
   which must hold a packed artifact (from `compile --layout`).
+- `module` compiles a module for embedding in a host AIR. `--export WIRES` is
+  a comma-separated list of distinct R1CS wire ids, for example `1,2,5`;
+  `--optimize` simplifies expressions as for `compile`.
+- `check-composition` checks that the final PILout of a host AIR preserves the
+  module of `SOURCE` (`CERTIFICATE.json` from `module`) under `BINDING.json`
+  (see [Composition binding](#composition-binding)).
 
 ## Output files
 
@@ -32,11 +40,13 @@ fails with kind `usage`. `SOURCE` is an R1CS file.
 | `compile --layout` | `kernel.pilout`, `certificate.json`, `map.bin` |
 | `plan` | `plan.json`, `map.bin` |
 | `witness` | `trace.bin`, `public.bin` |
-| `check` | none |
+| `module` | `module.pilout`, `certificate.json` |
+| `check`, `check-composition` | none |
 
 | File | Content |
 | --- | --- |
 | `kernel.pilout` | The AIR, as PILout (protobuf) |
+| `module.pilout` | The module fragment, as PILout (protobuf): constraint `i` is source equation `i`; not provable on its own |
 | `certificate.json` | The certificate checked by `check`; its fields are listed in [the specification](../SPEC.md#certificates) |
 | `plan.json` | The `rewrittenCircuit` and `layout` fields a packed certificate would have |
 | `map.bin` | The wire in each cell, row by row, as little-endian `u32` (0 for an unused cell) |
@@ -44,6 +54,27 @@ fails with kind `usage`. `SOURCE` is an R1CS file.
 | `public.bin` | The public values in order, as little-endian `u64` field elements |
 
 The JSON files are compact JSON followed by a newline.
+
+## Composition binding
+
+The binding says where a module's wires are in the host PILout. The host
+writes it; every nonconstant wire of the R1CS must appear once, and no two
+wires may share a column:
+
+```json
+{"airGroup":0,"air":0,"columns":[{"wire":1,"column":3},{"wire":2,"column":4}]}
+```
+
+- `airGroup`, `air`: indices of the host AIR group and AIR.
+- `columns`: the host stage-one column of each wire, read at row offset 0.
+  Placing the module's columns from host column `k` gives wire `i` the column
+  `k + wireColumns[i]` (in the library, `CompositionBinding::with_offset`).
+
+The check finds, for every source equation, an every-row constraint of that
+AIR whose polynomial equals the equation over those columns. It accepts any
+expression order and sharing and ignores the host's other columns,
+constraints and hints. It establishes only that the AIR enforces the module's
+equations on every row; see [the specification](../SPEC.md#module-relation-r1cs-module-per-row).
 
 ## Layout configuration
 
@@ -113,8 +144,12 @@ Keys are printed in alphabetical order; their order carries no meaning. The
 | `check` (packed) | `accepted`, `relation`, `sourceEquations`, `auxiliaries`, `rows`, `width`, `requiresPermutation`, `formallyVerified` |
 | `plan` | `rows`, `width`, `auxiliaries`, `requiresPermutation`, `checkedEquations` (auxiliary definitions plus source equations) |
 | `witness` | `traceWords`, `publicWords` |
+| `module` | `relation`, `width`, `exports`, `piloutBytes`, `piloutSha256` |
+| `check` (module) | `accepted`, `relation`, `sourceEquations`, `width`, `exports` (count), `formallyVerified` |
+| `check-composition` | `preserved`, `relation`, `claim`, `airGroup`, `air`, `airName`, `rows`, `sourceEquations`, `trivialEquations`, `exports` (each `wire` and its host `column`), `formallyVerified` |
 
-`accepted` is always `true` (a rejected artifact gives an error instead), and
+`accepted` and `preserved` are always `true` (a rejected artifact gives an
+error instead), and
 `formallyVerified` is always `false`: a passing check is not a formal proof.
 
 On failure, a command prints one JSON object on stderr, nothing on stdout, and

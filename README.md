@@ -13,6 +13,8 @@ it.
 | `check` | R1CS, PILout, certificate | Accepted, or an error |
 | `plan` | R1CS, layout file | The packed placement only, checked, without PILout |
 | `witness` | R1CS, packed artifact, WTNS | Trace and public values |
+| `module` | R1CS, exported wire ids | A module fragment for a host AIR, and its certificate, already checked |
+| `check-composition` | R1CS, host PILout, module certificate, binding | Whether the host AIR enforces every equation of the module |
 
 A certificate is a JSON file that ties the PILout to its R1CS (by SHA-256) and
 records how wires were placed in the trace; the checker needs it.
@@ -138,6 +140,11 @@ Every compile function runs the checker before it returns. See
   auxiliary wires (new wires defined as a sum of other wires), equations that
   share wires are joined into row groups, and equal row groups are stacked in
   the same columns so that they share constraints.
+- **Modules** (`module`): the reference equations as a fragment for a larger
+  AIR (a host), with exported wires and no public values or row count. The
+  host places the columns anywhere; `check-composition` reads the host's final
+  PILout and checks that its AIR still enforces every equation on every row.
+  It claims nothing about the host's other constraints, such as a bus.
 - **Permutation argument:** when a packed layout puts a wire in more than one cell, a
   permutation argument forces those cells to be equal. It covers only the
   columns that hold such cells, and is left out when every wire has one cell.

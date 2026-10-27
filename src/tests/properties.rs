@@ -14,7 +14,7 @@ use crate::{
     layout::LayoutConfig,
     packed, packed_check, proto as pb, r1cs,
     rewrite::{Reuse, RewriteOptions},
-    sha256_hex, PackedCertificate, P,
+    sha256_hex, CompositionBinding, PackedCertificate, P,
 };
 use proptest::prelude::*;
 use proptest::sample::subsequence;
@@ -448,6 +448,27 @@ proptest! {
     }
 
     #[test]
+    fn modules_of_random_circuits_are_accepted_and_preserved(
+        circuit in circuit(),
+        optimize: bool,
+        offset in 0u32..8,
+    ) {
+        // compile_module runs the module checker before returning.
+        let source = circuit.bytes();
+        let module = api::compile_module(&source, &[1], optimize).unwrap();
+        let certificate = &module.certificate;
+        let host = super::module::host(&module, offset, 1);
+        let binding = CompositionBinding::with_offset(certificate, 0, 0, offset);
+        let result = api::check_composition(&source, &prost::Message::encode_to_vec(&host), certificate, &binding);
+        prop_assert!(result.is_ok(), "{:#}", result.unwrap_err());
+        // The reference artifact, compiled separately, is a host at offset 0.
+        let reference = api::compile_reference(&source, 64).unwrap();
+        let binding = CompositionBinding::with_offset(certificate, 0, 0, 0);
+        let result = api::check_composition(&source, &reference.pilout, certificate, &binding);
+        prop_assert!(result.is_ok(), "{:#}", result.unwrap_err());
+    }
+
+    #[test]
     fn packed_artifacts_of_random_circuits_are_accepted(
         circuit in circuit(),
         settings in layout_config(),
@@ -704,6 +725,11 @@ proptest! {
         reference_certificate.source_sha256 = sha256_hex(&changed_source);
         reference_certificate.pilout_sha256 = sha256_hex(&reference_pilout);
         let _ = checker::check(&changed_source, &reference_pilout, &reference_certificate);
+        // The reference PILout is a host for the module of the same source.
+        if let Ok(module) = api::compile_module(&source, &[1], false) {
+            let binding = CompositionBinding::with_offset(&module.certificate, 0, 0, 0);
+            let _ = api::check_composition(&changed_source, &reference_pilout, &module.certificate, &binding);
+        }
         if let Ok(mut certificate) = serde_json::from_slice::<PackedCertificate>(&certificate_json) {
             if target != 3 {
                 certificate.source_sha256 = sha256_hex(&changed_source);

@@ -18,6 +18,12 @@ First version.
   with a permutation argument.
 - Independent checkers for both relations, run on every compiled artifact.
 - Witness projection into a packed trace.
+- Modules (`r1cs-module-per-row`): `compile_module` and `air module` compile
+  a circuit, optionally with optimized expressions, to a fragment for a host
+  AIR, with one column per wire, every equation as one every-row constraint,
+  exported wire ids and no public values. `check_composition` and
+  `air check-composition` check that a host's final PILout enforces every
+  equation on every row over the columns in a binding.
 - `air` executable with the commands `compile`, `check`, `plan` and `witness`,
   and JSON reports. A failure report's `kind` is `usage`, `io`, `invalid` or
   `limit`. `certificate.json` and `plan.json` are compact JSON followed by a

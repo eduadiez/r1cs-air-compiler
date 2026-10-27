@@ -3,15 +3,18 @@
 The compiler turns an R1CS circuit (a list of equations `A · B = C` over
 wires) into a PILout file, the protobuf description of an AIR (the table of
 columns and row constraints a STARK prover works on), and a JSON certificate.
-There are two output forms, each encoding its own relation:
+There are three output forms, each encoding its own relation:
 
 | Form | Relation | Trace |
 | --- | --- | --- |
 | reference | `r1cs-per-row-publics-at-row-zero` | one column per wire; every row satisfies the whole circuit |
 | packed | `r1cs-packed-static-copy` | one assignment spread over the cells; each row holds a few small equations |
+| module | `r1cs-module-per-row` | a fragment for a host AIR: one column per wire, every row satisfies the whole circuit, no public values |
 
 For each form, an independent checker reads the R1CS, the PILout and the
-certificate, and either accepts them or reports why not.
+certificate, and either accepts them or reports why not. A module also has a
+composition checker, which reads the final PILout of a host AIR that embeds
+it (see [Module relation](#module-relation-r1cs-module-per-row)).
 
 Status: the checks are carried out by a program. Nothing in this
 specification has been proved in a proof assistant, and every check report
@@ -260,10 +263,76 @@ requires exactly these hints, in this order, each with exactly these fields:
 The `gsum_col` numerator `α - α` is zero, but written as an expression over a
 stage-two challenge.
 
+## Module relation (`r1cs-module-per-row`)
+
+A module is a circuit compiled for embedding in a larger AIR (the host), whose
+other constraints (for example a bus) are outside this specification.
+
+**Columns.** `width = N - 1` stage-one columns, one per nonconstant wire,
+including wires that appear in no equation. The certificate's `wireColumns`
+gives the fragment column of each wire (the compiler uses `i - 1`). The host
+may put the columns anywhere; the composition binding says where.
+
+**Relation.** On every row `r` of the host, every equation holds for the
+values `v(r, i)` read from the host column of each wire `i ≥ 1`, with
+`v(r, 0) = 1`. Public wires of the R1CS are ordinary wires: nothing binds them
+to public values. Exported wires (`exports`) are the wires the host means to
+constrain; the relation says nothing about them, and wires that appear in no
+equation stay unconstrained.
+
+**Fragment.** A PILout message (`module.pilout`), not provable on its own:
+
+- one AIR group and one AIR, both named `Kernel`, with `stageWidths = [width]`
+  and no row count;
+- one every-row constraint per equation, constraint `i` being
+  `Aᵢ · Bᵢ - Cᵢ` with each wire replaced by its column, and no labels;
+- the `--optimize` expressions when asked for (the same polynomials);
+- no stage two, challenges, public values, fixed or periodic columns, AIR
+  values, custom commits or hints, and only the stage-one symbol `a`.
+
+The module checker evaluates the fragment's expressions to exact polynomials
+and requires constraint `i` to equal equation `i`, and checks every other field
+as above.
+
+**Composition binding.** A JSON file chosen by the integrator:
+
+- `airGroup`, `air`: the indices of the host AIR;
+- `columns`: one `{"wire": i, "column": c}` per nonconstant wire, giving its
+  host stage-one column, read at row offset 0.
+
+**Composition check.** Given the R1CS, the module certificate, the binding
+and the host's final PILout, the checker requires:
+
+1. the certificate's version, relation and `sourceSha256`, and its wire map and
+   exports as in the module check;
+2. a Goldilocks PILout whose selected AIR exists and has a row count;
+3. every nonconstant wire bound exactly once, to a column below the AIR's
+   stage-one width, and no column bound to two wires;
+4. for each equation whose `Aᵢ · Bᵢ - Cᵢ` is not the zero polynomial, some
+   every-row constraint of the AIR whose polynomial equals it exactly, over the
+   host columns of its wires at row offset 0.
+
+The checker evaluates the host's expressions on demand, in any order and with
+any sharing, including negation and any operand kind. Every operand other than
+a witness column at row offset 0 is a distinct variable of its own (told
+apart by kind, identifiers and row offset), so it cannot cancel a module
+column. An expression of degree above 3 or beyond `MAX_PRODUCT_TERMS` is not
+evaluated; its constraint matches no equation, which can only make the check
+fail. Host field elements may have leading zero bytes, and the host need not
+be in canonical protobuf encoding. Constraint labels are never read.
+
+**Claim.** An accepted composition establishes only that the selected AIR
+enforces every source equation on every row over the bound columns. Nothing
+is claimed about the host's other constraints, its stages, challenges and
+hints, the bus, or the proof protocol; the report says so in `claim`.
+
 ## Artifact conventions
 
+These apply to the compiler's own artifacts (reference, packed and module
+fragment), not to a host PILout read by the composition check.
+
 - `Air.numRows` holds the row count `n`, not `log2(n)` as a comment in the
-  vendored schema says. Both checkers require this, and the backend exercised by
+  vendored schema says. The checkers require this, and the backend exercised by
   `tools/backend-check` reads it the same way.
 - The constants that define permutation labels (`7` and `COSET`) are fixed by a unit
   test.
@@ -273,14 +342,16 @@ stage-two challenge.
 - The PILout (`kernel`) has one AIR group and one AIR, both named `Kernel`, and
   nothing the relation does not use: no proof values, AIR values, periodic
   columns, custom commits, global constraints or negation.
-- Every constraint applies to every row and carries a fixed label in
-  `debug_line`, which both checkers require.
+- Every constraint applies to every row. Reference and packed constraints
+  carry a fixed label in `debug_line`, which their checkers require; module
+  constraints carry none.
 - Constraints, fixed columns and hints must appear in the order below. An
   artifact that encodes the same relation in a different order is rejected.
 
 | Form | Constraints (label) | Fixed columns |
 | --- | --- | --- |
 | reference | `stage-two zero`; `R1CS {i}` per equation; `public {j}` per public value | `FIRST`, only with public values |
+| module | one per equation, unlabeled | none |
 | packed | `stage-two zero` only without a permutation argument; `packed gate` per gate; `packed public` per `PA` column; with a permutation argument, `permutation ratio` per ratio, then `permutation recurrence` and `permutation closure` | with a permutation argument, `ID`, `S{c}` per permutation column in increasing order and `FIRST` (so `FIRST` is fixed column `p + 1`); then `E{i}` in selector order; `PH{h}`; `PL{l}`; `PA{c}` in the order of the first public value bound in each column |
 
 The packed checker evaluates expressions as polynomials only up to the last
@@ -289,7 +360,7 @@ gate or public constraint, so permutation-argument expressions must come after t
 ## Certificates
 
 Field names are in camelCase, unknown fields are rejected, and every field is
-checked. Both kinds contain:
+checked. Every kind contains:
 
 - `version`: the certificate format version, always 1;
 - `relation`: the certified relation; the CLI chooses the checker from it;
@@ -298,6 +369,11 @@ checked. Both kinds contain:
 A **reference** certificate adds `rows`, `width` (`N - 1`), `publicWires`
 (`1 … k` in order) and `wireColumns` (the column of each wire, `null` for
 `w₀`).
+
+A **module** certificate adds `width` (`N - 1`), `wireColumns` as for a
+reference certificate, and `exports`: distinct nonconstant wires, in the
+order given at compilation. Its `piloutSha256` is the hash of the fragment;
+the composition check does not use it.
 
 A **packed** certificate adds:
 
@@ -352,6 +428,23 @@ values `public`, put `w` on every row (possible because each wire `i ≥ 1` has
 its own column `m(i)`) and fill `stage2_zero` with 0, which is what its
 `gsum_col` hint computes (a zero numerator over 1). Every equation constraint
 holds on every row and the public constraints hold on row 0.
+
+### Module relation and composition
+
+*Soundness.* Let a host trace satisfy the host AIR, and let `h(i)` be the host
+column of wire `i`. For each nontrivial equation, some every-row constraint of
+the AIR equals `Aᵢ · Bᵢ - Cᵢ` with each wire `i` replaced by `a[h(i)]`, so on
+every row `r` that polynomial vanishes at `v(r, i) = a[h(i)][r]`: the
+equation holds. A trivial equation holds for any values. So every row holds
+an assignment that satisfies the circuit, whatever else the host constrains.
+The binding is one-to-one, so the assignment of each row is read from
+distinct columns; without that, two wires sharing a column would force them to
+be equal, which is a different relation.
+
+*Completeness* depends on the host: its other constraints may exclude a valid
+assignment, and the composition check does not look at them. The fragment
+itself accepts every satisfying assignment on every row, as the reference
+relation does.
 
 ### Packed relation
 
@@ -473,7 +566,9 @@ row for random challenges. The tests require that:
 
 ## Out of scope
 
-Preserving an R1CS relation says nothing about what the R1CS computes. Machine
+Preserving an R1CS relation says nothing about what the R1CS computes. For a
+module, the bus or adapter that connects exported wires to other machines,
+and whether its rows contribute requests, are the host's responsibility. Machine
 semantics, execution across rows, memory ordering, buses and lookups would need
 their own specifications. The soundness of the STARK, the security of
 Fiat–Shamir and zero knowledge do not follow from the compiler preserving the

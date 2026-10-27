@@ -1,6 +1,6 @@
-//! Data carried by certificates: the rewritten circuit, the packed layout and
-//! the two certificate types, with read-only accessors and the hash used to
-//! bind them. Nothing here builds or checks certificates, so the checkers can
+//! Data carried by certificates: the rewritten circuit, the packed layout, the
+//! three certificate types and a module's composition binding, with read-only
+//! accessors and the hash used to bind them. Nothing here builds or checks certificates, so the checkers can
 //! read them without depending on the code that builds them.
 use crate::field::FieldElement;
 use crate::r1cs::{Equation, LinearCombination};
@@ -210,4 +210,106 @@ impl PackedCertificate {
     pub fn auxiliary_count(&self) -> usize {
         self.rewritten_circuit.auxiliaries.len()
     }
+}
+
+/// Certificate for a module artifact: the source and module fragment it binds,
+/// the column of every wire in the fragment and the exported wires.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModuleCertificate {
+    /// Certificate format version.
+    pub(crate) version: u32,
+    /// Name of the certified relation.
+    pub(crate) relation: String,
+    pub(crate) source_sha256: String,
+    /// SHA-256 of the module fragment (a PILout message).
+    pub(crate) pilout_sha256: String,
+    /// Number of stage-one columns of the fragment: one per wire except the
+    /// constant wire 0.
+    pub(crate) width: u32,
+    /// Column of each wire in the fragment. Wire 0 is the constant 1 and has no
+    /// column; every other wire has its own column.
+    pub(crate) wire_columns: Vec<Option<u32>>,
+    /// Wires the host may constrain, in the order given at compilation.
+    pub(crate) exports: Vec<u32>,
+}
+impl ModuleCertificate {
+    /// Certificate format version.
+    pub fn version(&self) -> u32 {
+        self.version
+    }
+    /// Name of the certified relation: [`crate::MODULE_RELATION`].
+    pub fn relation(&self) -> &str {
+        &self.relation
+    }
+    /// SHA-256 of the R1CS file, in lowercase hexadecimal.
+    pub fn source_sha256(&self) -> &str {
+        &self.source_sha256
+    }
+    /// SHA-256 of the module fragment, in lowercase hexadecimal.
+    pub fn pilout_sha256(&self) -> &str {
+        &self.pilout_sha256
+    }
+    /// Number of stage-one columns of the fragment.
+    pub fn width(&self) -> usize {
+        self.width as usize
+    }
+    /// Column of each wire in the fragment; wire 0, the constant 1, has none.
+    pub fn wire_columns(&self) -> &[Option<u32>] {
+        &self.wire_columns
+    }
+    /// Exported wires.
+    pub fn exports(&self) -> &[u32] {
+        &self.exports
+    }
+}
+
+/// Where a module's wires are in a host PILout: the AIR, and the stage-one
+/// column of every nonconstant wire (all at row offset 0).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompositionBinding {
+    /// Index of the AIR group in the host PILout.
+    pub air_group: u32,
+    /// Index of the AIR in that group.
+    pub air: u32,
+    /// The host column of each nonconstant wire.
+    pub columns: Vec<WireColumn>,
+}
+impl CompositionBinding {
+    /// A binding that puts the module's columns at `offset` and above: fragment
+    /// column `c` becomes host column `offset + c`.
+    pub fn with_offset(
+        certificate: &ModuleCertificate,
+        air_group: u32,
+        air: u32,
+        offset: u32,
+    ) -> Self {
+        let columns = certificate
+            .wire_columns
+            .iter()
+            .enumerate()
+            .filter_map(|(wire, column)| {
+                column.map(|column| WireColumn {
+                    wire: wire as u32,
+                    column: offset.saturating_add(column),
+                })
+            })
+            .collect();
+        Self {
+            air_group,
+            air,
+            columns,
+        }
+    }
+}
+
+/// One wire and its host stage-one column.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireColumn {
+    /// R1CS wire id, at least 1.
+    pub wire: u32,
+    /// Stage-one column of the host AIR.
+    pub column: u32,
 }

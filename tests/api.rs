@@ -63,6 +63,7 @@ fn packed_artifacts_plan_compile_check_and_project() -> air::Result<()> {
 fn relation_names_and_prime_are_fixed() {
     assert_eq!(air::REFERENCE_RELATION, "r1cs-per-row-publics-at-row-zero");
     assert_eq!(air::PACKED_RELATION, "r1cs-packed-static-copy");
+    assert_eq!(air::MODULE_RELATION, "r1cs-module-per-row");
     assert_eq!(air::GOLDILOCKS_PRIME, 0xffff_ffff_0000_0001);
 }
 
@@ -117,4 +118,26 @@ fn circuits_too_large_for_the_reference_layout_exceed_a_limit() {
     assert_eq!(error.kind(), air::ErrorKind::Limit, "{error:#}");
     let error = air::compile_optimized_reference(&source, 64).unwrap_err();
     assert_eq!(error.kind(), air::ErrorKind::Limit, "{error:#}");
+}
+
+#[test]
+fn modules_compile_and_compose_into_a_host() -> air::Result<()> {
+    let module = air::compile_module(SOURCE, &[1, 2], false)?;
+    let certificate = &module.certificate;
+    assert_eq!(certificate.relation(), air::MODULE_RELATION);
+    assert_eq!(certificate.exports(), [1, 2]);
+    let report = air::check_module(SOURCE, &module.pilout, certificate)?;
+    assert!(report.accepted && !report.formally_verified);
+    // Every reference constraint over column w - 1 enforces source equation
+    // w on every row, so the reference artifact is a host at offset 0.
+    let host = air::compile_reference(SOURCE, 64)?;
+    let binding = air::CompositionBinding::with_offset(certificate, 0, 0, 0);
+    let report = air::check_composition(SOURCE, &host.pilout, certificate, &binding)?;
+    assert!(report.preserved && !report.formally_verified);
+    assert_eq!(report.claim, air::COMPOSITION_CLAIM);
+    let exports: Vec<_> = report.exports.iter().map(|e| (e.wire, e.column)).collect();
+    assert_eq!(exports, [(1, 0), (2, 1)]);
+    let shifted = air::CompositionBinding::with_offset(certificate, 0, 0, 1);
+    assert!(air::check_composition(SOURCE, &host.pilout, certificate, &shifted).is_err());
+    Ok(())
 }

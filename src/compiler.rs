@@ -32,12 +32,10 @@ pub fn compile(
     let width = circuit.wires - 1;
     let mut builder = Builder::new(rows, width, ZERO_COLUMN_NAME, optimize);
     builder.constrain_zero_column();
-    for (index, [a, b, c]) in circuit.equations.iter().enumerate() {
-        let a = builder.linear_combination(a);
-        let b = builder.linear_combination(b);
-        let c = builder.linear_combination(c);
-        let product = builder.expression(Op::Mul, a, b);
-        let residual = builder.expression(Op::Sub, product, c);
+    for (index, residual) in equation_residuals(&mut builder, circuit)
+        .into_iter()
+        .enumerate()
+    {
         builder.constrain(residual, label::source_equation(index));
     }
     if circuit.publics > 0 {
@@ -63,4 +61,21 @@ pub fn compile(
         wire_columns: (0..circuit.wires).map(|w| w.checked_sub(1)).collect(),
     };
     Ok((bytes, certificate))
+}
+
+/// `A · B - C` for each source equation, in order, over the stage-one columns
+/// (wire `w > 0` is column `w - 1`). Reference artifacts and modules use the
+/// same expressions.
+pub fn equation_residuals(builder: &mut Builder, circuit: &Circuit) -> Vec<pb::Operand> {
+    circuit
+        .equations
+        .iter()
+        .map(|[a, b, c]| {
+            let a = builder.linear_combination(a);
+            let b = builder.linear_combination(b);
+            let c = builder.linear_combination(c);
+            let product = builder.expression(Op::Mul, a, b);
+            builder.expression(Op::Sub, product, c)
+        })
+        .collect()
 }

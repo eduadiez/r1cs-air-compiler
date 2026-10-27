@@ -2,6 +2,7 @@
 //! PILout or the certificate, and require a check to reject the change for the
 //! expected reason.
 mod air;
+mod module;
 mod packed;
 mod parser;
 mod placement;
@@ -230,14 +231,23 @@ pub fn challenge_operand(stage: u32, idx: u32) -> pb::operand::Operand {
 fn checkers_do_not_use_compiler_modules() {
     const CHECKERS: &[(&str, &str)] = &[
         ("checker.rs", include_str!("../checker.rs")),
+        ("module_check.rs", include_str!("../module_check.rs")),
         ("packed_check.rs", include_str!("../packed_check.rs")),
         ("placement_check.rs", include_str!("../placement_check.rs")),
         ("pilout_check.rs", include_str!("../pilout_check.rs")),
         ("polynomial.rs", include_str!("../polynomial.rs")),
         ("witness.rs", include_str!("../witness.rs")),
     ];
-    const COMPILER_MODULES: &[&str] = &["compiler", "dag", "emit", "layout", "rewrite", "packed"];
-    const COMPILER_TYPES: &[&str] = &["PackedArtifact", "LayoutConfig", "RewriteOptions", "Reuse"];
+    const COMPILER_MODULES: &[&str] = &[
+        "compiler", "dag", "emit", "layout", "module", "rewrite", "packed",
+    ];
+    const COMPILER_TYPES: &[&str] = &[
+        "PackedArtifact",
+        "ModuleArtifact",
+        "LayoutConfig",
+        "RewriteOptions",
+        "Reuse",
+    ];
     let words = |text: &str| -> Vec<String> {
         text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
             .filter(|word| !word.is_empty())

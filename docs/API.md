@@ -17,6 +17,9 @@ Each function takes the R1CS file as bytes (`source`).
 | `check_reference(source, pilout, &certificate)` | `ReferenceCheckReport` | Checks a reference artifact from any origin |
 | `check_packed(source, pilout, &certificate)` | `PackedCheckReport` | Checks a packed artifact from any origin |
 | `project_witness(source, pilout, &certificate, wtns)` | `Witness` | Runs `check_packed`, checks that the witness satisfies every equation, then fills the trace |
+| `compile_module(source, exports, optimize)` | `ModuleArtifact` | Builds a module fragment for a host AIR, with `exports` the exported wire ids, then runs the module checker on it |
+| `check_module(source, pilout, &certificate)` | `ModuleCheckReport` | Checks a module fragment from any origin |
+| `check_composition(source, host, &certificate, &binding)` | `CompositionReport` | Checks that a host PILout enforces every source equation on every row over the columns in `binding` |
 
 `rows` must be a power of two from 64 to 65536. `config` is a `LayoutConfig`;
 [the CLI reference](CLI.md#layout-configuration) lists its fields and values.
@@ -44,24 +47,31 @@ fn main() -> Result<()> {
 | --- | --- |
 | `ReferenceArtifact` | `pilout` (bytes) and `certificate` |
 | `PackedArtifact` | `pilout`, `certificate` and `map`, the wire in each cell row by row (0 for an unused cell) |
+| `ModuleArtifact` | `pilout` (the module fragment) and `certificate` |
+| `ModuleCertificate` | Private fields; methods `version`, `relation`, `source_sha256`, `pilout_sha256`, `width`, `wire_columns`, `exports` |
+| `CompositionBinding`, `WireColumn` | Public fields `air_group`, `air` and `columns` (each `wire` and `column`); `CompositionBinding::with_offset(&certificate, air_group, air, offset)` places the module's columns from host column `offset` |
 | `ReferenceCertificate` | Private fields; methods `version`, `relation`, `source_sha256`, `pilout_sha256`, `rows`, `width`, `public_wires`, `wire_columns` |
 | `PackedCertificate` | Private fields; methods `version`, `relation`, `source_sha256`, `pilout_sha256`, `rows`, `width`, `requires_permutation`, `auxiliary_count` |
 | `LayoutPlan` | Methods `rows`, `width`, `auxiliary_count`, `requires_permutation`, `checked_equations`, `map` |
-| `ReferenceCheckReport`, `PackedCheckReport` | The fields of the CLI's `check` report, in snake case |
+| `ReferenceCheckReport`, `PackedCheckReport`, `ModuleCheckReport` | The fields of the CLI's `check` report, in snake case |
+| `CompositionReport` | The fields of the CLI's `check-composition` report, in snake case; `claim` is `COMPOSITION_CLAIM` |
 | `Witness` | `trace` (stage one, row by row) and `publics`, as `Vec<u64>` |
 | `LayoutConfig`, `RewriteOptions`, `Reuse` | The packed layout settings |
 | `Error`, `ErrorKind`, `Result<T>` | See [Errors](#errors) |
 
 The certificates serialize to the certificate JSON of
-[the specification](../SPEC.md#certificates). Constants: `REFERENCE_RELATION`
-and `PACKED_RELATION` are the values of a certificate's `relation` field, and
+[the specification](../SPEC.md#certificates). Constants: `REFERENCE_RELATION`,
+`PACKED_RELATION` and `MODULE_RELATION` are the values of a certificate's
+`relation` field, `COMPOSITION_CLAIM` is the text of a composition report's
+`claim`, and
 `GOLDILOCKS_PRIME` is the field modulus.
 
 Every public type except `Error` implements `Debug`, `Clone` and `PartialEq`.
 `Reuse`, `ErrorKind`, the artifacts, the check reports and
 `Witness` are `#[non_exhaustive]`: later versions may add variants and fields,
-so a `match` on these enums needs a wildcard arm. `LayoutConfig` and
-`RewriteOptions` have public fields and are built by the caller.
+so a `match` on these enums needs a wildcard arm. `LayoutConfig`,
+`RewriteOptions`, `CompositionBinding` and `WireColumn` have public fields and
+are built by the caller.
 
 ## Errors
 
