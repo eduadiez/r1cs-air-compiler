@@ -12,7 +12,7 @@ outputs (the bits of their SHA-256 hash).
 
 **Reference layout: too large.** The reference layout uses one column per wire
 and one AIR constraint per equation: here 29 324 columns and more than
-`MAX_EXPRESSIONS` expressions. `air compile --rows 64` fails with
+`MAX_EXPRESSIONS` expressions. `air compile` with the reference layout fails with
 `too many expressions`, and with `--optimize` it fails with
 `evaluated expressions exceed the term limit`. These limits (in
 `src/contract.rs`) bound the checker's memory, so a circuit of this size needs

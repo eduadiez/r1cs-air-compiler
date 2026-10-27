@@ -63,7 +63,7 @@ const COMMANDS: &[(&str, &[&str])] = &[
     (
         "compile",
         &[
-            "SOURCE OUT --rows N [--optimize]",
+            "SOURCE OUT [--rows N] [--optimize]",
             "SOURCE OUT --layout CONFIG.json",
         ],
     ),
@@ -242,24 +242,37 @@ fn compile(args: &[String]) -> CommandResult<Value> {
         [source, output, flag, config] if flag == "--layout" => {
             compile_packed(source, output, config)
         }
-        [source, output, flag, rows] if flag == "--rows" => {
-            compile_reference(source, output, rows, false)
-        }
-        [source, output, flag, rows, optimize] if flag == "--rows" && optimize == "--optimize" => {
-            compile_reference(source, output, rows, true)
+        [source, output, rest @ ..] => {
+            let (rows, optimize) = match rest {
+                [] => (None, false),
+                [optimize] if optimize == "--optimize" => (None, true),
+                [flag, rows] if flag == "--rows" => (Some(rows), false),
+                [flag, rows, optimize] if flag == "--rows" && optimize == "--optimize" => {
+                    (Some(rows), true)
+                }
+                _ => return usage("compile"),
+            };
+            compile_reference(source, output, rows, optimize)
         }
         _ => usage("compile"),
     }
 }
 
+/// Row count of a reference artifact when `--rows` is not given: the smallest
+/// allowed, since every row holds a whole instance of the circuit.
+const DEFAULT_ROWS: usize = 64;
+
 fn compile_reference(
     source: &str,
     output: &str,
-    rows: &str,
+    rows: Option<&String>,
     optimize: bool,
 ) -> CommandResult<Value> {
     let bytes = read(source)?;
-    let rows = rows.parse().map_err(|e| format!("rows '{rows}': {e}"))?;
+    let rows = match rows {
+        Some(rows) => rows.parse().map_err(|e| format!("rows '{rows}': {e}"))?,
+        None => DEFAULT_ROWS,
+    };
     let (artifact, mode) = if optimize {
         let artifact = air::compile_optimized_reference(&bytes, rows);
         (artifact, "optimized-reference")

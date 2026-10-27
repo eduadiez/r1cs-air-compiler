@@ -51,8 +51,8 @@ circom fixtures/xor/kernel.circom --r1cs --wasm --c --prime goldilocks --O2 -o b
 node build/kernel_js/generate_witness.js build/kernel_js/kernel.wasm fixtures/xor/input.json build/input.wtns
 # or: make -C build/kernel_cpp && build/kernel_cpp/kernel fixtures/xor/input.json build/input.wtns
 
-# Reference layout: 64 rows, one column per wire.
-cargo run --bin air -- compile fixtures/xor/kernel.r1cs out/reference --rows 64
+# Reference layout: one column per wire, 64 rows unless --rows N says otherwise.
+cargo run --bin air -- compile fixtures/xor/kernel.r1cs out/reference
 cargo run --bin air -- check fixtures/xor/kernel.r1cs out/reference/kernel.pilout out/reference/certificate.json
 
 # Packed layout, then the trace for a witness.
@@ -150,10 +150,11 @@ Every compile function runs the checker before it returns. See
 
 - **Input:** R1CS version 1 and WTNS version 2 files over Goldilocks, with
   8-byte field elements. Custom gates and other fields are rejected.
-- **Reference layout** (`--rows N`): one column per nonconstant wire, every
-  constraint of the circuit on every row, and the public values bound on row 0.
+- **Reference layout** (the default; `--rows N`, 64 if not given): one column
+  per nonconstant wire, every constraint of the circuit on every row, and the
+  public values bound on row 0.
   Large circuits exceed the checker's size limits and need a packed layout.
-- **Optimized reference** (`--rows N --optimize`): the same, with expressions
+- **Optimized reference** (`--optimize`): the same, with expressions
   simplified by identities that hold for every field value (such as `x · 1 = x`)
   and repeated subexpressions reused.
 - **Packed layout** (`--layout FILE`): long linear combinations are split with

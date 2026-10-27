@@ -301,6 +301,27 @@ fn help_and_version_are_available() {
 }
 
 #[test]
+fn reference_artifacts_have_64_rows_by_default() {
+    let cli = Cli::new();
+    let source = fixture("xor", "kernel.r1cs");
+    for (default, explicit, extra) in [
+        ("plain", "plain-64", &[][..]),
+        ("optimized", "optimized-64", &["--optimize"][..]),
+    ] {
+        let compiled = cli.ok(&[&["compile", &source, default][..], extra].concat());
+        assert_eq!(compiled["rows"], 64);
+        cli.ok(&[&["compile", &source, explicit, "--rows", "64"][..], extra].concat());
+        for file in ["kernel.pilout", "certificate.json"] {
+            assert_eq!(
+                fs::read(cli.path(&format!("{default}/{file}"))).unwrap(),
+                fs::read(cli.path(&format!("{explicit}/{file}"))).unwrap(),
+                "{default}/{file}"
+            );
+        }
+    }
+}
+
+#[test]
 fn reports_have_the_documented_fields() {
     let cli = Cli::new();
     let source = fixture("xor", "kernel.r1cs");
@@ -439,6 +460,15 @@ fn only_documented_argument_forms_are_accepted() {
     for args in [
         &["compile", source.as_str(), "out", "64"][..],
         &["compile", source.as_str(), "out", "--rows"][..],
+        &[
+            "compile",
+            source.as_str(),
+            "out",
+            "--optimize",
+            "--rows",
+            "64",
+        ][..],
+        &["compile", source.as_str(), "out", "--layout"][..],
         &["plan", source.as_str(), layout.as_str(), "out"][..],
         &["check", source.as_str()][..],
         &["witness", source.as_str(), "packed"][..],

@@ -4,7 +4,7 @@
 `air --version` prints the package version.
 
 ```text
-air compile SOURCE OUT --rows N [--optimize]
+air compile SOURCE OUT [--rows N] [--optimize]
 air compile SOURCE OUT --layout CONFIG.json
 air check SOURCE KERNEL.pilout CERTIFICATE.json
 air plan SOURCE OUT --layout CONFIG.json
@@ -19,8 +19,11 @@ fails with kind `usage`. `SOURCE` is an R1CS file.
 - `OUT` must not exist, and its parent directory must. The command creates it
   only after the artifact has passed its check, and never overwrites an
   existing directory.
-- `--rows N` sets the row count of a reference artifact: a power of two from
-  64 to 65536.
+- `compile` without `--layout` builds a reference artifact. `--rows N` sets its
+  row count, a power of two from 64 to 65536; without it the artifact has 64
+  rows, the fewest allowed, since every row holds a whole instance of the
+  circuit. `--optimize` simplifies its expressions without changing the
+  constraint polynomials.
 - `check` chooses the reference, packed or module checker from the
   certificate's `relation` field.
 - `witness` reads `kernel.pilout` and `certificate.json` from `ARTIFACT_DIR`,
@@ -36,7 +39,7 @@ fails with kind `usage`. `SOURCE` is an R1CS file.
 
 | Command | Files written to `OUT` |
 | --- | --- |
-| `compile --rows` | `kernel.pilout`, `certificate.json` |
+| `compile` (reference) | `kernel.pilout`, `certificate.json` |
 | `compile --layout` | `kernel.pilout`, `certificate.json`, `map.bin` |
 | `plan` | `plan.json`, `map.bin` |
 | `witness` | `trace.bin`, `public.bin` |

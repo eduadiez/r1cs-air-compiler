@@ -14,7 +14,8 @@ output is breaking: it raises the minor version, is listed here, and updates
 First version.
 
 - Reference relation (`r1cs-per-row-publics-at-row-zero`), with optional
-  expression simplification, and packed relation (`r1cs-packed-static-copy`)
+  expression simplification; `air compile` builds it with 64 rows unless
+  `--rows` is given, and packed relation (`r1cs-packed-static-copy`)
   with a permutation argument.
 - Independent checkers for both relations, run on every compiled artifact.
 - Witness projection into a packed trace.
