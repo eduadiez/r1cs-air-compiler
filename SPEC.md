@@ -363,6 +363,21 @@ gate or public constraint, so permutation-argument expressions must come after t
 
 ## Certificates
 
+A certificate is the compiler's account of an artifact: which relation the
+PILout encodes, for which R1CS, and where the wires and equations are in the
+trace. It lets a checker verify the artifact without searching for that
+information. It is not signed and not trusted: the checker accepts the
+artifact only if the certificate is consistent with the R1CS and the PILout,
+and rejects it otherwise.
+
+For example, the reference certificate of `fixtures/xor`, shortened:
+
+```json
+{"version":1,"relation":"r1cs-per-row-publics-at-row-zero",
+ "sourceSha256":"d12202be…","piloutSha256":"3e7d854c…",
+ "rows":64,"width":96,"publicWires":[1,2,3],"wireColumns":[null,0,1,2,…]}
+```
+
 Field names are in camelCase, unknown fields are rejected, and every field is
 checked. Every kind contains:
 

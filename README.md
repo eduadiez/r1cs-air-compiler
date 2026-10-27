@@ -16,8 +16,15 @@ it.
 | `module` | R1CS, exported wire ids | A module fragment for a host AIR, and its certificate, already checked |
 | `check-composition` | R1CS, host PILout, module certificate, binding | Whether the host AIR enforces every equation of the module |
 
-A certificate is a JSON file that ties the PILout to its R1CS (by SHA-256) and
-records how wires were placed in the trace; the checker needs it.
+Each artifact is a PILout file and a **certificate** (`certificate.json`): the
+compiler's account of what it built, which the checker verifies. It ties the
+PILout to its R1CS by their SHA-256 hashes and records where each wire is in
+the trace (and, for a packed layout, the auxiliary wires and where each
+equation is placed). The certificate is not signed and not trusted: the checker
+re-derives every field from the R1CS and the PILout, so a wrong certificate
+can only make a check fail. [The specification](SPEC.md#certificates) lists
+its fields, and [the CLI reference](docs/CLI.md#output-files) every output
+file.
 
 ## Build and test
 
