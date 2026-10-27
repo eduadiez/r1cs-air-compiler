@@ -12,7 +12,7 @@ Each function takes the R1CS file as bytes (`source`).
 | --- | --- | --- |
 | `compile_reference(source, rows)` | `ReferenceArtifact` | Builds the reference artifact, then runs the reference checker on it |
 | `compile_optimized_reference(source, rows)` | `ReferenceArtifact` | The same, with expressions simplified and repeated subexpressions reused |
-| `compile_packed(source, &config)` | `PackedArtifact` | Builds the packed artifact, then runs the packed checker on it |
+| `compile_packed(source, &config)` | `PackedArtifact` | Builds the packed artifact, choosing the settings `config` leaves out, then runs the packed checker on it |
 | `plan_layout(source, &config)` | `LayoutPlan` | Builds the auxiliary wires and the placement and runs the placement check; no PILout |
 | `check_reference(source, pilout, &certificate)` | `ReferenceCheckReport` | Checks a reference artifact from any origin |
 | `check_packed(source, pilout, &certificate)` | `PackedCheckReport` | Checks a packed artifact from any origin |
@@ -21,8 +21,11 @@ Each function takes the R1CS file as bytes (`source`).
 | `check_module(source, pilout, &certificate)` | `ModuleCheckReport` | Checks a module fragment from any origin |
 | `check_composition(source, host, &certificate, &binding)` | `CompositionReport` | Checks that a host PILout enforces every source equation on every row over the columns in `binding` |
 
-`rows` must be a power of two from 64 to 65536. `config` is a `LayoutConfig`;
-[the CLI reference](CLI.md#layout-configuration) lists its fields and values.
+`rows` must be a power of two from 64 to 65536. `config` is a `LayoutConfig`,
+whose fields are all optional: `LayoutConfig::default()` leaves the whole
+layout to the compiler. [The CLI reference](CLI.md#layout-configuration) lists
+the fields, their defaults and how the missing `min_rows` and
+`row_group_width` are chosen.
 No public function skips a check.
 
 ## Example
@@ -46,17 +49,17 @@ fn main() -> Result<()> {
 | Type | Content |
 | --- | --- |
 | `ReferenceArtifact` | `pilout` (bytes) and `certificate` |
-| `PackedArtifact` | `pilout`, `certificate` and `map`, the wire in each cell row by row (0 for an unused cell) |
+| `PackedArtifact` | `pilout`, `certificate`, `map` (the wire in each cell row by row, 0 for an unused cell) and `config` (the layout settings used, every field filled in) |
 | `ModuleArtifact` | `pilout` (the module fragment) and `certificate` |
 | `ModuleCertificate` | Private fields; methods `version`, `relation`, `source_sha256`, `pilout_sha256`, `width`, `wire_columns`, `exports` |
 | `CompositionBinding`, `WireColumn` | Public fields `air_group`, `air` and `columns` (each `wire` and `column`); `CompositionBinding::with_offset(&certificate, air_group, air, offset)` places the module's columns from host column `offset` |
 | `ReferenceCertificate` | Private fields; methods `version`, `relation`, `source_sha256`, `pilout_sha256`, `rows`, `width`, `public_wires`, `wire_columns` |
 | `PackedCertificate` | Private fields; methods `version`, `relation`, `source_sha256`, `pilout_sha256`, `rows`, `width`, `requires_permutation`, `auxiliary_count` |
-| `LayoutPlan` | Methods `rows`, `width`, `auxiliary_count`, `requires_permutation`, `checked_equations`, `map` |
+| `LayoutPlan` | Methods `rows`, `width`, `auxiliary_count`, `requires_permutation`, `checked_equations`, `map`, `config` (the settings used) |
 | `ReferenceCheckReport`, `PackedCheckReport`, `ModuleCheckReport` | The fields of the CLI's `check` report, in snake case |
 | `CompositionReport` | The fields of the CLI's `check-composition` report, in snake case; `claim` is `COMPOSITION_CLAIM` |
 | `Witness` | `trace` (stage one, row by row) and `publics`, as `Vec<u64>` |
-| `LayoutConfig`, `RewriteOptions`, `Reuse` | The packed layout settings |
+| `LayoutConfig`, `Reuse` | The packed layout settings |
 | `Error`, `ErrorKind`, `Result<T>` | See [Errors](#errors) |
 
 The certificates serialize to the certificate JSON of
@@ -70,8 +73,8 @@ Every public type except `Error` implements `Debug`, `Clone` and `PartialEq`.
 `Reuse`, `ErrorKind`, the artifacts, the check reports and
 `Witness` are `#[non_exhaustive]`: later versions may add variants and fields,
 so a `match` on these enums needs a wildcard arm. `LayoutConfig`,
-`RewriteOptions`, `CompositionBinding` and `WireColumn` have public fields and
-are built by the caller.
+`CompositionBinding` and `WireColumn` have public fields and are built by the
+caller.
 
 ## Errors
 

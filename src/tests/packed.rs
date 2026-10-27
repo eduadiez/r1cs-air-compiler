@@ -26,16 +26,25 @@ fn source() -> Vec<u8> {
     )
 }
 
+/// Every setting given, so no layout search runs.
 pub fn config(width: usize) -> LayoutConfig {
     LayoutConfig {
-        options: RewriteOptions {
-            width,
-            auxiliary_terms: 2,
-            reuse_auxiliaries: Reuse::Available,
-            fold_constants: true,
-        },
-        row_group_width: None,
-        min_rows: 64,
+        width: Some(width),
+        auxiliary_terms: Some(2),
+        reuse_auxiliaries: Some(Reuse::Available),
+        fold_constants: Some(true),
+        min_rows: Some(64),
+        row_group_width: Some(width),
+    }
+}
+
+/// The rewriting settings of [`config`].
+pub fn options(width: usize) -> RewriteOptions {
+    RewriteOptions {
+        width,
+        auxiliary_terms: 2,
+        reuse_auxiliaries: Reuse::Available,
+        fold_constants: true,
     }
 }
 
@@ -147,7 +156,7 @@ fn public_row_selectors_are_accepted_at_square_boundaries() {
             .collect();
         let source = r1cs_bytes([wires, 0, k, wires - 1 - k], &equations);
         let mut settings = config(3);
-        settings.options.reuse_auxiliaries = Reuse::None;
+        settings.reuse_auxiliaries = Some(Reuse::None);
         let a = packed::compile(&source, &settings).unwrap();
         let rows: std::collections::BTreeSet<_> = a
             .certificate
@@ -178,7 +187,7 @@ fn each_segment_of_a_stack_gets_one_gate() {
     let source = connected_source(100);
     for (min_rows, segments) in [(64, 2), (128, 1)] {
         let mut settings = config(3);
-        settings.min_rows = min_rows;
+        settings.min_rows = Some(min_rows);
         let a = packed::compile(&source, &settings).unwrap();
         let layout = &a.certificate.layout;
         assert_eq!(layout.rows, min_rows);
@@ -222,7 +231,7 @@ fn row_group_width_is_checked() {
         settings.row_group_width = Some(row_group_width);
         assert_rejected(
             packed::compile(&source(), &settings),
-            "rowGroupWidth must be in options.width..=1024",
+            "rowGroupWidth must be in width..=1024",
         );
     }
 }
@@ -297,7 +306,7 @@ fn permutation_arguments_without_ratio_columns_are_checked() {
 #[test]
 fn row_counts_and_row_group_widths_are_limited() {
     let mut settings = config(3);
-    settings.min_rows = 1 << 63;
+    settings.min_rows = Some(1 << 63);
     assert_limit(
         packed::compile(&source(), &settings),
         "minRows exceeds 65536",

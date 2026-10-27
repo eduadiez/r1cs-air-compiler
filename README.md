@@ -9,9 +9,9 @@ it.
 
 | Command | Reads | Produces |
 | --- | --- | --- |
-| `compile` | R1CS, and a row count or a layout file | PILout and certificate, already checked |
+| `compile` | R1CS; optionally a row count, `--packed` or a layout file | PILout and certificate, already checked |
 | `check` | R1CS, PILout, certificate | Accepted, or an error |
-| `plan` | R1CS, layout file | The packed placement only, checked, without PILout |
+| `plan` | R1CS, optionally a layout file | The packed placement only, checked, without PILout |
 | `witness` | R1CS, packed artifact, WTNS | Trace and public values |
 | `module` | R1CS, exported wire ids | A module fragment for a host AIR, and its certificate, already checked |
 | `check-composition` | R1CS, host PILout, module certificate, binding | Whether the host AIR enforces every equation of the module |
@@ -56,9 +56,9 @@ cargo run --bin air -- compile fixtures/xor/kernel.r1cs out/reference
 cargo run --bin air -- check fixtures/xor/kernel.r1cs out/reference/kernel.pilout out/reference/certificate.json
 
 # Packed layout, then the trace for a witness.
-cargo run --bin air -- compile fixtures/xor/kernel.r1cs out/packed --layout fixtures/xor/layout.json
+cargo run --bin air -- compile fixtures/xor/kernel.r1cs out/packed --packed
 cargo run --bin air -- check fixtures/xor/kernel.r1cs out/packed/kernel.pilout out/packed/certificate.json
-cargo run --bin air -- plan fixtures/xor/kernel.r1cs out/plan --layout fixtures/xor/layout.json
+cargo run --bin air -- plan fixtures/xor/kernel.r1cs out/plan
 cargo run --bin air -- witness fixtures/xor/kernel.r1cs out/packed fixtures/xor/input.wtns out/witness
 ```
 
@@ -79,25 +79,29 @@ For your own circuit:
 
 ## Choosing a layout
 
-A packed layout is set by a JSON file, such as `fixtures/sha256/layout.json`:
+`--packed` lets the compiler choose the layout. It builds candidate layouts
+and keeps the one with the lowest estimated proving time with pil2-proofman;
+the `layout` field of the report shows the settings it used.
+
+A layout file sets some or all of the settings and leaves the rest to the
+compiler, for example `fixtures/sha256/layout.json`:
 
 ```json
-{"options":{"width":64,"auxiliaryTerms":32,"reuseAuxiliaries":"available","foldConstants":true},"minRows":1024}
+{"width":64,"auxiliaryTerms":32,"reuseAuxiliaries":"available","foldConstants":true,"minRows":1024,"rowGroupWidth":64}
 ```
 
-The compiler groups equations that share wires into row groups and stacks equal
-row groups in the same columns, so they share their constraints. The trace has
-exactly `minRows` rows, so a smaller `minRows` gives a wider trace. The best
-`minRows`, and the best optional `rowGroupWidth` (the most wires in one row
-group), depend on the circuit ([measurements](docs/SCALE.md#prover-time)).
+The compiler splits long equations so that none uses more than `width` wires,
+groups equations that share wires into row groups of at most `rowGroupWidth`
+wires, and stacks equal row groups in the same columns, so they share their
+constraints. The trace has exactly `minRows` rows, so a smaller `minRows`
+gives a wider trace. [The CLI reference](docs/CLI.md#layout-configuration)
+lists every setting and its default, and [Scale](docs/SCALE.md#prover-time)
+gives measurements.
 
-With pil2-proofman built by the [backend check](tools/backend-check/README.md),
-two scripts help choose:
+To time the prover on a layout, phase by phase, with pil2-proofman built by
+the [backend check](tools/backend-check/README.md):
 
 ```sh
-# Estimate the fastest layouts without proving, best first.
-tools/backend-check/choose-layout.sh WORK_DIR circuit.r1cs
-# Time the prover on one layout, phase by phase.
 tools/backend-check/prove-time.sh WORK_DIR circuit.r1cs input.wtns layout.json
 ```
 
@@ -157,10 +161,11 @@ Every compile function runs the checker before it returns. See
 - **Optimized reference** (`--optimize`): the same, with expressions
   simplified by identities that hold for every field value (such as `x · 1 = x`)
   and repeated subexpressions reused.
-- **Packed layout** (`--layout FILE`): long linear combinations are split with
-  auxiliary wires (new wires defined as a sum of other wires), equations that
-  share wires are joined into row groups, and equal row groups are stacked in
-  the same columns so that they share constraints.
+- **Packed layout** (`--packed`, or `--layout FILE` to set the layout): long
+  linear combinations are split with auxiliary wires (new wires defined as a
+  sum of other wires), equations that share wires are joined into row groups,
+  and equal row groups are stacked in the same columns so that they share
+  constraints.
 - **Modules** (`module`): the reference equations as a fragment for a larger
   AIR (a host), with exported wires and no public values or row count. The
   host places the columns anywhere; `check-composition` reads the host's final

@@ -1,1 +1,1 @@
-{"options":{"width":64,"auxiliaryTerms":32,"reuseAuxiliaries":"available","foldConstants":true},"minRows":1024}
+{"width":64,"auxiliaryTerms":32,"reuseAuxiliaries":"available","foldConstants":true,"minRows":1024,"rowGroupWidth":64}

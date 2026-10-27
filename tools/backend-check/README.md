@@ -9,11 +9,10 @@ does not depend on them.
 | --- | --- |
 | `run.sh WORK_DIR` | Builds the prover, then sets up, checks and proves every fixture |
 | `prove-time.sh WORK_DIR SOURCE INPUT LAYOUT [RUNS [STARK_STRUCTS]]` | Times the prover on one packed artifact |
-| `choose-layout.sh WORK_DIR SOURCE [WIDTH]` | Estimates which layout proves fastest, without proving |
 
 Requirements: Linux, network access, git, python3, Rust, and a C++ toolchain
 with libgmp, libsodium, libomp, nlohmann-json and nasm. Run `run.sh` first:
-the other two scripts reuse the prover it builds in `WORK_DIR`.
+`prove-time.sh` reuses the prover it builds in `WORK_DIR`.
 
 ## `run.sh`
 
@@ -50,7 +49,8 @@ compiler beyond what [the specification](../../SPEC.md) states.
 ## `prove-time.sh`
 
 `prove-time.sh WORK_DIR SOURCE INPUT LAYOUT [RUNS [STARK_STRUCTS]]` compiles
-the R1CS file `SOURCE` with the layout file `LAYOUT`, projects the witness
+the R1CS file `SOURCE` with the layout file `LAYOUT`, or with the layout the
+compiler chooses if `LAYOUT` is `auto`, projects the witness
 `INPUT` (a WTNS file), runs the setup, and generates and verifies `RUNS` proofs
 (default 3). It prints one JSON object with the layout's `rows`, `width`,
 `gates` and `selectors`, the prover's `powBits` and `queries`, and the median
@@ -69,25 +69,6 @@ most for small proofs is the number of proof-of-work bits, for example
 `{"Kernel": {"powBits": 20}}`; the setup then derives the number of FRI queries
 that keeps its target security level. [Scale](../../docs/SCALE.md#proof-of-work-bits)
 shows the effect.
-
-## `choose-layout.sh`
-
-`choose-layout.sh WORK_DIR SOURCE [WIDTH]` compiles candidate layouts with
-`options.width` `WIDTH` (3 to 1024, default 64), `auxiliaryTerms` half of it
-(at least 2), `available` reuse and folding: `rowGroupWidth` `WIDTH` and
-`2 × WIDTH` (only up to 1024), each at `minRows`
-64, 128, … up to 65536. Each sweep skips sizes that do not fit and stops when
-the estimate has risen twice in a row or a candidate no longer fits. Any
-other failure (a missing or invalid source, a failed setup) stops the script
-with an error, and so does a search in which no candidate fits.
-
-It runs only the prover's setup on each candidate and estimates
-`withoutFriQueries` from the counts the setup reports:
-constraint operations, committed and fixed columns, and extended rows. The cost
-model was fitted to 90 `prove-time.sh` runs of six circuits, with a median
-error of 10%. It prints one JSON line per candidate, best first, with
-`estimateMs`. The estimate is for ranking; time the best few with
-`prove-time.sh`.
 
 ## Files
 

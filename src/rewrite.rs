@@ -25,9 +25,9 @@ pub enum Reuse {
     /// longest auxiliary wire whose terms appear there up to a common factor.
     Available,
 }
-/// Settings for rewriting source equations with auxiliary wires.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Settings for rewriting source equations with auxiliary wires, taken from a
+/// [`crate::LayoutConfig`] with its defaults filled in.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RewriteOptions {
     /// Maximum number of distinct nonconstant wires per equation (`3..=1024`).
     pub width: usize,
@@ -99,7 +99,7 @@ pub fn rewrite(source: &Circuit, options: &RewriteOptions) -> Result<RewrittenCi
         (MIN_WIDTH..=MAX_WIDTH).contains(&options.width)
             && (2..options.width).contains(&options.auxiliary_terms),
         format_args!(
-            "options.width must be {MIN_WIDTH}..={MAX_WIDTH} and options.auxiliaryTerms 2..width (width={}, auxiliaryTerms={})",
+            "width must be {MIN_WIDTH}..={MAX_WIDTH} and auxiliaryTerms 2..width (width={}, auxiliaryTerms={})",
             options.width, options.auxiliary_terms
         ),
     )?;

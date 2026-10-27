@@ -19,6 +19,7 @@
 mod api;
 mod certificate;
 mod checker;
+mod choose;
 mod compiler;
 mod contract;
 mod dag;
@@ -58,7 +59,7 @@ pub use field::GOLDILOCKS_PRIME;
 pub use layout::LayoutConfig;
 pub use module_check::{CompositionReport, ModuleCheckReport, COMPOSITION_CLAIM};
 pub use packed_check::PackedCheckReport;
-pub use rewrite::{Reuse, RewriteOptions};
+pub use rewrite::Reuse;
 pub use witness::Witness;
 
 pub(crate) use certificate::sha256_hex;

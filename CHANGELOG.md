@@ -40,10 +40,13 @@ First version.
 - The permutation argument covers only the columns holding a cell of a wire with
   several cells. Other columns get no `S` column, no factors and no share of
   the ratio columns.
+- Packed layout settings are all optional (`LayoutConfig::default()`, or
+  `air compile --packed`): missing rewriting settings take their defaults, and
+  a missing row count or row group width is chosen by the estimated proving
+  time of each candidate with pil2-proofman.
 - Optional scripts in `tools/backend-check` that prove every fixture with
-  pil2-proofman (`run.sh`), time the prover on one artifact (`prove-time.sh`)
-  and estimate the fastest layout of a circuit without proving
-  (`choose-layout.sh`).
+  pil2-proofman (`run.sh`) and time the prover on one artifact
+  (`prove-time.sh`).
 - `Error::kind` tells an invalid input (`ErrorKind::Invalid`) from one that
   exceeds a size limit (`ErrorKind::Limit`).
 - The types that only the library builds (artifacts, reports, `Witness`) and

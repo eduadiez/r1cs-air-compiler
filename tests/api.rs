@@ -1,5 +1,5 @@
 //! Tests of the public library API.
-use r1cs_air_compiler::{self as air, LayoutConfig, Reuse, RewriteOptions};
+use r1cs_air_compiler::{self as air, LayoutConfig, Reuse};
 use std::error::Error as _;
 
 const SOURCE: &[u8] = include_bytes!("../fixtures/xor/kernel.r1cs");
@@ -7,14 +7,12 @@ const WITNESS: &[u8] = include_bytes!("../fixtures/xor/input.wtns");
 
 fn config() -> LayoutConfig {
     LayoutConfig {
-        options: RewriteOptions {
-            width: 8,
-            auxiliary_terms: 4,
-            reuse_auxiliaries: Reuse::Prefix,
-            fold_constants: true,
-        },
-        min_rows: 64,
-        row_group_width: None,
+        width: Some(8),
+        auxiliary_terms: Some(4),
+        reuse_auxiliaries: Some(Reuse::Prefix),
+        fold_constants: Some(true),
+        min_rows: Some(64),
+        row_group_width: Some(8),
     }
 }
 
@@ -100,9 +98,10 @@ fn errors_tell_whether_a_size_limit_was_exceeded() -> air::Result<()> {
     assert_eq!(kind(error), air::ErrorKind::Invalid);
     // 1024 columns and 65536 rows exceed the largest trace.
     let mut large = config();
-    large.options.width = 1024;
-    large.options.auxiliary_terms = 512;
-    large.min_rows = 1 << 16;
+    large.width = Some(1024);
+    large.auxiliary_terms = Some(512);
+    large.row_group_width = Some(1024);
+    large.min_rows = Some(1 << 16);
     let error = air::compile_packed(SOURCE, &large).unwrap_err();
     assert_eq!(kind(error), air::ErrorKind::Limit);
     Ok(())

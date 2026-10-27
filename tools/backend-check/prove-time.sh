@@ -1,6 +1,6 @@
 #!/bin/sh
-# Time pil2-proofman on one packed artifact: compile SOURCE with LAYOUT,
-# project the witness INPUT, run the prover's setup, generate and verify RUNS
+# Time pil2-proofman on one packed artifact: compile SOURCE with the layout
+# file LAYOUT (or with --packed if LAYOUT is "auto"), project the witness INPUT, run the prover's setup, generate and verify RUNS
 # proofs (default 3), and print the median time of each prover phase as JSON.
 # Needs a WORK_DIR in which run.sh has already built pil2-proofman.
 #
@@ -39,7 +39,11 @@ done
 (cd "$root" && cargo build --locked --release -q)
 air="$root/target/release/air"
 out=$(mktemp -d "$work/prove-time.XXXXXX")
-"$air" compile "$source" "$out/artifact" --layout "$layout" >/dev/null
+if [ "$layout" = auto ]; then
+    "$air" compile "$source" "$out/artifact" --packed >/dev/null
+else
+    "$air" compile "$source" "$out/artifact" --layout "$layout" >/dev/null
+fi
 "$air" witness "$source" "$out/artifact" "$input" "$out/witness" >/dev/null
 if [ -n "$structs" ]; then
     "$release/proofman-setup" setup -a "$out/artifact/kernel.pilout" -b "$out/build" \

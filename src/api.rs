@@ -40,6 +40,8 @@ pub struct PackedArtifact {
     pub map: Vec<u32>,
     /// Certificate binding the PILout to its source.
     pub certificate: PackedCertificate,
+    /// The layout settings used, every field filled in.
+    pub config: LayoutConfig,
 }
 
 /// A checked packed layout without PILout. Serializes to JSON as the
@@ -54,6 +56,8 @@ pub struct LayoutPlan {
     map: Vec<u32>,
     #[serde(skip)]
     checked_equations: usize,
+    #[serde(skip)]
+    config: LayoutConfig,
 }
 impl LayoutPlan {
     /// Number of trace rows (a power of two).
@@ -80,6 +84,10 @@ impl LayoutPlan {
     /// Number of placed equations: auxiliary definitions plus rewritten source equations.
     pub fn checked_equations(&self) -> usize {
         self.checked_equations
+    }
+    /// The layout settings used, every field filled in.
+    pub fn config(&self) -> &LayoutConfig {
+        &self.config
     }
 }
 
@@ -128,23 +136,31 @@ pub fn check_reference(
     checker::check(source, pilout, certificate).context("reference validation")
 }
 
-/// Build and check a packed layout without generating PILout.
+/// Build and check a packed layout without generating PILout. Settings that
+/// `config` leaves out are filled in as by [`compile_packed`].
 ///
 /// # Errors
 /// Fails on malformed R1CS, invalid settings, layouts beyond the size limits
 /// and layouts that fail the placement check.
 pub fn plan_layout(source: &[u8], config: &LayoutConfig) -> Result<LayoutPlan> {
     let circuit = r1cs::read(source).context("layout source")?;
-    let (rewritten, layout, checked) = packed::plan(&circuit, config)?;
+    let (config, rewritten, layout, checked) = packed::plan(&circuit, config)?;
     Ok(LayoutPlan {
         rewritten_circuit: rewritten,
         layout,
         map: checked.map,
         checked_equations: checked.equations.len(),
+        config,
     })
 }
 
 /// Compile `source` to a packed PILout and check the result.
+///
+/// Settings that `config` leaves out take their defaults (`width` 64,
+/// `auxiliaryTerms` half of it, `available` reuse, constant folding). A missing
+/// `minRows` or `rowGroupWidth` is chosen by building the PILout of each
+/// candidate and estimating its proving time with pil2-proofman; the
+/// artifact's `config` holds the settings used.
 ///
 /// # Errors
 /// Fails on malformed R1CS or invalid settings, and if the checker rejects any

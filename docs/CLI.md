@@ -5,9 +5,10 @@
 
 ```text
 air compile SOURCE OUT [--rows N] [--optimize]
+air compile SOURCE OUT --packed
 air compile SOURCE OUT --layout CONFIG.json
 air check SOURCE KERNEL.pilout CERTIFICATE.json
-air plan SOURCE OUT --layout CONFIG.json
+air plan SOURCE OUT [--layout CONFIG.json]
 air witness SOURCE ARTIFACT_DIR INPUT.wtns OUT
 air module SOURCE OUT --export WIRES [--optimize]
 air check-composition SOURCE HOST.pilout CERTIFICATE.json BINDING.json
@@ -19,15 +20,20 @@ fails with kind `usage`. `SOURCE` is an R1CS file.
 - `OUT` must not exist, and its parent directory must. The command creates it
   only after the artifact has passed its check, and never overwrites an
   existing directory.
-- `compile` without `--layout` builds a reference artifact. `--rows N` sets its
-  row count, a power of two from 64 to 65536; without it the artifact has 64
-  rows, the fewest allowed, since every row holds a whole instance of the
-  circuit. `--optimize` simplifies its expressions without changing the
+- `compile` without `--packed` or `--layout` builds a reference artifact.
+  `--rows N` sets its row count, a power of two from 64 to 65536; without it
+  the artifact has 64 rows, the fewest allowed, since every row holds a whole
+  instance of the circuit. `--optimize` simplifies its expressions without changing the
   constraint polynomials.
+- `compile --packed` builds a packed artifact with the layout the compiler
+  chooses; `compile --layout CONFIG.json` with the settings in the file, the
+  compiler choosing those it leaves out (see
+  [Layout configuration](#layout-configuration)). `plan` does the same
+  without generating PILout.
 - `check` chooses the reference, packed or module checker from the
   certificate's `relation` field.
 - `witness` reads `kernel.pilout` and `certificate.json` from `ARTIFACT_DIR`,
-  which must hold a packed artifact (from `compile --layout`).
+  which must hold a packed artifact (from `compile --packed` or `--layout`).
 - `module` compiles a module for embedding in a host AIR. `--export WIRES` is
   a comma-separated list of distinct R1CS wire ids, for example `1,2,5`;
   `--optimize` simplifies expressions as for `compile`.
@@ -40,7 +46,7 @@ fails with kind `usage`. `SOURCE` is an R1CS file.
 | Command | Files written to `OUT` |
 | --- | --- |
 | `compile` (reference) | `kernel.pilout`, `certificate.json` |
-| `compile --layout` | `kernel.pilout`, `certificate.json`, `map.bin` |
+| `compile --packed`, `compile --layout` | `kernel.pilout`, `certificate.json`, `map.bin` |
 | `plan` | `plan.json`, `map.bin` |
 | `witness` | `trace.bin`, `public.bin` |
 | `module` | `module.pilout`, `certificate.json` |
@@ -81,24 +87,27 @@ equations on every row; see [the specification](../SPEC.md#module-relation-r1cs-
 
 ## Layout configuration
 
-`--layout` takes a JSON file such as `fixtures/xor/layout.json`:
+`--layout` takes a JSON file that sets some or all of the packed layout
+settings, such as `fixtures/xor/layout.json`:
 
 ```json
-{"options":{"width":8,"auxiliaryTerms":4,"reuseAuxiliaries":"prefix","foldConstants":true},"minRows":64,"rowGroupWidth":16}
+{"width":8,"auxiliaryTerms":4,"reuseAuxiliaries":"prefix","foldConstants":true,"minRows":64,"rowGroupWidth":16}
 ```
 
-| Field | Values | Meaning |
-| --- | --- | --- |
-| `options.width` | 3 to 1024 | The most distinct wires one equation may use |
-| `options.auxiliaryTerms` | 2 to `width - 1` | Terms replaced by each new auxiliary wire |
-| `options.reuseAuxiliaries` | `none`, `prefix`, `available` | When an existing auxiliary wire may stand in for terms of a later equation (see below) |
-| `options.foldConstants` | `true`, `false` | If `A` or `B` in `A · B = C` is a constant `k`, rewrite the equation as the linear `0 = C - k · (other factor)` first |
-| `minRows` | power of two, 64 to 65536 | The row count of the trace |
-| `rowGroupWidth` | `options.width` to 1024 | Optional: the most wires in one row group (see below). Defaults to `options.width` |
+Every field is optional; `{}` is the same as `--packed`. Unknown fields are
+rejected.
+
+| Field | Values | Default | Meaning |
+| --- | --- | --- | --- |
+| `width` | 3 to 1024 | 64 | The most distinct wires one equation may use |
+| `auxiliaryTerms` | 2 to `width - 1` | half of `width`, at least 2 | Terms replaced by each new auxiliary wire |
+| `reuseAuxiliaries` | `none`, `prefix`, `available` | `available` | When an existing auxiliary wire may stand in for terms of a later equation (see below) |
+| `foldConstants` | `true`, `false` | `true` | If `A` or `B` in `A · B = C` is a constant `k`, rewrite the equation as the linear `0 = C - k · (other factor)` first |
+| `minRows` | power of two, 64 to 65536 | chosen | The row count of the trace |
+| `rowGroupWidth` | `width` to 1024 | chosen | The most wires in one row group (see below) |
 
 An auxiliary wire is a new wire constrained to equal a linear combination of other
-wires; auxiliary wires keep each equation within `options.width` wires. Unknown fields
-are rejected.
+wires; auxiliary wires keep each equation within `width` wires.
 
 `reuseAuxiliaries`:
 
@@ -123,10 +132,25 @@ Placement:
   need copies in their own columns, so the other columns stay out of the
   permutation argument.
 
-A layout may have at most 65536 rows and 4 000 000 cells. The best `minRows`
-and `rowGroupWidth` depend on the circuit;
-`tools/backend-check/choose-layout.sh` estimates them, and
-[Scale](SCALE.md#prover-time) gives measured examples.
+A layout may have at most 65536 rows and 4 000 000 cells.
+
+**Chosen settings.** When `minRows` or `rowGroupWidth` is left out, the
+compiler builds the PILout of each candidate and keeps the one with the lowest
+estimated proving time with pil2-proofman:
+
+- `minRows`: 64, 128, … rows. Candidates whose trace exceeds a size limit are
+  skipped; once one fits, the search stops when a candidate no longer fits or
+  the estimate has risen twice in a row.
+- `rowGroupWidth`: `width` and `2 · width` (up to 1024), each with its own
+  search over `minRows`.
+
+The estimate is a model of the prover's time without the FRI query phase,
+fitted to 90 timed proofs of six circuits (median error 10%). It uses the
+counts the prover's setup derives from the PILout: rows, committed and fixed
+columns, and constraint operations. It ranks layouts and is not a measured
+time; [Scale](SCALE.md#prover-time) compares it with measurements. The
+`layout` field of the report gives the settings used, so a file holding it
+builds the same artifact.
 
 ## Reports
 
@@ -142,10 +166,10 @@ Keys are printed in alphabetical order; their order carries no meaning. The
 
 | Command | `result` fields |
 | --- | --- |
-| `compile` | `mode` (`reference`, `optimized-reference` or `packed`), `relation`, `rows`, `width`, `piloutBytes`, `piloutSha256`; packed also `auxiliaries` and `requiresPermutation` |
+| `compile` | `mode` (`reference`, `optimized-reference` or `packed`), `relation`, `rows`, `width`, `piloutBytes`, `piloutSha256`; packed also `layout` (the settings used, every field filled in), `auxiliaries` and `requiresPermutation` |
 | `check` (reference) | `accepted`, `relation`, `sourceEquations`, `publicBindings`, `rows`, `width`, `formallyVerified` |
 | `check` (packed) | `accepted`, `relation`, `sourceEquations`, `auxiliaries`, `rows`, `width`, `requiresPermutation`, `formallyVerified` |
-| `plan` | `rows`, `width`, `auxiliaries`, `requiresPermutation`, `checkedEquations` (auxiliary definitions plus source equations) |
+| `plan` | `layout` (as for `compile`), `rows`, `width`, `auxiliaries`, `requiresPermutation`, `checkedEquations` (auxiliary definitions plus source equations) |
 | `witness` | `traceWords`, `publicWords` |
 | `module` | `relation`, `width`, `exports`, `piloutBytes`, `piloutSha256` |
 | `check` (module) | `accepted`, `relation`, `sourceEquations`, `width`, `exports` (count), `formallyVerified` |

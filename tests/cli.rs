@@ -301,6 +301,59 @@ fn help_and_version_are_available() {
 }
 
 #[test]
+fn packed_layouts_need_no_configuration() {
+    let cli = Cli::new();
+    let source = fixture("xor", "kernel.r1cs");
+    let compiled = cli.ok(&["compile", &source, "auto", "--packed"]);
+    let layout = &compiled["layout"];
+    for key in [
+        "width",
+        "auxiliaryTerms",
+        "reuseAuxiliaries",
+        "foldConstants",
+        "minRows",
+        "rowGroupWidth",
+    ] {
+        assert!(!layout[key].is_null(), "the report's layout lacks {key}");
+    }
+    let checked = cli.ok(&[
+        "check",
+        &source,
+        "auto/kernel.pilout",
+        "auto/certificate.json",
+    ]);
+    assert_eq!(checked["accepted"], true);
+    // The reported settings, given back, build the same files; so does a plan
+    // without a configuration.
+    fs::write(cli.path("chosen.json"), layout.to_string()).unwrap();
+    cli.ok(&["compile", &source, "again", "--layout", "chosen.json"]);
+    let plan = cli.ok(&["plan", &source, "plan"]);
+    assert_eq!(&plan["layout"], layout);
+    for file in ["kernel.pilout", "certificate.json", "map.bin"] {
+        assert_eq!(
+            fs::read(cli.path(&format!("auto/{file}"))).unwrap(),
+            fs::read(cli.path(&format!("again/{file}"))).unwrap(),
+            "{file}"
+        );
+    }
+    assert_eq!(
+        fs::read(cli.path("auto/map.bin")).unwrap(),
+        fs::read(cli.path("plan/map.bin")).unwrap()
+    );
+    // Unknown fields, such as the nested form of earlier versions, are rejected.
+    fs::write(
+        cli.path("nested.json"),
+        r#"{"options":{"width":8},"minRows":64}"#,
+    )
+    .unwrap();
+    cli.fails(
+        "invalid",
+        &["plan", &source, "nested", "--layout", "nested.json"],
+        "unknown field `options`",
+    );
+}
+
+#[test]
 fn reference_artifacts_have_64_rows_by_default() {
     let cli = Cli::new();
     let source = fixture("xor", "kernel.r1cs");
@@ -351,6 +404,7 @@ fn reports_have_the_documented_fields() {
     let packed = cli.ok(&["compile", &source, "packed", "--layout", &layout]);
     assert_eq!(packed["mode"], "packed");
     for key in [
+        "layout",
         "auxiliaries",
         "requiresPermutation",
         "piloutBytes",
@@ -412,13 +466,13 @@ fn errors_name_the_failing_input() {
     assert!(!cli.path("out").exists());
     fs::write(
         cli.path("bad-layout.json"),
-        r#"{"options":{"width":2,"auxiliaryTerms":4,"reuseAuxiliaries":"prefix","foldConstants":true},"minRows":64}"#,
+        r#"{"width":2,"auxiliaryTerms":4,"minRows":64}"#,
     )
     .unwrap();
     cli.fails(
         "invalid",
         &["plan", &source, "out", "--layout", "bad-layout.json"],
-        "layout configuration 'bad-layout.json': layout options: options.width must be 3..=1024",
+        "layout configuration 'bad-layout.json': layout options: width must be 3..=1024",
     );
     fs::write(cli.path("malformed.json"), "{\n").unwrap();
     cli.fails(
@@ -469,6 +523,8 @@ fn only_documented_argument_forms_are_accepted() {
             "64",
         ][..],
         &["compile", source.as_str(), "out", "--layout"][..],
+        &["compile", source.as_str(), "out", "--packed", "--optimize"][..],
+        &["plan", source.as_str(), "out", "--packed"][..],
         &["plan", source.as_str(), layout.as_str(), "out"][..],
         &["check", source.as_str()][..],
         &["witness", source.as_str(), "packed"][..],

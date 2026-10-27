@@ -9,18 +9,34 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Settings for building a packed layout.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Settings for building a packed layout. Every field may be left out: the
+/// rewriting settings then take their defaults, and the compiler chooses a
+/// missing `minRows` or `rowGroupWidth` by estimating the proving time of each
+/// candidate (see `choose.rs`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LayoutConfig {
-    /// How source equations are rewritten with auxiliary wires.
-    pub options: rewrite::RewriteOptions,
+    /// Most distinct wires one equation may use, from 3 to `MAX_WIDTH`
+    /// (default 64); longer equations are split with auxiliary wires.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<usize>,
+    /// Terms replaced by each new auxiliary wire, from 2 to `width - 1`
+    /// (default half of `width`, at least 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auxiliary_terms: Option<usize>,
+    /// When an existing auxiliary wire may be reused (default `available`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reuse_auxiliaries: Option<rewrite::Reuse>,
+    /// Whether a constant factor of `A · B = C` is folded into a linear
+    /// equation before splitting (default `true`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fold_constants: Option<bool>,
     /// Row count of the trace; a power of two, at least 64.
-    pub min_rows: usize,
-    /// Most wires of a row group of equations, from `options.width` (the
-    /// default) to `MAX_WIDTH`. Wider row groups let more equations share cells
-    /// but may leave more of the trace empty; which is faster to prove depends
-    /// on the circuit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_rows: Option<usize>,
+    /// Most wires of a row group of equations, from `width` to `MAX_WIDTH`.
+    /// Wider row groups let more equations share cells but may leave more of
+    /// the trace empty; which is faster to prove depends on the circuit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row_group_width: Option<usize>,
 }
@@ -29,11 +45,15 @@ pub struct LayoutConfig {
 /// Equations that share wires are joined into row groups, and the row groups
 /// of each kind are placed as a stack, one row group per row in the same
 /// columns, so that a stack needs few gates and selectors (see
-/// [`place_in_stacks`]). The trace has exactly `minRows` rows and as many
-/// columns as the stacks need, at most `MAX_WIDTH`; `options.width` only bounds
-/// each equation, and `rowGroupWidth` each row group.
-pub fn pack(rewritten: &RewrittenCircuit, config: &LayoutConfig) -> Result<Layout> {
-    let (width, min_rows) = (config.options.width, config.min_rows);
+/// [`place_in_stacks`]). The trace has exactly `min_rows` rows and as many
+/// columns as the stacks need, at most `MAX_WIDTH`; `width` only bounds each
+/// equation, and `row_group_width` each row group.
+pub fn pack(
+    rewritten: &RewrittenCircuit,
+    width: usize,
+    min_rows: usize,
+    row_group_width: usize,
+) -> Result<Layout> {
     ensure(
         min_rows >= MIN_ROWS && min_rows.is_power_of_two(),
         format_args!("minRows must be a power of two, at least {MIN_ROWS}"),
@@ -43,10 +63,9 @@ pub fn pack(rewritten: &RewrittenCircuit, config: &LayoutConfig) -> Result<Layou
         format_args!("minRows exceeds {MAX_ROWS}"),
     )?;
     let (gate_types, entries) = gate_entries(rewritten, width)?;
-    let row_group_width = config.row_group_width.unwrap_or(width);
     ensure(
         (width..=MAX_WIDTH).contains(&row_group_width),
-        format_args!("rowGroupWidth must be in options.width..={MAX_WIDTH}"),
+        format_args!("rowGroupWidth must be in width..={MAX_WIDTH}"),
     )?;
     let placed = place_in_stacks(&entries, rewritten, min_rows, row_group_width)?;
     let arithmetic_rows = placed

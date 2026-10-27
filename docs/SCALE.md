@@ -19,7 +19,8 @@ and one AIR constraint per equation: here 29 324 columns and more than
 a packed layout.
 
 **Packed layout.** `fixtures/sha256/layout.json` (width 64, `auxiliaryTerms` 32,
-`available` reuse, folding, 1024 rows) gives an AIR with:
+`available` reuse, folding, 1024 rows, row groups of 64 wires) gives an AIR
+with:
 
 - 1024 rows;
 - 105 stage-one columns, 65 of them in the permutation argument;
@@ -80,10 +81,11 @@ To reproduce a row:
 1. Write a Circom file with `component main = Sha256(n);` that includes
    `vendor/circomlib/sha256/sha256.circom`.
 2. Compile it with the flags in `docs/provenance.json` (`fixtureToolchain`).
-3. Run `air compile` with this layout, setting `minRows`:
+3. Run `air compile` with this layout, setting `minRows` (the other settings
+   take their defaults):
 
 ```json
-{"options":{"width":64,"auxiliaryTerms":32,"reuseAuxiliaries":"available","foldConstants":true},"minRows":4096}
+{"minRows":4096,"rowGroupWidth":64}
 ```
 
 ## Prover time
@@ -104,8 +106,8 @@ The circuits are built like the SHA-256 ones above:
 - 16 Poseidon Merkle paths of depth 24 with `MultiMux1` (93 312 constraints);
 - 64 `Multiplexer(8, 64)` (36 864 constraints).
 
-Each layout is the one `tools/backend-check/choose-layout.sh` picked, with
-`options.width` 64 and `auxiliaryTerms` 32:
+Each layout is the one `air compile --packed` chooses, with the default
+`width` 64 and `auxiliaryTerms` 32:
 
 | Circuit | `minRows` | `rowGroupWidth` | Proof time |
 | --- | --- | --- | --- |
@@ -115,7 +117,7 @@ Each layout is the one `tools/backend-check/choose-layout.sh` picked, with
 | Poseidon chain | 512 | 128 | 22 |
 | MiMC7 chain | 1024 | 64 | 13 |
 | `LessThan(32)` batch | 512 | 64 | 10 |
-| Pedersen hashes | 128 | 64 | 10 |
+| Pedersen hashes | 512 | 64 | 10 |
 | Poseidon Merkle paths | 512 | 128 | 17 |
 | Multiplexers | 1024 | 64 | 19 |
 
@@ -129,12 +131,17 @@ Notes on the table:
   no permutation argument.
 - At these sizes the proof-of-work search takes longer than the rest of the
   proof.
+- For the Pedersen hashes the estimate prefers 512 rows to 128 (9.9 against
+  10.3 ms), but 128 rows proved in 9 ms: a difference within the model's
+  error.
+- Choosing the layout took from 0.5 s (Pedersen) to 16 s and 1 GB of memory
+  (SHA-256 of 4096 bits).
 
 ### What the time depends on
 
 A proof's time is roughly the number of rows of the extended domain times a
-weighted count of columns and constraint operations. In the cost model of
-`choose-layout.sh`, one committed column (stage one, stage two or quotient)
+weighted count of columns and constraint operations. In the cost model that
+`--packed` uses (`estimate` in `src/choose.rs`), one committed column (stage one, stage two or quotient)
 costs about as much as 8 fixed columns or 46 constraint operations.
 
 - A column in the permutation argument also brings about 1.5 stage-two columns and a
@@ -150,8 +157,8 @@ The best `minRows` and `rowGroupWidth` depend on the circuit: in the table above
 `minRows` ranges from 128 to 2048. Wider row groups share more cells but leave
 more of the trace empty: row groups of 128 wires instead of 64 proved the Poseidon
 chain 29% faster, but the 271 577-constraint SHA-256 circuit 7% slower.
-`choose-layout.sh` estimates the best layout for a circuit by running only the
-prover's setup on each candidate; check its best few with `prove-time.sh`.
+`--packed` estimates the best layout for a circuit by building the PILout of
+each candidate; time its choice, or other layouts, with `prove-time.sh`.
 
 ### Proof-of-work bits
 
@@ -202,5 +209,5 @@ mkdir out  # each output directory must not exist yet
 ```
 
 The prover steps: `tools/backend-check/run.sh` runs them for every fixture,
-and `prove-time.sh` and `choose-layout.sh` give the prover times above (see
+and `prove-time.sh` gives the prover times above (see
 the [backend check](../tools/backend-check/README.md)).

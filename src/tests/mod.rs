@@ -2,6 +2,7 @@
 //! PILout or the certificate, and require a check to reject the change for the
 //! expected reason.
 mod air;
+mod choose;
 mod module;
 mod packed;
 mod parser;
@@ -239,7 +240,7 @@ fn checkers_do_not_use_compiler_modules() {
         ("witness.rs", include_str!("../witness.rs")),
     ];
     const COMPILER_MODULES: &[&str] = &[
-        "compiler", "dag", "emit", "layout", "module", "rewrite", "packed",
+        "choose", "compiler", "dag", "emit", "layout", "module", "rewrite", "packed",
     ];
     const COMPILER_TYPES: &[&str] = &[
         "PackedArtifact",

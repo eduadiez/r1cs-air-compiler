@@ -191,7 +191,12 @@ impl Builder {
 
     /// Add the stage-two challenge symbols and the public-value symbol, then
     /// encode the PILout.
-    pub fn finish(mut self, publics: u32) -> Vec<u8> {
+    pub fn finish(self, publics: u32) -> Vec<u8> {
+        self.pilout(publics).encode_to_vec()
+    }
+
+    /// [`Builder::finish`] without the encoding.
+    pub fn pilout(mut self, publics: u32) -> pb::PilOut {
         // The two stage-two challenges, called α and γ in the permutation argument.
         for index in [ALPHA, GAMMA] {
             self.symbols.push(pb::Symbol {
@@ -212,7 +217,7 @@ impl Builder {
             });
         }
         self.air.expressions = self.dag.nodes;
-        let output = pb::PilOut {
+        pb::PilOut {
             name: Some(PILOUT_NAME.into()),
             base_field: P.to_be_bytes().to_vec(),
             air_groups: vec![pb::AirGroup {
@@ -225,8 +230,7 @@ impl Builder {
             symbols: self.symbols,
             hints: self.hints,
             ..Default::default()
-        };
-        output.encode_to_vec()
+        }
     }
 }
 

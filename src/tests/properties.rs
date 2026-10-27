@@ -13,7 +13,7 @@ use crate::{
     field::{add, inverse, mul},
     layout::LayoutConfig,
     packed, packed_check, proto as pb, r1cs,
-    rewrite::{Reuse, RewriteOptions},
+    rewrite::Reuse,
     sha256_hex, CompositionBinding, PackedCertificate, P,
 };
 use proptest::prelude::*;
@@ -128,14 +128,12 @@ fn layout_config() -> impl Strategy<Value = LayoutConfig> {
         })
         .prop_map(
             |((width, fold_constants, reuse, wide), auxiliary_terms)| LayoutConfig {
-                options: RewriteOptions {
-                    width,
-                    auxiliary_terms,
-                    reuse_auxiliaries: [Reuse::None, Reuse::Prefix, Reuse::Available][reuse],
-                    fold_constants,
-                },
-                min_rows: 64,
-                row_group_width: wide.then_some(2 * width),
+                width: Some(width),
+                auxiliary_terms: Some(auxiliary_terms),
+                reuse_auxiliaries: Some([Reuse::None, Reuse::Prefix, Reuse::Available][reuse]),
+                fold_constants: Some(fold_constants),
+                min_rows: Some(64),
+                row_group_width: Some(if wide { 2 * width } else { width }),
             },
         )
 }

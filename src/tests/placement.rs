@@ -1,5 +1,5 @@
 //! Placement check: auxiliary wire rewritten_circuits and layouts against their source.
-use super::{assert_limit, assert_rejected, packed::config, r1cs_bytes, r1cs_with_terms};
+use super::{assert_limit, assert_rejected, packed::options, r1cs_bytes, r1cs_with_terms};
 use crate::{
     certificate::{Auxiliary, Gate, GateType, Layout, Placement, RewrittenCircuit, Selector},
     field::{add, mul, FieldElement},
@@ -154,10 +154,10 @@ fn rewritten_equations_are_checked() {
 #[test]
 fn changed_rewritten_equation_is_rejected() {
     let source = r1cs::read(&r1cs_bytes([5, 1, 1, 2], &[[1, 2, 3], [1, 3, 4]])).unwrap();
-    let mut rewritten = rewrite::rewrite(&source, &config(3).options).unwrap();
+    let mut rewritten = rewrite::rewrite(&source, &options(3)).unwrap();
     // Change one coefficient; the equation count is unchanged.
     rewritten.equations[0][2][0].1 .0 = 2;
-    let plan = layout::pack(&rewritten, &config(3)).unwrap();
+    let plan = layout::pack(&rewritten, 3, 64, 3).unwrap();
     assert_rejected(
         placement_check::check(&source, &rewritten, &plan),
         "rewritten equation 0 differs from its source equation",
@@ -170,10 +170,10 @@ fn moved_coefficients_are_rejected() {
     // still add up to the same value, but the monomials differ.
     let terms = [vec![(1, 1)], vec![(2, 1)], vec![(3, 1), (4, 1)]];
     let source = r1cs::read(&r1cs_with_terms([5, 1, 1, 2], &[terms])).unwrap();
-    let mut rewritten = rewrite::rewrite(&source, &config(4).options).unwrap();
+    let mut rewritten = rewrite::rewrite(&source, &options(4)).unwrap();
     assert!(rewritten.auxiliaries.is_empty());
     rewritten.equations[0][2] = vec![(3, FieldElement(3)), (4, FieldElement(P - 1))];
-    let plan = layout::pack(&rewritten, &config(4)).unwrap();
+    let plan = layout::pack(&rewritten, 4, 64, 4).unwrap();
     assert_rejected(
         placement_check::check(&source, &rewritten, &plan),
         "rewritten equation 0 differs from its source equation",
@@ -532,8 +532,7 @@ fn auxiliary_circuit(
         auxiliaries: vec![Auxiliary { id: 4, terms }],
         equations: vec![[a, vec![(2, FieldElement(1))], vec![(3, FieldElement(1))]]],
     };
-    let settings = config(3);
-    let plan = layout::pack(&rewritten, &settings).unwrap();
+    let plan = layout::pack(&rewritten, 3, 64, 3).unwrap();
     (circuit, rewritten, plan)
 }
 

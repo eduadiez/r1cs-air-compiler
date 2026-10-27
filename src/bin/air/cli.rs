@@ -64,11 +64,12 @@ const COMMANDS: &[(&str, &[&str])] = &[
         "compile",
         &[
             "SOURCE OUT [--rows N] [--optimize]",
+            "SOURCE OUT --packed",
             "SOURCE OUT --layout CONFIG.json",
         ],
     ),
     ("check", &["SOURCE KERNEL.pilout CERTIFICATE.json"]),
-    ("plan", &["SOURCE OUT --layout CONFIG.json"]),
+    ("plan", &["SOURCE OUT [--layout CONFIG.json]"]),
     ("witness", &["SOURCE ARTIFACT_DIR INPUT.wtns OUT"]),
     ("module", &["SOURCE OUT --export WIRES [--optimize]"]),
     (
@@ -239,8 +240,9 @@ fn u64_bytes(words: &[u64]) -> Vec<u8> {
 
 fn compile(args: &[String]) -> CommandResult<Value> {
     match args {
+        [source, output, flag] if flag == "--packed" => compile_packed(source, output, None),
         [source, output, flag, config] if flag == "--layout" => {
-            compile_packed(source, output, config)
+            compile_packed(source, output, Some(config))
         }
         [source, output, rest @ ..] => {
             let (rows, optimize) = match rest {
@@ -294,12 +296,22 @@ fn compile_reference(
     }))
 }
 
-fn compile_packed(source: &str, output: &str, config: &str) -> CommandResult<Value> {
+/// The layout configuration in the file `config`, or one that leaves every
+/// setting to the compiler; and the context for errors.
+fn layout_config(source: &str, config: Option<&String>) -> CommandResult<(LayoutConfig, String)> {
+    Ok(match config {
+        Some(config) => (
+            read_json(config)?,
+            format!("source '{source}', layout configuration '{config}'"),
+        ),
+        None => (LayoutConfig::default(), format!("source '{source}'")),
+    })
+}
+
+fn compile_packed(source: &str, output: &str, config: Option<&String>) -> CommandResult<Value> {
     let bytes = read(source)?;
-    let settings: LayoutConfig = read_json(config)?;
-    let artifact = air::compile_packed(&bytes, &settings).map_err(library_error(format!(
-        "source '{source}', layout configuration '{config}'"
-    )))?;
+    let (settings, context) = layout_config(source, config)?;
+    let artifact = air::compile_packed(&bytes, &settings).map_err(library_error(context))?;
     let out = fresh(output)?;
     write(out.join("kernel.pilout"), &artifact.pilout)?;
     write_json(out.join("certificate.json"), &artifact.certificate)?;
@@ -308,6 +320,7 @@ fn compile_packed(source: &str, output: &str, config: &str) -> CommandResult<Val
     Ok(json!({
         "mode": "packed",
         "relation": certificate.relation(),
+        "layout": artifact.config,
         "rows": certificate.rows(),
         "width": certificate.width(),
         "auxiliaries": certificate.auxiliary_count(),
@@ -347,20 +360,18 @@ fn check(args: &[String]) -> CommandResult<Value> {
 }
 
 fn plan(args: &[String]) -> CommandResult<Value> {
-    let [source, output, flag, config] = args else {
-        return usage("plan");
+    let (source, output, config) = match args {
+        [source, output] => (source, output, None),
+        [source, output, flag, config] if flag == "--layout" => (source, output, Some(config)),
+        _ => return usage("plan"),
     };
-    if flag != "--layout" {
-        return usage("plan");
-    }
-    let settings: LayoutConfig = read_json(config)?;
-    let plan = air::plan_layout(&read(source)?, &settings).map_err(library_error(format!(
-        "source '{source}', layout configuration '{config}'"
-    )))?;
+    let (settings, context) = layout_config(source, config)?;
+    let plan = air::plan_layout(&read(source)?, &settings).map_err(library_error(context))?;
     let out = fresh(output)?;
     write_json(out.join("plan.json"), &plan)?;
     write(out.join("map.bin"), u32_bytes(plan.map()))?;
     Ok(json!({
+        "layout": plan.config(),
         "rows": plan.rows(),
         "width": plan.width(),
         "auxiliaries": plan.auxiliary_count(),

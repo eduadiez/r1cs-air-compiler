@@ -4,6 +4,7 @@
 use crate::{
     api::PackedArtifact,
     certificate::{Layout, PackedCertificate, RewrittenCircuit},
+    choose,
     contract::{
         label, ALPHA, CERTIFICATE_VERSION, FIRST_COLUMN, GAMMA, MAX_DEGREE, PACKED_RELATION,
         PRODUCT_COLUMN, PRODUCT_COLUMN_NAME, PRODUCT_HINT, RATIOS_SYMBOL, RATIO_HINT, STAGE_TWO,
@@ -13,13 +14,14 @@ use crate::{
     emit::{hint, symbol, Builder},
     ensure,
     field::{mul, pow, FieldElement, COSET, GENERATOR},
-    layout::{self, LayoutConfig},
+    layout::LayoutConfig,
     placement_check::{self, Checked},
     proto as pb,
     r1cs::{self, Circuit},
-    rewrite, sha256_hex, Context, Result, P,
+    sha256_hex, Context, Result, P,
 };
 use pb::{operand::Operand, SymbolType};
+use prost::Message;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// References to the permutation-argument fixed columns.
@@ -406,24 +408,25 @@ fn labels(map: &[u32], rows: usize, width: usize) -> Result<(Vec<u64>, Vec<u64>)
     Ok((labels, permuted))
 }
 
-/// Build the rewritten circuit and layout and check the placement.
+/// Complete `config`, build the rewritten circuit and layout and check the
+/// placement. Also returns the settings used, every field filled in.
 pub fn plan(
     circuit: &Circuit,
     config: &LayoutConfig,
-) -> Result<(RewrittenCircuit, Layout, Checked)> {
-    let rewritten = rewrite::rewrite(circuit, &config.options).context("layout options")?;
-    let layout = layout::pack(&rewritten, config).context("layout geometry")?;
+) -> Result<(LayoutConfig, RewrittenCircuit, Layout, Checked)> {
+    let (settings, rewritten, layout) = choose::layout(circuit, config)?;
     let checked =
         placement_check::check(circuit, &rewritten, &layout).context("layout validation")?;
-    Ok((rewritten, layout, checked))
+    Ok((settings, rewritten, layout, checked))
 }
 
-/// Build the rewritten circuit and layout, check the placement, and generate the
-/// PILout and certificate. The caller runs the PILout checker.
+/// Complete `config`, build the rewritten circuit and layout, check the
+/// placement, and generate the PILout and certificate. The caller runs the
+/// PILout checker.
 pub fn compile(source: &[u8], config: &LayoutConfig) -> Result<PackedArtifact> {
     let circuit = r1cs::read(source).context("packed source")?;
-    let (rewritten, layout, checked) = plan(&circuit, config)?;
-    let pilout = build_pilout(&rewritten, &layout, &checked.map)?;
+    let (settings, rewritten, layout, checked) = plan(&circuit, config)?;
+    let pilout = build_pilout(&rewritten, &layout, &checked.map)?.encode_to_vec();
     let certificate = PackedCertificate {
         version: CERTIFICATE_VERSION,
         relation: PACKED_RELATION.into(),
@@ -436,13 +439,18 @@ pub fn compile(source: &[u8], config: &LayoutConfig) -> Result<PackedArtifact> {
         pilout,
         map: checked.map,
         certificate,
+        config: settings,
     })
 }
 
 /// Generate the PILout. Fixed columns come in this order: `ID`, `S{c}` for each
 /// permutation column `c` and `FIRST` (only with a permutation argument), the selectors `E*`,
 /// then `PH*`, `PL*` and `PA*`.
-fn build_pilout(rewritten: &RewrittenCircuit, layout: &Layout, map: &[u32]) -> Result<Vec<u8>> {
+pub fn build_pilout(
+    rewritten: &RewrittenCircuit,
+    layout: &Layout,
+    map: &[u32],
+) -> Result<pb::PilOut> {
     let product = if layout.requires_permutation {
         PRODUCT_COLUMN_NAME
     } else {
@@ -460,5 +468,5 @@ fn build_pilout(rewritten: &RewrittenCircuit, layout: &Layout, map: &[u32]) -> R
     if let Some(columns) = permutation {
         builder.constrain_permutation(columns);
     }
-    Ok(builder.finish(rewritten.publics))
+    Ok(builder.pilout(rewritten.publics))
 }
