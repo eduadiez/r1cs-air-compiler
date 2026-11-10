@@ -8,6 +8,7 @@ readme = "README.md"
 keywords = ["r1cs", "air", "stark", "circom", "compiler"]
 categories = ["cryptography", "compilers", "command-line-utilities"]
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/eduadiez/r1cs-air-compiler"
 publish = false
 # Only the compiler, its schema and its documentation. The circomlib templates
 # (GPL), the fixtures built from them, the tests and the tools stay in the

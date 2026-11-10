@@ -59,4 +59,4 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - run: shellcheck fixtures/generate.sh tools/backend-check/run.sh tools/backend-check/prove-time.sh tools/backend-check/choose-layout.sh fuzz/seed.sh
+      - run: shellcheck fixtures/generate.sh tools/backend-check/run.sh tools/backend-check/prove-time.sh fuzz/seed.sh
