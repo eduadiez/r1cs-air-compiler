@@ -71,6 +71,8 @@ cargo run --bin air -- witness fixtures/xor/kernel.r1cs out/packed fixtures/xor/
 # Optional: a page showing how the circuit was placed (out/packed/explain.html),
 # with the signal names of fixtures/xor/kernel.sym and the witness values.
 tools/explain/explain.py fixtures/xor/kernel.r1cs out/packed --witness out/witness --open
+# The same for the reference layout (out/reference/explain.html), without values.
+tools/explain/explain.py fixtures/xor/kernel.r1cs out/reference --open
 ```
 
 Each command prints one JSON report. [The CLI reference](docs/CLI.md) describes
@@ -120,9 +122,10 @@ For small proofs, the prover's proof-of-work setting can matter more than the
 layout; see [Proof-of-work bits](docs/SCALE.md#proof-of-work-bits).
 
 To see how a layout places the circuit, [`tools/explain`](tools/explain/README.md)
-writes an HTML page for an artifact: the trace cell by cell, coloured by gate,
-and for each equation its auxiliary wires and where each part is placed (the
-last command of the [example](#example)).
+writes an HTML page for an artifact. For a packed artifact it shows the trace
+cell by cell, coloured by gate, and for each equation its auxiliary wires and
+where each part is placed; for a reference artifact, each equation and the
+column of each signal (the last commands of the [example](#example)).
 
 ## Checking a packed artifact independently
 

@@ -19,10 +19,20 @@ file and the directory that `air compile` (or `air module`) wrote; the program
 stops with a message if that directory holds no artifact, or holds one
 compiled from a different R1CS file.
 
+A reference or module artifact works the same way, without `--witness`, since
+`air witness` writes traces only for packed artifacts:
+
+```sh
+cargo run --bin air -- compile fixtures/xor/kernel.r1cs out/reference
+tools/explain/explain.py fixtures/xor/kernel.r1cs out/reference --open
+```
+
+This writes `out/reference/explain.html`.
+
 | Option | Meaning |
 | --- | --- |
 | `--sym FILE` | Circom symbol file, so the page shows signal names (`aa.bit[6]`) instead of wire numbers (`w41`). By default, the R1CS path with the `.sym` extension, if that file exists, which is where `circom --r1cs --sym` puts it. It must come from the same Circom run as the R1CS file, since optimization renumbers the wires. |
-| `--witness DIR` | The output directory of `air witness` for this artifact, so the page shows the value in each cell |
+| `--witness DIR` | The output directory of `air witness` for this artifact, so the page shows the value in each cell (packed artifacts only) |
 | `-o FILE` | Where to write the page (default `ARTIFACT_DIR/explain.html`) |
 | `--open` | Open the page in a browser |
 
