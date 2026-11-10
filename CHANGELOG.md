@@ -48,8 +48,9 @@ First version.
   pil2-proofman (`run.sh`) and time the prover on one artifact
   (`prove-time.sh`).
 - An optional program, `tools/explain/explain.py`, that writes an HTML page
-  showing how an artifact places the circuit: the trace by gate, and for each
-  equation its auxiliary wires and placement.
+  showing how an artifact places the circuit: for a packed artifact, the trace
+  by gate, and for each equation its auxiliary wires and placement; for a
+  reference or module artifact, each equation and the column of each signal.
 - An optional program, `tools/smt-check/check.py`, independent of the crate,
   that proves for one packed artifact that its stage-one constraints and copy
   cycles imply every equation and public binding of its R1CS, by linear

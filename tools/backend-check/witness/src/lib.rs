@@ -17,7 +17,11 @@ witness_library!(WitnessLib, Goldilocks);
 fn words(name: &str) -> Vec<u64> {
     let dir = std::env::var("R1CS_AIR_WITNESS").expect("R1CS_AIR_WITNESS");
     let bytes = std::fs::read(format!("{dir}/{name}")).expect(name);
-    assert_eq!(bytes.len() % 8, 0, "{name} is not a whole number of 8-byte words");
+    assert_eq!(
+        bytes.len() % 8,
+        0,
+        "{name} is not a whole number of 8-byte words"
+    );
     bytes
         .chunks_exact(8)
         .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
@@ -66,7 +70,11 @@ impl<F: PrimeField64> WitnessComponent<F> for Kernel {
         ids: &RwLock<Vec<usize>>,
     ) -> ProofmanResult<()> {
         let publics = words("public.bin");
-        assert_eq!(publics.len(), pctx.global_info.n_publics, "public value count");
+        assert_eq!(
+            publics.len(),
+            pctx.global_info.n_publics,
+            "public value count"
+        );
         for (i, v) in publics.into_iter().enumerate() {
             pctx.set_public_value(v, i);
         }
